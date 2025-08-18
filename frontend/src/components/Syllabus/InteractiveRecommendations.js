@@ -25,10 +25,13 @@ const InteractiveRecommendations = ({ syllabus }) => {
     setError('');
     setRecommendations([]);
     try {
+      const clusters = (syllabus.analysis?.studentClusterAnalysis?.dominantClusters || [])
+        .map(c => c.cluster)
+        .filter(Boolean);
       const response = await api.post('/ai/recommendations/interactive', {
         topic,
         difficulty,
-        studentClusters: syllabus.analysis?.studentClusterAnalysis?.relevantClusters || [],
+        studentClusters: clusters,
       });
       setRecommendations(response.data.recommendations || []);
     } catch (err) {

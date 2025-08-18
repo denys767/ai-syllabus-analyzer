@@ -115,9 +115,8 @@ router.put('/change-password', auth, [
       return res.status(400).json({ message: 'Неправильний поточний пароль' });
     }
     
-    // Hash new password
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
+  // Assign plain new password; pre-save hook will hash
+  user.password = newPassword;
     
     await user.save();
     

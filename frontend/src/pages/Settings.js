@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Box, Paper, Typography, FormControl, InputLabel, Select, MenuItem, Button, Alert } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
+import { useThemeMode } from '../contexts/ThemeContext';
 import api from '../services/api';
 
 const Settings = () => {
   const { user } = useAuth();
+  const { setMode } = useThemeMode();
   const [theme, setTheme] = useState(user?.settings?.theme || 'system');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -12,8 +14,10 @@ const Settings = () => {
   const save = async () => {
     setMsg(''); setErr('');
     try {
-      const res = await api.put('/users/settings', { theme });
+  const res = await api.put('/users/settings', { theme });
       if (res.data?.settings) setMsg('Налаштування збережено');
+  // Apply theme immediately without waiting for a fresh profile fetch
+  setMode(theme);
     } catch (e) {
       setErr(e.response?.data?.message || 'Помилка збереження налаштувань');
     }

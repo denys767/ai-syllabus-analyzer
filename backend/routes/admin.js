@@ -107,17 +107,11 @@ router.get('/dashboard-stats', auth, admin, async (req, res) => {
       .limit(5)
       .select('title status createdAt instructor');
 
-    // Average quality calculation
-    const qualityStats = await Syllabus.aggregate([
-      { $match: { status: 'analyzed', analysis: { $exists: true } } },
-      { $group: { 
-        _id: null, 
-        avgQuality: { $avg: '$analysis.overallScore' }
-      }}
-    ]);
-
-    const averageQuality = qualityStats.length > 0 ? 
-      Math.round(qualityStats[0].avgQuality) : 0;
+    // Average quality calculation via model method (client-facing score)
+    const analyzedDocs = await Syllabus.find({ status: 'analyzed' }).select('analysis recommendations structure');
+    const averageQuality = analyzedDocs.length > 0
+      ? Math.round(analyzedDocs.reduce((sum, s) => sum + (typeof s.calculateQualityScore === 'function' ? s.calculateQualityScore() : 0), 0) / analyzedDocs.length)
+      : 0;
 
     // Activity statistics
     const today = new Date();

@@ -104,7 +104,13 @@ userSchema.methods.toPublicJSON = function() {
     department: this.department,
     isVerified: this.isVerified,
     lastLogin: this.lastLogin,
-    createdAt: this.createdAt
+    createdAt: this.createdAt,
+    // Expose user settings (theme/language/notifications) for client UI
+    settings: {
+      notifications: this.settings?.notifications,
+      language: this.settings?.language,
+      theme: this.settings?.theme
+    }
   };
 };
 
