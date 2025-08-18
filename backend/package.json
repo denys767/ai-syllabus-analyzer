@@ -1,0 +1,65 @@
+{
+  "name": "ai-syllabus-analyzer-backend",
+  "version": "2.0.0",
+  "description": "Backend for AI Syllabus Analyzer - KSE with OpenAI Integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "update": "npm update",
+    "check-updates": "npm outdated",
+    "clean": "rm -rf node_modules package-lock.json && npm install"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs-node": "latest",
+    "bcryptjs": "latest",
+    "cors": "latest",
+    "csv-parser": "latest",
+    "csv-writer": "latest",
+  "exceljs": "latest",
+    "dotenv": "latest",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "express-validator": "latest",
+    "helmet": "latest",
+    "jsonwebtoken": "latest",
+    "mammoth": "latest",
+    "moment": "latest",
+    "mongodb-memory-server": "latest",
+    "mongoose": "latest",
+    "multer": "latest",
+    "natural": "latest",
+    "nodemailer": "latest",
+    "openai": "latest",
+  "pdf-parse": "latest",
+  "pdfkit": "latest"
+  },
+  "devDependencies": {
+    "jest": "latest",
+    "nodemon": "latest",
+    "supertest": "latest"
+  },
+  "keywords": [
+    "ai",
+    "education",
+    "syllabus",
+    "analysis",
+    "kse",
+    "openai",
+    "mba",
+    "gpt-4",
+    "machine-learning",
+    "nodejs",
+    "express"
+  ],
+  "author": "KSE Development Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kse/ai-syllabus-analyzer"
+  }
+}

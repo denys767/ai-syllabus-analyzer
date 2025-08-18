@@ -1,0 +1,190 @@
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f8fafc;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.page-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.content-container {
+  flex: 1;
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Loading animations */
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.loading {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* File upload area */
+.dropzone {
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  background-color: #f9fafb;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.dropzone:hover {
+  border-color: #6366f1;
+  background-color: #f0f9ff;
+}
+
+.dropzone.active {
+  border-color: #6366f1;
+  background-color: #eff6ff;
+}
+
+.dropzone.error {
+  border-color: #ef4444;
+  background-color: #fef2f2;
+}
+
+/* Quality score indicators */
+.quality-excellent {
+  color: #059669;
+  background-color: #d1fae5;
+}
+
+.quality-good {
+  color: #0891b2;
+  background-color: #cffafe;
+}
+
+.quality-satisfactory {
+  color: #d97706;
+  background-color: #fed7aa;
+}
+
+.quality-needs-improvement {
+  color: #dc2626;
+  background-color: #fecaca;
+}
+
+.quality-poor {
+  color: #991b1b;
+  background-color: #fee2e2;
+}
+
+/* Recommendation status */
+.status-pending {
+  color: #d97706;
+  background-color: #fef3c7;
+}
+
+.status-accepted {
+  color: #059669;
+  background-color: #d1fae5;
+}
+
+.status-rejected {
+  color: #dc2626;
+  background-color: #fecaca;
+}
+
+.status-commented {
+  color: #7c3aed;
+  background-color: #ede9fe;
+}
+
+/* Chart containers */
+.chart-container {
+  width: 100%;
+  height: 300px;
+  margin: 16px 0;
+}
+
+/* Custom buttons */
+.btn-gradient {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  color: white;
+}
+
+.btn-gradient:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+}
+
+/* Card shadows */
+.card-hover {
+  transition: all 0.3s ease-in-out;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .content-container {
+    padding: 16px;
+  }
+  
+  .chart-container {
+    height: 250px;
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-break {
+    page-break-before: always;
+  }
+}
