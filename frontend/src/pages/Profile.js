@@ -35,14 +35,40 @@ const Profile = () => {
 
   const changePassword = async () => {
     setPwdErr(''); setPwdMsg('');
+    if (!user?.isVerified) return setPwdErr('Спочатку підтвердіть email для зміни пароля');
     if (newPassword.length < 6) return setPwdErr('Новий пароль має містити мінімум 6 символів');
     if (newPassword !== confirmPassword) return setPwdErr('Паролі не співпадають');
     try {
-      await api.put('/users/change-password', { currentPassword, newPassword });
+      await api.user.changePassword(currentPassword, newPassword);
       setPwdMsg('Пароль змінено успішно');
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
     } catch (e) {
       setPwdErr(e.response?.data?.message || 'Помилка зміни паролю');
+    }
+  };
+
+  // Account deletion
+  const [delPwd, setDelPwd] = useState('');
+  const [delErr, setDelErr] = useState('');
+  const [delMsg, setDelMsg] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const deleteAccount = async () => {
+    setDelErr(''); setDelMsg('');
+    if (!delPwd) return setDelErr('Введіть пароль для підтвердження');
+    if (!window.confirm('Ви впевнені, що хочете назавжди видалити акаунт? Дію не можна відмінити.')) return;
+    try {
+      setDeleting(true);
+      await api.user.deleteAccount(delPwd);
+      setDelMsg('Акаунт видалено. Ви будете виведені...');
+      setTimeout(()=>{
+        localStorage.removeItem('token');
+        window.dispatchEvent(new CustomEvent('auth_logout'));
+      }, 1200);
+    } catch (e) {
+      setDelErr(e.response?.data?.message || 'Помилка видалення акаунта');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -95,6 +121,19 @@ const Profile = () => {
             <TextField type="password" label="Новий пароль" fullWidth sx={{ mb: 2 }} value={newPassword} onChange={(e)=>setNewPassword(e.target.value)} />
             <TextField type="password" label="Підтвердити пароль" fullWidth sx={{ mb: 2 }} value={confirmPassword} onChange={(e)=>setConfirmPassword(e.target.value)} />
             <Button variant="outlined" onClick={changePassword}>Змінити пароль</Button>
+          </Paper>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Paper sx={{ p: 3, border: '1px solid', borderColor: 'error.main' }}>
+            <Typography variant="h6" fontWeight={700} color="error" gutterBottom>Видалення акаунта</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Ця дія незворотня і видалить всі ваші силлабуси та практичні ідеї.
+            </Typography>
+            {delErr && <Alert severity="error" sx={{ mb: 2 }}>{delErr}</Alert>}
+            {delMsg && <Alert severity="success" sx={{ mb: 2 }}>{delMsg}</Alert>}
+            <TextField type="password" label="Пароль для підтвердження" fullWidth sx={{ mb: 2 }} value={delPwd} onChange={(e)=>setDelPwd(e.target.value)} />
+            <Button variant="contained" color="error" disabled={deleting} onClick={deleteAccount}>Видалити акаунт</Button>
           </Paper>
         </Grid>
       </Grid>

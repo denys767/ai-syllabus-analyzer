@@ -8,7 +8,7 @@ const bcrypt = require('bcryptjs');
 
 const router = express.Router();
 
-// Create new user (admin only)
+// Create new user (admin only) WITHOUT setting password; user will set it via onboarding email
 router.post('/users', auth, admin, [
   body('firstName')
     .trim()
@@ -21,9 +21,6 @@ router.post('/users', auth, admin, [
   body('email')
     .isEmail()
     .withMessage('Valid email is required'),
-  body('password')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters'),
   body('role')
     .isIn(['instructor', 'admin', 'manager'])
     .withMessage('Invalid role')
@@ -37,7 +34,7 @@ router.post('/users', auth, admin, [
       });
     }
 
-    const { firstName, lastName, email, password, role } = req.body;
+    const { firstName, lastName, email, role } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -47,21 +44,33 @@ router.post('/users', auth, admin, [
       });
     }
 
-    // Create user
+    // Generate temp random password (will be replaced when user sets their own)
+    const tempPassword = require('crypto').randomBytes(12).toString('base64url');
+    const crypto = require('crypto');
+  const { sendInvitationEmail } = require('../services/emailService');
+
+  const resetToken = crypto.randomBytes(32).toString('hex');
+
     const user = new User({
       firstName,
       lastName,
       email,
-  password,
+      password: tempPassword, // hashed via pre-save hook
       role,
-      isVerified: true, // Admin-created users are auto-verified
-      isActive: true
+      isVerified: false, // must verify email
+      isActive: true,
+  resetPasswordToken: resetToken,
+  resetPasswordExpires: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
     });
 
     await user.save();
 
+    // Fire-and-forget onboarding email
+  sendInvitationEmail(email, resetToken)
+      .catch(e => console.warn('Failed to send onboarding email:', e.message));
+
     res.status(201).json({
-      message: 'User created successfully',
+  message: 'User created. Invitation email sent (verify & set password).',
       user: user.toPublicJSON()
     });
 

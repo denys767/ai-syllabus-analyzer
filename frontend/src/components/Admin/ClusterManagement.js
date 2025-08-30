@@ -35,7 +35,8 @@ const ClusterManagement = () => {
 
   const fetchClusters = async () => {
     try {
-      const response = await api.get('/clusters/clusters');
+      // FIX: backend route is /api/clusters (router root '/'), previous '/clusters/clusters' caused 404
+      const response = await api.get('/clusters');
       setClusters(response.data.clusters);
     } catch (error) {
       setSnackbar({ 
@@ -50,7 +51,8 @@ const ClusterManagement = () => {
 
   const fetchCurrentCluster = async () => {
     try {
-      const response = await api.get('/clusters/clusters/current');
+      // FIX: correct endpoint is /clusters/current
+      const response = await api.get('/clusters/current');
       setCurrentCluster(response.data.clusters);
     } catch (error) {
       console.error('Error fetching current cluster:', error);
@@ -94,7 +96,8 @@ const ClusterManagement = () => {
         return;
       }
 
-      await api.post('/clusters/clusters', formData);
+  // FIX: create cluster config -> POST /clusters
+  await api.post('/clusters', formData);
       setSnackbar({ 
         open: true, 
         message: 'Конфігурацію кластерів створено успішно', 
@@ -114,7 +117,8 @@ const ClusterManagement = () => {
 
   const handleActivateCluster = async (clusterId) => {
     try {
-      await api.patch(`/clusters/clusters/${clusterId}/activate`);
+  // FIX: activate cluster config -> PATCH /clusters/:id/activate
+  await api.patch(`/clusters/${clusterId}/activate`);
       setSnackbar({ 
         open: true, 
         message: 'Конфігурацію кластерів активовано', 
@@ -134,7 +138,8 @@ const ClusterManagement = () => {
   const handleDeleteCluster = async (clusterId) => {
     if (window.confirm('Ви впевнені, що хочете видалити цю конфігурацію кластерів?')) {
       try {
-        await api.delete(`/clusters/clusters/${clusterId}`);
+  // FIX: delete cluster config -> DELETE /clusters/:id
+  await api.delete(`/clusters/${clusterId}`);
         setSnackbar({ 
           open: true, 
           message: 'Конфігурацію видалено', 

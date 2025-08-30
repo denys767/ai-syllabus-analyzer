@@ -33,7 +33,8 @@ class ApiService {
         const cfg = error.config || {};
         const status = error.response?.status;
 
-        if (status === 401) {
+        // Don't trigger logout for login endpoint failures
+        if (status === 401 && !cfg.url?.includes('/auth/login')) {
           localStorage.removeItem('token');
           window.dispatchEvent(new CustomEvent('auth_logout'));
         }
@@ -89,6 +90,16 @@ class ApiService {
     
     logout: () =>
       this.client.post('/auth/logout'),
+  };
+
+  // User self-service endpoints (non-admin)
+  user = {
+    changePassword: (currentPassword, newPassword) =>
+      this.client.put('/users/change-password', { currentPassword, newPassword }),
+    deleteAccount: (password) =>
+      this.client.delete('/users/account', { data: { password } }),
+    updateSettings: (data) =>
+      this.client.put('/users/settings', data)
   };
 
   // Syllabus endpoints
@@ -193,6 +204,30 @@ class ApiService {
     
     getSystemHealth: () =>
       this.client.get('/admin/health'),
+  };
+
+  // Cluster management endpoints (admin/manager)
+  clusters = {
+    // list all historical configs
+    list: () => this.client.get('/clusters'),
+    // current active
+    current: () => this.client.get('/clusters/current'),
+    // create new config
+    create: (data) => this.client.post('/clusters', data),
+    // activate specific config
+    activate: (id) => this.client.patch(`/clusters/${id}/activate`),
+    // update config
+    update: (id, data) => this.client.put(`/clusters/${id}`, data),
+    // delete config
+    delete: (id) => this.client.delete(`/clusters/${id}`),
+    // survey responses (raw)
+    surveyResponses: (params = {}) => this.client.get('/clusters/surveys', { params }),
+    // survey insights aggregate
+    surveyInsights: () => this.client.get('/clusters/surveys/insights'),
+    // delete single survey response
+    deleteSurveyResponse: (id) => this.client.delete(`/clusters/surveys/${id}`),
+    // clear all survey responses
+    clearSurveyResponses: () => this.client.delete('/clusters/surveys/all')
   };
 
   // Generic methods

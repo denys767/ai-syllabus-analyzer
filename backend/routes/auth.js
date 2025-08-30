@@ -12,7 +12,7 @@ const { sendPasswordResetEmail, sendVerificationEmail } = require('../services/e
 router.post('/create-user', auth, admin, [
   body('email')
     .isEmail()
-    .normalizeEmail()
+    .normalizeEmail({ gmail_remove_dots: false })
     .withMessage('Please provide a valid email address'),
   body('password')
     .isLength({ min: 6 })
@@ -57,11 +57,22 @@ router.post('/create-user', auth, admin, [
       lastName,
       role,
       department,
-      isVerified: true, // Admin-created users are automatically verified
+      isVerified: false, // Require email verification
       isActive: true
     });
 
     await user.save();
+
+    // Generate verification token and send email
+    user.verificationToken = crypto.randomBytes(32).toString('hex');
+    await user.save();
+
+    // Send verification email
+    try {
+      await sendVerificationEmail(user.email, user.verificationToken);
+    } catch (e) {
+      console.warn('Failed to send verification email during user creation:', e.message);
+    }
 
     res.status(201).json({
       message: 'Користувач створений успішно',
@@ -81,7 +92,7 @@ router.post('/create-user', auth, admin, [
 router.post('/login', [
   body('email')
     .isEmail()
-    .normalizeEmail()
+    .normalizeEmail({ gmail_remove_dots: false })
     .withMessage('Please provide a valid email address'),
   body('password')
     .notEmpty()
@@ -287,31 +298,48 @@ router.post('/verify-email', [
 router.post('/forgot-password', [
   body('email')
     .isEmail()
-    .normalizeEmail()
+    .normalizeEmail({ gmail_remove_dots: false })
     .withMessage('Please provide a valid email address')
 ], async (req, res) => {
   try {
     const { email } = req.body;
+    console.log(`🔑 Password reset request for: ${email}`);
 
     const user = await User.findOne({ email, isActive: true });
     if (!user) {
       // Don't reveal if user exists or not
+      console.log(`❌ User not found for: ${email}`);
       return res.json({
         message: 'If the email exists, you will receive password reset instructions'
       });
     }
 
+    // Only allow verified users to reset password
+    if (!user.isVerified) {
+      console.log(`❌ User not verified for: ${email}`);
+      return res.json({
+        message: 'If the email exists, you will receive password reset instructions'
+      });
+    }
+
+    console.log(`✅ User found and verified: ${email}`);
+
     // Generate reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken = resetToken;
-    user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+  user.resetPasswordExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
     await user.save();
+
+    console.log(`🔑 Reset token generated for: ${email}`);
 
     // Send reset email via Gmail/SMTP
     try {
+      console.log(`📧 Attempting to send password reset email to: ${email}`);
       await sendPasswordResetEmail(user.email, resetToken);
+      console.log(`✅ Password reset email sent successfully to: ${email}`);
     } catch (e) {
       console.warn('Failed to send password reset email:', e.message);
+      console.error('Email error details:', e);
     }
 
     res.json({
@@ -326,42 +354,15 @@ router.post('/forgot-password', [
   }
 });
 
-// Resend verification email
+// Resend verification now unnecessary; respond uniformly
 router.post('/resend-verification', [
-  body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email address')
+  body('email').isEmail().normalizeEmail({ gmail_remove_dots: false }).withMessage('Please provide a valid email address')
 ], async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
-    }
-
-    const { email } = req.body;
-    const user = await User.findOne({ email, isActive: true });
-    if (!user) {
-      // Don't reveal existence
-      return res.json({ message: 'If the email exists, a verification link will be sent' });
-    }
-    if (user.isVerified) {
-      return res.json({ message: 'Account already verified' });
-    }
-
-    // Create new verification token if missing
-    if (!user.verificationToken) {
-      user.verificationToken = crypto.randomBytes(32).toString('hex');
-      await user.save();
-    }
-
-    try {
-      await sendVerificationEmail(user.email, user.verificationToken);
-    } catch (e) {
-      console.warn('Failed to send verification email:', e.message);
-    }
-
-    res.json({ message: 'If the email exists, a verification link will be sent' });
+    // Always respond success (legacy compatibility)
+    res.json({ message: 'Верифікація здійснюється через встановлення паролю. Якщо акаунт не активний – скористайтесь "Забули пароль".' });
   } catch (error) {
-    console.error('Resend verification error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.json({ message: 'Верифікація здійснюється через встановлення паролю.' });
   }
 });
 
@@ -388,13 +389,19 @@ router.post('/reset-password', [
       });
     }
 
+    const firstVerification = !user.isVerified; // if user was not verified yet
+
     user.password = password;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+    if (firstVerification) {
+      user.isVerified = true; // автоматична верифікація через встановлення паролю із запрошення
+      user.verificationToken = undefined;
+    }
     await user.save();
 
     res.json({
-      message: 'Password reset successfully'
+      message: firstVerification ? 'Пароль встановлено та email підтверджено' : 'Пароль оновлено'
     });
 
   } catch (error) {

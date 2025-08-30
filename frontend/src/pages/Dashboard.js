@@ -19,6 +19,8 @@ import {
   IconButton,
   Alert,
   Badge,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   Upload,
@@ -29,6 +31,9 @@ import {
   Warning,
   Error,
   Visibility,
+  BrightnessAuto,
+  Brightness7,
+  Brightness4,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -156,12 +161,18 @@ const Dashboard = () => {
     <Box sx={{ p: 3 }}>
       {/* Welcome Section */}
       <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" fontWeight="bold" gutterBottom>
-          Привіт, {user?.firstName}! 👋
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Ласкаво просимо в AI Syllabus Analyzer. Переглядайте ваші силабуси та отримуйте рекомендації від AI.
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+          <Box>
+            <Typography variant="h4" fontWeight="bold" gutterBottom>
+              Привіт, {user?.firstName}! 👋
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Ласкаво просимо в AI Syllabus Analyzer. Переглядайте ваші силабуси та отримуйте рекомендації від AI.
+            </Typography>
+          </Box>
+          
+          {/* Theme switcher removed; centralized in Header */}
+        </Box>
       </Box>
 
       {error && (

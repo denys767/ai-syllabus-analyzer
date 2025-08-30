@@ -108,6 +108,11 @@ router.put('/change-password', auth, [
     if (!user) {
       return res.status(404).json({ message: 'Користувача не знайдено' });
     }
+
+    // Only verified users can change password
+    if (!user.isVerified) {
+      return res.status(403).json({ message: 'Спочатку підтвердіть email, щоб змінити пароль' });
+    }
     
     // Verify current password
     const isMatch = await bcrypt.compare(currentPassword, user.password);

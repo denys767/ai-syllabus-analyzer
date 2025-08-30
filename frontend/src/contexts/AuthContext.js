@@ -90,8 +90,8 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      dispatch({ type: 'SET_LOADING', payload: true });
-      
+  // ВАЖЛИВО: не вмикаємо глобальний isLoading під час спроби логіну,
+  // щоб не розмонтувати <App /> і не втрачати введені дані форми / повідомлення про помилку.
   const response = await api.auth.login(email, password);
       const { user, token } = response.data;
 
@@ -105,7 +105,6 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true };
     } catch (error) {
-      dispatch({ type: 'SET_LOADING', payload: false });
       const errorMessage = error.response?.data?.message || 'Помилка входу';
       throw new Error(errorMessage);
     }
@@ -153,6 +152,27 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const changePassword = async (currentPassword, newPassword) => {
+    try {
+      await api.user.changePassword(currentPassword, newPassword);
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error.response?.data?.message || 'Помилка зміни паролю';
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  const deleteAccount = async (password) => {
+    try {
+      await api.user.deleteAccount(password);
+      logout();
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error.response?.data?.message || 'Помилка видалення акаунта';
+      return { success: false, error: errorMessage };
+    }
+  };
+
   const value = {
     user: state.user,
     token: state.token,
@@ -164,6 +184,8 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     forgotPassword,
     resetPassword,
+  changePassword,
+  deleteAccount,
   };
 
   return (

@@ -47,11 +47,24 @@ const Login = () => {
     setLoading(true);
     setError('');
 
+    console.log('Login attempt:', { email: formData.email, password: '***' });
+
     try {
+      console.log('Calling login function...');
       await login(formData.email, formData.password);
+      console.log('Login successful, navigating...');
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err.message || 'Помилка входу в систему');
+      console.error('Login failed:', err);
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response,
+        status: err.response?.status,
+        data: err.response?.data
+      });
+      const errorMessage = err.message || err.response?.data?.message || 'Помилка входу в систему';
+      console.log('Setting error message:', errorMessage);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

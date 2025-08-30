@@ -16,7 +16,6 @@ const UserManagement = () => {
     search: '',
     role: '',
     verified: '',
-    active: '',
   });
 
   // Dialog states
@@ -27,11 +26,8 @@ const UserManagement = () => {
     firstName: '',
     lastName: '',
     email: '',
-    password: '',
     role: 'instructor',
     department: '',
-    isActive: true,
-    isVerified: true,
   });
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -66,11 +62,9 @@ const UserManagement = () => {
       firstName: '',
       lastName: '',
       email: '',
-      password: '',
       role: 'instructor',
       department: '',
-      isActive: true,
-      isVerified: true,
+      isVerified: false,
     });
     setFormErrors({});
     setSelectedUser(null);
@@ -83,11 +77,8 @@ const UserManagement = () => {
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
-      password: '', // Don't show password
       role: user.role,
       department: user.department || '',
-      isActive: user.isActive,
-      isVerified: user.isVerified,
     });
     setFormErrors({});
     setSelectedUser(user);
@@ -101,11 +92,8 @@ const UserManagement = () => {
       firstName: '',
       lastName: '',
       email: '',
-      password: '',
       role: 'instructor',
       department: '',
-      isActive: true,
-      isVerified: true,
     });
     setFormErrors({});
   };
@@ -136,12 +124,7 @@ const UserManagement = () => {
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       errors.email = 'Email має неправильний формат';
     }
-    if (dialogMode === 'create' && !formData.password.trim()) {
-      errors.password = 'Пароль є обов\'язковим';
-    }
-    if (dialogMode === 'create' && formData.password.length < 6) {
-      errors.password = 'Пароль має бути не менше 6 символів';
-    }
+  // Пароль більше не вводиться адміністратором — користувач встановлює сам
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -153,7 +136,7 @@ const UserManagement = () => {
     setSubmitting(true);
     try {
       if (dialogMode === 'create') {
-        await api.post('/auth/create-user', formData);
+        await api.post('/admin/users', formData); // новий endpoint без пароля
       } else {
         // For edit, don't send password if it's empty and include all fields that can be updated
         const updateData = {
@@ -161,15 +144,7 @@ const UserManagement = () => {
           lastName: formData.lastName,
           role: formData.role,
           department: formData.department,
-          isActive: formData.isActive,
-          isVerified: formData.isVerified,
         };
-        
-        // Only include password if it's provided
-        if (formData.password && formData.password.trim()) {
-          updateData.password = formData.password;
-        }
-        
         await api.put(`/admin/users/${selectedUser._id}`, updateData);
       }
       
@@ -270,7 +245,6 @@ const UserManagement = () => {
               <TableCell>Ім'я</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Роль</TableCell>
-              <TableCell>Статус</TableCell>
               <TableCell>Верифіковано</TableCell>
               <TableCell>Дії</TableCell>
             </TableRow>
@@ -283,13 +257,6 @@ const UserManagement = () => {
                 </TableCell>
                 <TableCell>{user.email}</TableCell>
                 <TableCell>{getRoleLabel(user.role)}</TableCell>
-                <TableCell>
-                  {user.isActive ? (
-                    <CheckCircle color="success" />
-                  ) : (
-                    <Cancel color="error" />
-                  )}
-                </TableCell>
                 <TableCell>
                   {user.isVerified ? (
                     <CheckCircle color="success" />
@@ -380,19 +347,7 @@ const UserManagement = () => {
                 disabled={dialogMode === 'edit'} // Don't allow email change
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label={dialogMode === 'create' ? 'Пароль' : 'Новий пароль (залиште порожнім, щоб не змінювати)'}
-                name="password"
-                type="password"
-                value={formData.password}
-                onChange={handleFormChange}
-                error={!!formErrors.password}
-                helperText={formErrors.password}
-                required={dialogMode === 'create'}
-              />
-            </Grid>
+            {/* Поле пароля вилучено: користувач сам встановлює пароль через email */}
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Роль</InputLabel>
@@ -417,34 +372,7 @@ const UserManagement = () => {
                 onChange={handleFormChange}
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Статус</InputLabel>
-                <Select
-                  name="isActive"
-                  value={formData.isActive}
-                  onChange={handleFormChange}
-                  label="Статус"
-                >
-                  <MenuItem value={true}>Активний</MenuItem>
-                  <MenuItem value={false}>Неактивний</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Верифікація</InputLabel>
-                <Select
-                  name="isVerified"
-                  value={formData.isVerified}
-                  onChange={handleFormChange}
-                  label="Верифікація"
-                >
-                  <MenuItem value={true}>Верифікований</MenuItem>
-                  <MenuItem value={false}>Неверифікований</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
+            {/* Верифікація більше не керується адміністратором вручну */}
           </Grid>
         </DialogContent>
         <DialogActions>

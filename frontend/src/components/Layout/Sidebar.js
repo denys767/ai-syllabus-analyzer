@@ -115,10 +115,9 @@ const Sidebar = ({ onItemClick }) => {
     
     switch (user?.role) {
       case 'admin':
-        // Адмін має доступ до всіх розділів, але без дублікатів
+        // Адмін: інструкторські + адмінські, БЕЗ менеджерських (щоб уникнути дублю 'Звіти')
         items = [
           ...instructorItems,
-          ...managerItems,
           ...adminItems
         ];
         break;

@@ -42,6 +42,7 @@ function createTransporter() {
 let transporter;
 try {
   transporter = createTransporter();
+  console.log('Email transporter initialized successfully');
 } catch (e) {
   console.warn('Email service disabled:', e.message);
 }
@@ -54,14 +55,22 @@ async function sendMail({ to, subject, html, text }) {
     console.warn('sendMail skipped: transporter not configured');
     return { skipped: true };
   }
-  const info = await transporter.sendMail({
-    from: getFromAddress(),
-    to,
-    subject,
-    text: text || html?.replace(/<[^>]+>/g, ''),
-    html,
-  });
-  return info;
+  
+  try {
+    console.log(`Attempting to send email to: ${to}, subject: ${subject}`);
+    const info = await transporter.sendMail({
+      from: getFromAddress(),
+      to,
+      subject,
+      text: text || html?.replace(/<[^>]+>/g, ''),
+      html,
+    });
+    console.log(`Email sent successfully to ${to}: ${info.messageId}`);
+    return info;
+  } catch (error) {
+    console.error(`Failed to send email to ${to}:`, error.message);
+    throw error;
+  }
 }
 
 function buildFrontendUrl(pathWithQuery) {
@@ -69,19 +78,23 @@ function buildFrontendUrl(pathWithQuery) {
   return `${base}${pathWithQuery.startsWith('/') ? '' : '/'}${pathWithQuery}`;
 }
 
-async function sendVerificationEmail(email, token) {
-  const url = buildFrontendUrl(`/verify-email?token=${encodeURIComponent(token)}`);
-  const subject = 'Підтвердження електронної пошти — KSE AI Syllabus Analyzer';
+// Єдиний лист-запрошення: користувач переходить за посиланням встановлення паролю.
+// Після встановлення паролю бекенд також автоматично верифікує email (isVerified=true).
+// Таким чином один токен = і підтвердження пошти, і первинне задання паролю.
+async function sendInvitationEmail(email, resetToken) {
+  const setPasswordUrl = buildFrontendUrl(`/reset-password?token=${encodeURIComponent(resetToken)}`);
+  const subject = 'Ваш обліковий запис створено — встановіть пароль та активуйте доступ';
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#333">
-      <h2>Підтвердження електронної пошти</h2>
-      <p>Дякуємо за реєстрацію. Будь ласка, підтвердіть вашу електронну пошту, натиснувши кнопку нижче:</p>
+      <h2>Ласкаво просимо до KSE AI Syllabus Analyzer</h2>
+      <p>Адміністратор створив для вас обліковий запис. Щоб активувати його, встановіть власний пароль. Після цього ваш email буде автоматично підтверджено.</p>
       <p style="margin:24px 0">
-        <a href="${url}" style="background:#1976d2;color:#fff;padding:12px 18px;border-radius:6px;text-decoration:none;display:inline-block">Підтвердити email</a>
+        <a href="${setPasswordUrl}" style="background:#1976d2;color:#fff;padding:12px 18px;border-radius:6px;text-decoration:none;display:inline-block">Встановити пароль</a>
       </p>
-      <p>Або перейдіть за посиланням: <a href="${url}">${url}</a></p>
+  <p>Посилання дійсне 24 години. Якщо воно протерміноване — скористайтесь опцією "Забули пароль" на сторінці входу.</p>
+      <p>Посилання: <a href="${setPasswordUrl}">${setPasswordUrl}</a></p>
       <hr/>
-      <p style="font-size:12px;color:#666">Якщо ви не створювали обліковий запис, проігноруйте цей лист.</p>
+      <p style="font-size:12px;color:#666">Якщо ви не очікували цей лист — проігноруйте його.</p>
     </div>
   `;
   return sendMail({ to: email, subject, html });
@@ -93,7 +106,7 @@ async function sendPasswordResetEmail(email, token) {
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#333">
       <h2>Скидання паролю</h2>
-      <p>Ми отримали запит на скидання паролю для цього email. Натисніть кнопку, щоб встановити новий пароль (посилання дійсне 1 годину):</p>
+  <p>Ми отримали запит на скидання паролю для цього email. Натисніть кнопку, щоб встановити новий пароль (посилання дійсне 24 години):</p>
       <p style="margin:24px 0">
         <a href="${url}" style="background:#1976d2;color:#fff;padding:12px 18px;border-radius:6px;text-decoration:none;display:inline-block">Скинути пароль</a>
       </p>
@@ -118,7 +131,7 @@ async function sendAccountDeletionEmail(email) {
 }
 
 module.exports = {
-  sendVerificationEmail,
+  sendInvitationEmail,
   sendPasswordResetEmail,
   sendAccountDeletionEmail,
 };

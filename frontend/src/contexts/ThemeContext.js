@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useAuth } from './AuthContext';
+import api from '../services/api';
 
 const ThemeModeContext = createContext();
 
@@ -16,11 +17,25 @@ const base = {
 export const ThemeModeProvider = ({ children }) => {
   const { user } = useAuth();
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
-  const [mode, setMode] = useState('system');
+  const [mode, setModeState] = useState('system');
 
   useEffect(() => {
-    if (user?.settings?.theme) setMode(user.settings.theme);
+    if (user?.settings?.theme) setModeState(user.settings.theme);
   }, [user]);
+
+  const setMode = async (newMode) => {
+    setModeState(newMode);
+    
+    // Save theme preference to backend if user is authenticated
+    if (user) {
+      try {
+        await api.user.updateSettings({ theme: newMode });
+      } catch (error) {
+        console.error('Failed to save theme preference:', error);
+        // Don't revert the local state on error to avoid jarring UX
+      }
+    }
+  };
 
   const resolved = mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode;
 
@@ -32,8 +47,8 @@ export const ThemeModeProvider = ({ children }) => {
         ...base.palette,
         mode: resolved,
         background: {
-          default: isDark ? '#0b1220' : '#f8fafc',
-          paper: isDark ? '#0f172a' : '#ffffff',
+          default: isDark ? '#0a0a0a' : '#f8fafc',
+          paper: isDark ? '#1a1a1a' : '#ffffff',
         },
         text: {
           primary: isDark ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.87)',

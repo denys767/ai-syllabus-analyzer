@@ -9,19 +9,28 @@ import {
   MenuItem,
   Divider,
   Badge,
+  Tooltip,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
-  Notifications as NotificationsIcon,
   AccountCircle,
   Settings,
   Logout,
+  DarkMode,
+  LightMode,
+  BrightnessAuto
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { useThemeMode } from '../../contexts/ThemeContext';
+import { ToggleButtonGroup, ToggleButton } from '@mui/material';
 
 const Header = ({ onMenuClick, drawerOpen }) => {
   const { user, logout } = useAuth();
+  const { mode, setMode } = useThemeMode();
+  const handleThemeChange = (e, newMode) => {
+    if (newMode) setMode(newMode);
+  };
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = React.useState(null);
 
@@ -82,17 +91,24 @@ const Header = ({ onMenuClick, drawerOpen }) => {
       </Typography>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        {/* Notifications */}
-        <IconButton
-          size="large"
-          aria-label="show notifications"
-          color="inherit"
+        {/* Theme switcher matching dashboard style */}
+        <ToggleButtonGroup
+          value={mode}
+          exclusive
+          size="small"
+          onChange={handleThemeChange}
+          sx={{ mr: 1, bgcolor: 'background.paper', borderRadius: 2, '& .MuiToggleButton-root': { py: 0.5 } }}
         >
-          <Badge badgeContent={0} color="error">
-            <NotificationsIcon />
-          </Badge>
-        </IconButton>
-
+          <ToggleButton value="system" aria-label="system" title="Системна тема">
+            <BrightnessAuto fontSize="small" />
+          </ToggleButton>
+          <ToggleButton value="light" aria-label="light" title="Світла тема">
+            <LightMode fontSize="small" />
+          </ToggleButton>
+          <ToggleButton value="dark" aria-label="dark" title="Темна тема">
+            <DarkMode fontSize="small" />
+          </ToggleButton>
+        </ToggleButtonGroup>
         {/* User menu */}
         <IconButton
           size="large"
