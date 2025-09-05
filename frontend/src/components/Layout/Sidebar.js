@@ -20,6 +20,7 @@ import {
   School,
   Upload,
   Assessment,
+  Policy
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -71,6 +72,12 @@ const Sidebar = ({ onItemClick }) => {
       path: '/syllabi/upload',
       roles: ['instructor', 'admin'],
     },
+    {
+      text: 'Документи',
+      icon: <Policy />,
+      path: '/policies',
+      roles: ['instructor', 'admin', 'manager'],
+    },
   // AI Challenger доступний у панелі окремого силабусу; глобального маршруту немає
   ];
 
@@ -82,10 +89,16 @@ const Sidebar = ({ onItemClick }) => {
       roles: ['manager', 'admin'],
     },
     {
-      text: 'Звіти',
+      text: 'Каталог звітів',
       icon: <Assessment />,
-      path: '/manager/reports',
-      roles: ['manager', 'admin'],
+      path: '/manager/catalog',
+      roles: ['manager','admin'],
+    },
+    {
+      text: 'Агрегований звіт',
+      icon: <BarChart />,
+      path: '/manager/summary',
+      roles: ['manager','admin'],
     },
   ];
 
@@ -106,6 +119,12 @@ const Sidebar = ({ onItemClick }) => {
       text: 'Системна аналітика',
       icon: <BarChart />,
       path: '/admin/analytics',
+      roles: ['admin'],
+    },
+    {
+      text: 'Каталог звітів',
+      icon: <Assessment />,
+      path: '/manager/catalog',
       roles: ['admin'],
     },
   ];

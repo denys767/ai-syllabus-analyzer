@@ -52,7 +52,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
         Рекомендації AI
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Прийміть, відхиліть або додайте коментар до кожної рекомендації. Обраний варіант буде включено у звіт.
+        Приймайте або відхиляйте пропозиції змін до силабусу. Після завершення буде згенеровано оновлений файл.
       </Typography>
       {error && (
         <Typography color="error" variant="caption" sx={{ display: 'block', mb: 1 }}>

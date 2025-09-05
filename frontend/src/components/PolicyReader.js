@@ -1,0 +1,213 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Box, Typography, Card, CardContent, Button, Chip, Alert,
+  Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress,
+  Grid
+} from '@mui/material';
+import {
+  CheckCircle, Warning, Description, Visibility
+} from '@mui/icons-material';
+import api from '../services/api';
+
+const PolicyReader = () => {
+  const [policies, setPolicies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedPolicy, setSelectedPolicy] = useState(null);
+  const [acknowledging, setAcknowledging] = useState(false);
+
+  useEffect(() => {
+    loadPolicies();
+  }, []);
+
+  const loadPolicies = async () => {
+    try {
+      setLoading(true);
+      const response = await api.policies.getAll();
+      setPolicies(response.data.policies);
+    } catch (err) {
+      setError('Не вдалося завантажити документи');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAcknowledge = async (policyId) => {
+    try {
+      setAcknowledging(true);
+      await api.policies.acknowledge(policyId);
+      // Refresh policies to update acknowledgment status
+      await loadPolicies();
+    } catch (err) {
+      setError('Не вдалося підтвердити ознайомлення');
+      console.error(err);
+    } finally {
+      setAcknowledging(false);
+    }
+  };
+
+  const getTypeLabel = (type) => {
+    switch (type) {
+      case 'ai-policy': return 'Політика AI';
+      case 'academic-integrity': return 'Академічна доброчесність';
+      case 'teaching-tips': return 'Поради викладання';
+      default: return type;
+    }
+  };
+
+  const getTypeColor = (type) => {
+    switch (type) {
+      case 'ai-policy': return 'primary';
+      case 'academic-integrity': return 'error';
+      case 'teaching-tips': return 'success';
+      default: return 'default';
+    }
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+        <LinearProgress sx={{ width: '100%', maxWidth: 400 }} />
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
+        Документи для ознайомлення
+      </Typography>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
+
+      <Grid container spacing={3}>
+        {policies.map((policy) => (
+          <Grid item xs={12} md={6} lg={4} key={policy._id}>
+            <Card sx={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              opacity: policy.isAcknowledged ? 0.7 : 1
+            }}>
+              <CardContent sx={{ flex: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                  <Typography variant="h6" sx={{ flex: 1, mr: 1 }}>
+                    {policy.title}
+                  </Typography>
+                  <Chip
+                    label={getTypeLabel(policy.type)}
+                    color={getTypeColor(policy.type)}
+                    size="small"
+                  />
+                </Box>
+
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  {policy.content.substring(0, 200)}...
+                </Typography>
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  {policy.isAcknowledged ? (
+                    <CheckCircle color="success" />
+                  ) : (
+                    <Warning color="warning" />
+                  )}
+                  <Typography variant="body2">
+                    {policy.isAcknowledged ? 'Ознайомлено' : 'Не ознайомлено'}
+                  </Typography>
+                </Box>
+
+                {policy.isRequired && (
+                  <Chip
+                    label="Обов'язковий"
+                    color="error"
+                    size="small"
+                    variant="outlined"
+                  />
+                )}
+              </CardContent>
+
+              <Box sx={{ p: 2, pt: 0 }}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<Visibility />}
+                  onClick={() => setSelectedPolicy(policy)}
+                  sx={{ mb: 1 }}
+                >
+                  Переглянути
+                </Button>
+
+                {!policy.isAcknowledged && (
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    color="success"
+                    onClick={() => handleAcknowledge(policy._id)}
+                    disabled={acknowledging}
+                  >
+                    {acknowledging ? 'Підтвердження...' : 'Підтвердити ознайомлення'}
+                  </Button>
+                )}
+              </Box>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+
+      {/* Policy Viewer Dialog */}
+      <Dialog
+        open={!!selectedPolicy}
+        onClose={() => setSelectedPolicy(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        {selectedPolicy && (
+          <>
+            <DialogTitle>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Description />
+                {selectedPolicy.title}
+                <Chip
+                  label={getTypeLabel(selectedPolicy.type)}
+                  color={getTypeColor(selectedPolicy.type)}
+                  size="small"
+                  sx={{ ml: 1 }}
+                />
+              </Box>
+            </DialogTitle>
+            <DialogContent>
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                  {selectedPolicy.content}
+                </Typography>
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setSelectedPolicy(null)}>Закрити</Button>
+              {!selectedPolicy.isAcknowledged && (
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={() => {
+                    handleAcknowledge(selectedPolicy._id);
+                    setSelectedPolicy(null);
+                  }}
+                  disabled={acknowledging}
+                >
+                  Підтвердити ознайомлення
+                </Button>
+              )}
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+    </Box>
+  );
+};
+
+export default PolicyReader;

@@ -265,13 +265,8 @@ router.get('/:id', auth, async (req, res) => {
       });
     }
 
-    // Calculate quality score
-    const qualityScore = syllabus.calculateQualityScore();
-
-    res.json({
-      ...syllabus.toObject(),
-      qualityScore
-    });
+  // Return syllabus without legacy quality score metric
+  res.json(syllabus.toObject());
 
   } catch (error) {
     console.error('Get syllabus error:', error);
@@ -598,6 +593,115 @@ router.get('/:id/download', auth, async (req, res) => {
     res.status(500).json({
       message: 'Internal server error'
     });
+  }
+});
+
+// Download modified syllabus (DOCX with inline comment markers) – generates once then caches metadata
+router.get('/:id/download-modified', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id);
+    if (!syllabus) return res.status(404).json({ message: 'Силабус не знайдено' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Доступ заборонено' });
+
+    // If already generated and file exists — stream it
+    if (syllabus.modifiedFile?.path) {
+      try {
+        await fs.access(syllabus.modifiedFile.path);
+        return res.download(syllabus.modifiedFile.path, syllabus.modifiedFile.originalName);
+      } catch (_) {
+        // proceed to regenerate
+      }
+    }
+
+    const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
+    const original = (syllabus.extractedText || '').trim();
+
+    // Build simple heuristic: append numbered markers like [[AI-REC-1]] near the end of the document with a summary list.
+    // TRUE Word "track changes" not supported by docx lib; we emulate comments section.
+    const commentSectionHeader = '\n\n=== КОМЕНТАРІ ТА ВПРОВАДЖЕНІ РЕКОМЕНДАЦІЇ AI ===\n';
+    const list = accepted.map((r, i) => `[[AI-REC-${i + 1}]] ${r.title || 'Рекомендація'} — ${r.description || ''}`);
+    const noAcceptedNote = 'Немає прийнятих рекомендацій (файл сформовано без змін).';
+
+    // Decide output format: prefer DOCX if dependency available, else fallback to TXT
+    let useDocx = false;
+    let docx;
+    try {
+      // Lazy require to avoid crash if optional dep missing
+      docx = require('docx');
+      useDocx = !!docx;
+    } catch (e) {
+      useDocx = false;
+    }
+
+    const outDir = require('path').join(__dirname, '../uploads/syllabi');
+    await fs.mkdir(outDir, { recursive: true });
+    const base = (syllabus.originalFile?.originalName || syllabus.title || 'syllabus').replace(/\.[^.]+$/, '');
+
+    if (useDocx) {
+      const { Document, Packer, Paragraph, HeadingLevel, TextRun } = docx;
+      const paragraphs = [];
+      paragraphs.push(new Paragraph({ text: 'ОНОВЛЕНИЙ СИЛАБУС', heading: HeadingLevel.TITLE }));
+      paragraphs.push(new Paragraph({ text: 'Версія з інтегрованими прийнятими рекомендаціями AI', spacing: { after: 200 } }));
+
+      // Split original text into paragraphs to avoid giant run
+      original.split(/\n+/).forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed.length) paragraphs.push(new Paragraph(trimmed));
+      });
+
+      paragraphs.push(new Paragraph({ text: ' ', spacing: { after: 200 } }));
+      paragraphs.push(new Paragraph({ text: 'Коментарі та впроваджені рекомендації', heading: HeadingLevel.HEADING_1 }));
+      if (accepted.length === 0) {
+        paragraphs.push(new Paragraph(noAcceptedNote));
+      } else {
+        accepted.forEach((r, i) => {
+          paragraphs.push(new Paragraph({ children: [
+            new TextRun({ text: `[#${i + 1}] ${r.title || 'Рекомендація'} `, bold: true }),
+            new TextRun({ text: (r.description || '').slice(0, 600) })
+          ] }));
+          if (r.instructorComment) {
+            paragraphs.push(new Paragraph({ children: [ new TextRun({ text: 'Коментар викладача: ', italics: true }), new TextRun(r.instructorComment) ] }));
+          }
+        });
+      }
+
+      const doc = new Document({ sections: [{ properties: {}, children: paragraphs }] });
+      const buffer = await Packer.toBuffer(doc);
+      const filename = `${base}-modified-${Date.now()}.docx`;
+      const fullPath = require('path').join(outDir, filename);
+      await fs.writeFile(fullPath, buffer);
+      syllabus.modifiedFile = {
+        filename,
+        originalName: filename,
+        path: fullPath,
+        size: buffer.length,
+        generatedAt: new Date(),
+        mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      };
+      await syllabus.save();
+      return res.download(fullPath, filename);
+    } else {
+      // Fallback plaintext
+      const header = 'ОНОВЛЕНИЙ СИЛАБУС (з інтегрованими AI-рекомендаціями)\n';
+      const changesHeader = commentSectionHeader + (accepted.length ? list.join('\n') : noAcceptedNote) + '\n';
+      const merged = header + original + changesHeader;
+      const filename = `${base}-modified-${Date.now()}.txt`;
+      const fullPath = require('path').join(outDir, filename);
+      await fs.writeFile(fullPath, merged, 'utf8');
+      syllabus.modifiedFile = {
+        filename,
+        originalName: filename,
+        path: fullPath,
+        size: Buffer.byteLength(merged, 'utf8'),
+        generatedAt: new Date(),
+        mimetype: 'text/plain'
+      };
+      await syllabus.save();
+      return res.download(fullPath, filename);
+    }
+  } catch (error) {
+    console.error('Download modified syllabus error:', error);
+    res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 

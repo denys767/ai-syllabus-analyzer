@@ -14,170 +14,116 @@ let PDFDocument = null;
 // Generate individual syllabus report
 router.get('/syllabus/:id', auth, async (req, res) => {
   try {
-    const syllabusId = req.params.id;
-    
-    const syllabus = await Syllabus.findById(syllabusId)
+    const syllabus = await Syllabus.findById(req.params.id)
       .populate('instructor', 'firstName lastName email department');
-
-    if (!syllabus) {
-      return res.status(404).json({
-        message: 'Syllabus not found'
-      });
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (syllabus.instructor && syllabus.instructor._id.toString() !== req.user.userId && !['admin','manager'].includes(req.user.role)) {
+      return res.status(403).json({ message: 'Access denied' });
     }
-
-    // Check ownership or admin/manager access
-    if (syllabus.instructor && 
-        syllabus.instructor._id.toString() !== req.user.userId && 
-        !['admin', 'manager'].includes(req.user.role)) {
-      return res.status(403).json({
-        message: 'Access denied'
-      });
-    }
-
-    // Get practical ideas for this syllabus
-    const practicalIdeas = await PracticalIdea.find({ syllabus: syllabusId })
-      .sort({ createdAt: -1 });
-
-    // Calculate quality score
-    const qualityScore = syllabus.calculateQualityScore();
-
-    // Generate report data
-  const recommendationTimeline = buildRecommendationTimeline(syllabus);
-  const report = {
+    // Simplified per spec: only section 2.4 info
+    const accepted = syllabus.recommendations.filter(r=>r.status==='accepted');
+    const rejected = syllabus.recommendations.filter(r=>r.status==='rejected');
+    const commented = syllabus.recommendations.filter(r=>r.status==='commented');
+    const pending = syllabus.recommendations.filter(r=>r.status==='pending');
+    const report = {
       syllabus: {
         id: syllabus._id,
         title: syllabus.title,
         course: syllabus.course,
-        instructor: syllabus.instructor ? {
-          name: `${syllabus.instructor.firstName || ''} ${syllabus.instructor.lastName || ''}`,
-          email: syllabus.instructor.email || '',
-          department: syllabus.instructor.department || ''
-        } : {
-          name: 'Unknown Instructor',
-          email: '',
-          department: ''
-        },
+        instructor: syllabus.instructor ? `${syllabus.instructor.firstName||''} ${syllabus.instructor.lastName||''}`.trim() : 'Unknown',
         uploadedAt: syllabus.createdAt,
-        status: syllabus.status,
-        qualityScore
+        status: syllabus.status
       },
-      aiChallenger: {
-        initialQuestion: syllabus.practicalChallenge?.initialQuestion || '',
-        status: syllabus.practicalChallenge?.status || 'pending',
-        discussion: Array.isArray(syllabus.practicalChallenge?.discussion) ? syllabus.practicalChallenge.discussion : []
+      summaryOfChanges: {
+        accepted: accepted.map(r=> pickRec(r)),
+        rejected: rejected.map(r=> pickRec(r)),
+        commented: commented.map(r=> pickRec(r)),
+        pending: pending.map(r=> pickRec(r))
       },
-      analysis: {
-        templateCompliance: syllabus.analysis?.templateCompliance || {},
-        learningObjectivesAlignment: syllabus.analysis?.learningObjectivesAlignment || {},
-  studentClusterAnalysis: syllabus.analysis?.studentClusterAnalysis || {},
-  surveyInsights: syllabus.analysis?.surveyInsights || {},
-        plagiarismCheck: syllabus.analysis?.plagiarismCheck || {}
+      learningOutcomesAlignment: {
+        covered: syllabus.analysis?.learningObjectivesAlignment?.alignedObjectives || [],
+        gaps: syllabus.analysis?.learningObjectivesAlignment?.missingObjectives || [],
+        recommendations: (syllabus.analysis?.learningObjectivesAlignment?.recommendations||[]).slice(0,10)
       },
-      recommendations: {
-        total: syllabus.recommendations.length,
-        accepted: syllabus.recommendations.filter(r => r.status === 'accepted').length,
-        rejected: syllabus.recommendations.filter(r => r.status === 'rejected').length,
-        pending: syllabus.recommendations.filter(r => r.status === 'pending').length,
-        commented: syllabus.recommendations.filter(r => r.status === 'commented').length,
-    details: syllabus.recommendations,
-    acceptanceRate: syllabus.recommendations.length > 0 ? Math.round((syllabus.recommendations.filter(r => r.status === 'accepted').length / syllabus.recommendations.length) * 100) : 0,
-    timeline: recommendationTimeline
+      practicalityAndInteractivity: {
+        aiChallengeSuggestions: (syllabus.practicalChallenge?.aiSuggestions||[]).map(s=>s.suggestion).slice(0,10),
+        latestInteractiveIdeas: [] // reserved for future interactive generation link
       },
-  groupedRecommendations: buildGroupedRecommendations(syllabus),
-      practicalIdeas: {
-        total: practicalIdeas.length,
-        byType: getIdeaCountsByType(practicalIdeas),
-        implemented: practicalIdeas.filter(idea => idea.isImplemented).length,
-        details: practicalIdeas
-      },
-      summary: generateSyllabusSummary(syllabus, practicalIdeas, qualityScore)
+      improvementProposals: buildImprovementProposals(syllabus)
     };
-
-    res.json({
-      message: 'Syllabus report generated successfully',
-      report
-    });
-
-  } catch (error) {
-    console.error('Syllabus report generation error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
+    return res.json({ message: 'Report generated', report });
+  } catch (e) {
+    console.error('Simplified syllabus report error:', e);
+    return res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Generate aggregate analytics for management
-router.get('/analytics', auth, manager, async (req, res) => {
+// Generate aggregate manager summary report (section 2.4)
+router.get('/manager-summary', auth, manager, async (req, res) => {
   try {
-    const timeRange = req.query.timeRange || '6months'; // 1month, 3months, 6months, 1year
-    const department = req.query.department;
+    const syllabi = await Syllabus.find({ status: { $in: ['analyzed','reviewed','approved'] } })
+      .populate('instructor', 'firstName lastName email')
+      .select('recommendations analysis.practicalChallenge instructor createdAt');
 
-    const dateFilter = getDateFilter(timeRange);
-    
-    const syllabusQuery = { createdAt: { $gte: dateFilter } };
-    const userQuery = {};
-
-    if (department) {
-      const departmentUsers = await User.find({ department }).select('_id');
-      syllabusQuery.instructor = { $in: departmentUsers.map(u => u._id) };
-      userQuery.department = department;
-    }
-
-    const syllabi = await Syllabus.find(syllabusQuery)
-      .populate('instructor', 'firstName lastName department');
-
-    const users = await User.find({ 
-      ...userQuery,
-      createdAt: { $gte: dateFilter } 
-    });
-
-    const analytics = {
-      overview: {
-        totalSyllabi: syllabi.length,
-        totalInstructors: new Set(
-          syllabi
-            .filter(s => s.instructor && s.instructor._id)
-            .map(s => s.instructor._id.toString())
-        ).size,
-        averageQualityScore: calculateAverageQualityScore(syllabi)
+    const summary = {
+      totalSyllabi: syllabi.length,
+      generatedAt: new Date(),
+      summaryOfChanges: {
+        totalAccepted: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'accepted').length, 0),
+        totalRejected: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'rejected').length, 0),
+        totalPending: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'pending').length, 0),
+        totalCommented: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'commented').length, 0)
       },
-      syllabusAnalytics: {
-        byStatus: getSyllabusCountsByStatus(syllabi),
-        byDepartment: getSyllabusCountsByDepartment(syllabi),
-        qualityDistribution: getQualityScoreDistribution(syllabi),
-        commonIssues: getCommonIssues(syllabi),
-        improvementTrends: getImprovementTrends(syllabi)
+      learningOutcomesAlignment: {
+        averageScore: syllabi.length > 0 ?
+          syllabi.reduce((sum, s) => sum + (s.analysis?.learningObjectivesAlignment?.score || 0), 0) / syllabi.length : 0,
+        coveredObjectives: [...new Set(syllabi.flatMap(s => s.analysis?.learningObjectivesAlignment?.alignedObjectives || []))],
+        gaps: [...new Set(syllabi.flatMap(s => s.analysis?.learningObjectivesAlignment?.missingObjectives || []))]
       },
-      recommendationAnalytics: {
-        totalRecommendations: syllabi.reduce((sum, s) => sum + s.recommendations.length, 0),
-        acceptanceRate: calculateRecommendationAcceptanceRate(syllabi),
-        byCategory: getRecommendationsByCategory(syllabi),
-        responseTime: calculateAverageResponseTime(syllabi)
+      practicalityAndInteractivity: {
+        totalChallengesCompleted: syllabi.filter(s => s.analysis?.practicalChallenge?.status === 'completed').length,
+        aiSuggestionsCount: syllabi.reduce((sum, s) => sum + (s.analysis?.practicalChallenge?.aiSuggestions?.length || 0), 0),
+        topSuggestions: syllabi.flatMap(s => s.analysis?.practicalChallenge?.aiSuggestions || [])
+          .slice(0, 20) // Top 20 suggestions
       },
-      userAnalytics: {
-        newUsers: users.length,
-        activeUsers: await getActiveUsersCount(dateFilter),
-        byRole: getUserCountsByRole(users),
-        engagement: await getUserEngagementMetrics(dateFilter)
-      },
-      timeSeriesData: await generateTimeSeriesData(dateFilter, syllabusQuery)
+      improvementProposals: syllabi.flatMap(s => s.recommendations.filter(r => r.status === 'accepted'))
+        .map(r => ({
+          category: r.category,
+          title: r.title,
+          description: r.description,
+          instructor: syllabi.find(s => s.recommendations.some(rec => rec._id === r._id))?.instructor
+        }))
+        .slice(0, 50) // Limit to 50 proposals
     };
 
-    res.json({
-      message: 'Analytics generated successfully',
-      analytics,
-      filters: {
-        timeRange,
-        department: department || 'all',
-        generatedAt: new Date()
-      }
-    });
+    res.json({ message: 'Manager summary generated', summary });
+  } catch (e) {
+    console.error('Manager summary error:', e);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
-  } catch (error) {
-    console.error('Analytics generation error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
+// Catalogue of analyzed syllabi (manager/admin) – minimal fields for listing
+router.get('/catalog', auth, manager, async (req, res) => {
+  try {
+    const syllabi = await Syllabus.find({ status: { $in: ['analyzed','reviewed','approved'] } })
+      .select('title course createdAt status instructor recommendations analysis.templateCompliance.missingElements analysis.learningObjectivesAlignment.missingObjectives')
+      .populate('instructor','firstName lastName email');
+    const items = syllabi.map(s => ({
+      id: s._id,
+      title: s.title,
+      course: s.course,
+      uploadedAt: s.createdAt,
+      status: s.status,
+      instructor: s.instructor ? { name: `${s.instructor.firstName||''} ${s.instructor.lastName||''}`.trim(), email: s.instructor.email } : null,
+      acceptedCount: s.recommendations.filter(r=> r.status==='accepted').length,
+      pendingCount: s.recommendations.filter(r=> r.status==='pending').length,
+      missingTemplate: (s.analysis?.templateCompliance?.missingElements||[]).length,
+      missingILO: (s.analysis?.learningObjectivesAlignment?.missingObjectives||[]).length
+    }));
+    res.json({ items });
+  } catch (e) {
+    console.error('Catalog error', e); res.status(500).json({ message: 'Internal server error'});
   }
 });
 
@@ -222,7 +168,8 @@ router.get('/top-instructors', auth, manager, async (req, res) => {
 
 // Export aggregate syllabi report as CSV/Excel/PDF (manager/admin scope)
 router.get('/export/:type', auth, manager, async (req, res) => {
-  try {
+  return res.status(410).json({ message: 'Export endpoints deprecated per new specification' });
+  /* try {
     const { type } = req.params; // 'pdf' or 'excel'
     const { syllabusIds, department, timeRange = '6months' } = req.query;
 
@@ -278,12 +225,13 @@ router.get('/export/:type', auth, manager, async (req, res) => {
     res.status(500).json({
       message: 'Internal server error during export'
     });
-  }
+  } */
 });
 
 // Export single syllabus detailed report including timeline & analysis
 router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
-  try {
+  return res.status(410).json({ message: 'Single syllabus export deprecated. Use /reports/syllabus/:id JSON data and modified file download.' });
+  /* try {
     const { id, type } = req.params;
     const syllabus = await Syllabus.findById(id)
       .populate('instructor', 'firstName lastName email department');
@@ -504,7 +452,7 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
   } catch (error) {
     console.error('Single syllabus export error:', error);
     res.status(500).json({ message: 'Internal server error' });
-  }
+  } */
 });
 
 // Helper functions
@@ -546,6 +494,31 @@ function generateSyllabusSummary(syllabus, practicalIdeas, qualityScore) {
     practicalIdeasGenerated: practicalIdeas.length,
     nextSteps: generateNextSteps(syllabus, practicalIdeas)
   };
+}
+
+// Pick minimal fields from recommendation
+function pickRec(r){
+  return {
+    id: r.id || r._id,
+    category: r.category,
+    title: r.title,
+    description: r.description,
+    status: r.status,
+    priority: r.priority,
+    instructorComment: r.instructorComment
+  };
+}
+
+function buildImprovementProposals(syllabus){
+  const proposals = new Set();
+  const tc = syllabus.analysis?.templateCompliance;
+  if (tc?.missingElements?.length) proposals.add('Додати відсутні елементи шаблону: ' + tc.missingElements.slice(0,6).join(', '));
+  const loa = syllabus.analysis?.learningObjectivesAlignment;
+  if (loa?.missingObjectives?.length) proposals.add('Закрити прогалини ILO: ' + loa.missingObjectives.slice(0,6).join(', '));
+  const sca = syllabus.analysis?.studentClusterAnalysis;
+  if ((sca?.suggestedCases||[]).length < 3) proposals.add('Додати українські приклади та кейси, пов’язані з профілями студентів');
+  if (!(syllabus.practicalChallenge?.aiSuggestions||[]).length) proposals.add('Додати інтерактивні активності (дискусії, групові завдання, peer-to-peer).');
+  return Array.from(proposals);
 }
 
 function getOverallAssessment(qualityScore) {

@@ -1,23 +1,41 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { Box, Typography, CircularProgress, Alert, Container, Paper, Grid, Stack, Button, Menu, MenuItem, Snackbar, Alert as MuiAlert } from '@mui/material';
-import { Download } from '@mui/icons-material';
+import { Box, Typography, CircularProgress, Alert, Container, Paper, Grid, Stack, Button, Snackbar, Alert as MuiAlert } from '@mui/material';
 import api from '../services/api';
-import AnalysisOverview from '../components/Syllabus/AnalysisOverview';
 import RecommendationsPanel from '../components/Syllabus/RecommendationsPanel';
 import AIChallenger from '../components/Syllabus/AIChallenger';
 import InteractiveRecommendations from '../components/Syllabus/InteractiveRecommendations';
-import GroupedRecommendations from '../components/Syllabus/GroupedRecommendations';
 
 const SyllabusAnalysis = () => {
   const { id } = useParams();
   const [syllabus, setSyllabus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [anchorEl, setAnchorEl] = useState(null);
-  const exportOpen = Boolean(anchorEl);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState('');
+  const [exportError, setExportError] = useState(''); // legacy snackbar reuse for errors
+  const [downloading, setDownloading] = useState(false);
+  const hasAccepted = Array.isArray(syllabus?.recommendations) && syllabus.recommendations.some(r => r.status === 'accepted');
+
+  const handleDownloadModified = async () => {
+    try {
+      setDownloading(true);
+      const resp = await api.syllabusDownloadModified(syllabus._id);
+      const url = window.URL.createObjectURL(new Blob([resp.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const disposition = resp.headers['content-disposition'] || '';
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      const filename = match ? match[1] : `${syllabus.title}-modified.txt`;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      setExportError('Не вдалося завантажити оновлений файл');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const fetchSyllabus = useCallback(async () => {
     try {
@@ -53,28 +71,7 @@ const SyllabusAnalysis = () => {
     return <Typography>No syllabus data found.</Typography>;
   }
 
-  const handleExport = async (type) => {
-    try {
-      setExportError('');
-      setExporting(true);
-      const response = await api.get(`/reports/syllabus/${id}/export/${type}`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      const ext = type === 'excel' ? 'xlsx' : type;
-      link.href = url;
-      link.setAttribute('download', `syllabus-${id}-report.${ext}`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error('Export failed', e);
-      setExportError('Не вдалося експортувати звіт');
-    } finally {
-      setExporting(false);
-      setAnchorEl(null);
-    }
-  };
+  // Exports removed per simplified spec
 
   return (
     <>
@@ -82,48 +79,26 @@ const SyllabusAnalysis = () => {
       <Paper sx={{ p: 3, mb: 3 }}>
         <Stack direction={{ xs:'column', sm:'row' }} justifyContent="space-between" alignItems={{ sm:'center' }} spacing={2}>
           <Box>
-            <Typography variant="h4" gutterBottom component="h1">
-              {syllabus.title}
-            </Typography>
-            <Typography variant="subtitle1" color="text.secondary">
-              {syllabus.course.name} ({syllabus.course.code})
-            </Typography>
+            <Typography variant="h4" gutterBottom component="h1">{syllabus.title}</Typography>
+            <Typography variant="subtitle1" color="text.secondary">{syllabus.course.name} ({syllabus.course.code})</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt:1 }}>Прийміть потрібні зміни – тоді стане доступним оновлений файл.</Typography>
           </Box>
           <Box>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Button
-                variant="contained"
-                startIcon={<Download />}
-                onClick={(e)=> setAnchorEl(e.currentTarget)}
-                disabled={exporting}
-              >
-                {exporting ? 'Експорт...' : 'Експорт'}
-              </Button>
-              {exporting && <CircularProgress size={24} />}
-            </Stack>
-            <Menu anchorEl={anchorEl} open={exportOpen} onClose={()=> setAnchorEl(null)}>
-              <MenuItem onClick={()=> handleExport('csv')}>CSV</MenuItem>
-              <MenuItem onClick={()=> handleExport('excel')}>Excel</MenuItem>
-              <MenuItem onClick={()=> handleExport('pdf')}>PDF</MenuItem>
-            </Menu>
+            <Button variant="contained" disabled={!hasAccepted || downloading} onClick={handleDownloadModified}>
+              {downloading ? 'Завантаження...' : 'Завантажити оновлений файл'}
+            </Button>
           </Box>
         </Stack>
       </Paper>
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 2, height: '100%', mb: 3 }}>
-            <AnalysisOverview syllabus={syllabus} />
-          </Paper>
           <Paper sx={{ p: 2 }}>
             <RecommendationsPanel
               syllabusId={syllabus._id}
               recommendations={syllabus.recommendations || []}
               onChanged={fetchSyllabus}
             />
-          </Paper>
-          <Paper sx={{ p: 2, mt: 3 }}>
-            <GroupedRecommendations syllabus={syllabus} />
           </Paper>
         </Grid>
   <Grid item xs={12} md={4}>

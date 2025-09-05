@@ -168,15 +168,49 @@ class ApiService {
   reports = {
     getSyllabusReport: (id) =>
       this.client.get(`/reports/syllabus/${id}`),
+    getCatalog: () =>
+      this.client.get('/reports/catalog'),
     
     getAnalytics: (params = {}) =>
       this.client.get('/reports/analytics', { params }),
+    
+    getManagerSummary: () =>
+      this.client.get('/reports/manager-summary'),
     
     exportData: (type, params = {}) =>
       this.client.get(`/reports/export/${type}`, { 
         params,
         responseType: 'blob'
       }),
+  };
+
+  // Utility for downloading binary (modified syllabus)
+  syllabusDownloadModified(id){
+    return this.client.get(`/syllabus/${id}/download-modified`, { responseType: 'blob' });
+  }
+
+  // Policies endpoints
+  policies = {
+    getAll: (params = {}) =>
+      this.client.get('/policies', { params }),
+    
+    getPolicy: (id) =>
+      this.client.get(`/policies/${id}`),
+    
+    create: (data) =>
+      this.client.post('/policies', data),
+    
+    update: (id, data) =>
+      this.client.put(`/policies/${id}`, data),
+    
+    delete: (id) =>
+      this.client.delete(`/policies/${id}`),
+    
+    acknowledge: (id) =>
+      this.client.post(`/policies/${id}/acknowledge`),
+    
+    getStatus: (id) =>
+      this.client.get(`/policies/${id}/status`)
   };
 
   // Admin endpoints

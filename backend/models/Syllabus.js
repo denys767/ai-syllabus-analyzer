@@ -29,6 +29,15 @@ const syllabusSchema = new mongoose.Schema({
       default: Date.now
     }
   },
+  // Auto-generated updated version of syllabus that incorporates accepted AI recommendations
+  modifiedFile: {
+    filename: String,
+    originalName: String, // base name + "-modified"
+    mimetype: { type: String, default: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    size: Number,
+    path: String,
+    generatedAt: Date
+  },
   extractedText: {
     type: String,
     required: true
@@ -154,26 +163,7 @@ syllabusSchema.index({ status: 1 });
 syllabusSchema.index({ 'analysis.plagiarismCheck.uniquenessScore': 1 });
 
 // Method to calculate overall quality score
-syllabusSchema.methods.calculateQualityScore = function() {
-  const weights = {
-    templateCompliance: 0.25,
-    learningObjectivesAlignment: 0.35,
-    uniqueness: 0.25,
-    completeness: 0.15
-  };
-
-  const scores = {
-    templateCompliance: this.analysis.templateCompliance.score || 0,
-    learningObjectivesAlignment: this.analysis.learningObjectivesAlignment.score || 0,
-    uniqueness: this.analysis.plagiarismCheck.uniquenessScore || 0,
-    completeness: this.structure.completenessScore || 0
-  };
-
-  return Math.round(
-    Object.keys(weights).reduce((total, key) => {
-      return total + (scores[key] * weights[key]);
-    }, 0)
-  );
-};
+// Deprecated: quality score removed per new simplified spec (no percentage scoring)
+syllabusSchema.methods.calculateQualityScore = function() { return 0; };
 
 module.exports = mongoose.model('Syllabus', syllabusSchema);

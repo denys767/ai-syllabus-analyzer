@@ -16,6 +16,7 @@ const Section = ({ title, items = [], fallback }) => (
   </Paper>
 );
 
+// DEPRECATED: grouped recommendations removed per simplified spec.
 export default function GroupedRecommendations({ syllabus }) {
   const analysis = syllabus.analysis || {};
   const sca = analysis.studentClusterAnalysis || {};

@@ -699,6 +699,39 @@ ${syllabusText}
       });
       await syllabus.save();
 
+      // OPTIONAL: generate 1-2 concise improvement recommendations derived from AI response
+      try {
+        const recPrompt = `Виділи з наступної відповіді AI до викладача 1-2 найкорисніші конкретні покращення силабусу у форматі JSON:
+{"recommendations":[{"category":"content|structure|objectives|assessment|cases|methods","title":"Коротка назва","description":"Лаконічний опис <=160 символів"}]}
+Текст відповіді:
+${aiResponse}
+Поверни тільки JSON.`;
+        const recResp = await this.openai.responses.create({
+          model: this.llmModel,
+          input: [
+            { role: 'system', content: 'Ти асистент. Екстрагуєш короткі actionable рекомендації.' },
+            { role: 'user', content: recPrompt }
+          ],
+          text: { format: 'json' }
+        });
+        const rawRec = (recResp.output_text || this.extractResponsesText(recResp) || '').trim();
+        const parsed = this.safeParseJSON(rawRec) || {};
+        const newRecs = (parsed.recommendations || []).slice(0,2).map(r => ({
+          id: 'chlg_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+          category: ['structure','content','objectives','assessment','cases','methods'].includes(r.category) ? r.category : 'methods',
+          title: r.title?.slice(0,120) || 'Рекомендація',
+          description: r.description?.slice(0,300) || '',
+          priority: 'medium',
+          status: 'pending'
+        }));
+        if (newRecs.length) {
+          syllabus.recommendations.push(...newRecs);
+          await syllabus.save();
+        }
+      } catch(ex){
+        console.warn('Challenge recommendation extraction failed (non-critical):', ex.message);
+      }
+
       return aiResponse;
     } catch (error) {
       console.error('Error responding to challenge:', error);

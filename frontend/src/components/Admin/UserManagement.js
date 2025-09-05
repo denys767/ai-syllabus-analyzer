@@ -3,9 +3,9 @@ import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, 
   TableHead, TableRow, IconButton, Tooltip, TextField, Select, MenuItem, 
   FormControl, InputLabel, CircularProgress, Alert, Button, Dialog,
-  DialogTitle, DialogContent, DialogActions, Grid, Chip
+  DialogTitle, DialogContent, DialogActions, Grid
 } from '@mui/material';
-import { Edit, Delete, CheckCircle, Cancel, Add, PersonAdd } from '@mui/icons-material';
+import { Edit, Delete, Refresh, Search, PersonAdd } from '@mui/icons-material';
 import api from '../../services/api';
 
 const UserManagement = () => {
@@ -258,11 +258,7 @@ const UserManagement = () => {
                 <TableCell>{user.email}</TableCell>
                 <TableCell>{getRoleLabel(user.role)}</TableCell>
                 <TableCell>
-                  {user.isVerified ? (
-                    <CheckCircle color="success" />
-                  ) : (
-                    <Cancel color="error" />
-                  )}
+                  {user.verified ? '✓' : '—'}
                 </TableCell>
                 <TableCell>
                   <Tooltip title="Редагувати">

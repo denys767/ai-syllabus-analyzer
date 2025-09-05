@@ -34,6 +34,9 @@
   "pdf-parse": "latest",
   "pdfkit": "latest"
   },
+  "optionalDependencies": {
+    "docx": "^9.0.3"
+  },
   "devDependencies": {
     "jest": "latest",
     "nodemon": "latest",

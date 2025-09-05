@@ -5,12 +5,13 @@ import {
   Snackbar, Alert, Tabs, Tab, Chip, CircularProgress
 } from '@mui/material';
 import {
-  People, School, Analytics, Groups, Poll, Dashboard
+  People, School, Analytics, Groups, Poll, Dashboard, Description
 } from '@mui/icons-material';
 import api from '../../services/api';
 import UserManagement from '../../components/Admin/UserManagement';
 import ClusterManagement from '../../components/Admin/ClusterManagement';
 import SurveyManagement from '../../components/Admin/SurveyManagement';
+import PolicyManagement from '../../components/Admin/PolicyManagement';
 
 const AdminDashboard = () => {
   const [stats, setStats] = useState(null);
@@ -86,6 +87,11 @@ const AdminDashboard = () => {
           <Tab 
             icon={<Poll />} 
             label="Опитування" 
+            iconPosition="start"
+          />
+          <Tab 
+            icon={<Description />} 
+            label="Документи" 
             iconPosition="start"
           />
         </Tabs>
@@ -279,6 +285,7 @@ const AdminDashboard = () => {
       {selectedTab === 1 && <UserManagement />}
       {selectedTab === 2 && <ClusterManagement />}
       {selectedTab === 3 && <SurveyManagement />}
+      {selectedTab === 4 && <PolicyManagement />}
 
       {/* Snackbar */}
       <Snackbar

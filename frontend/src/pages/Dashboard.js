@@ -26,14 +26,10 @@ import {
   Upload,
   Description,
   Analytics,
-  TrendingUp,
   CheckCircle,
   Warning,
   Error,
   Visibility,
-  BrightnessAuto,
-  Brightness7,
-  Brightness4,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -132,12 +128,11 @@ const Dashboard = () => {
     // Опитування: немає окремої сторінки у фронтенді, приховано для всіх ролей
     // AI Challenger moved into per-syllabus view, no global entry
     {
-      title: 'Звіти',
-      description: 'Переглянути аналітику та звіти',
+      title: 'Каталог звітів',
+      description: 'Переглянути звіти силабусів',
       icon: <Analytics />,
       color: 'warning',
-      // Спрямовуємо на сторінку менеджера; доступна і для admin
-      path: '/manager/reports',
+      path: '/manager/catalog',
       roles: ['manager', 'admin'],
     },
   ];
@@ -223,25 +218,7 @@ const Dashboard = () => {
           </Card>
         </Grid>
 
-  <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <Avatar sx={{ bgcolor: 'warning.main', mr: 2 }}>
-                  <TrendingUp />
-                </Avatar>
-                <Box>
-                  <Typography variant="h4" fontWeight="bold">
-                    {stats.aiScore || 0}%
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    AI Оцінка
-                  </Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+  {/* AI score card видалено згідно з оновленими вимогами */}
 
         {/* Pending decisions */}
         <Grid item xs={12} sm={6} md={3}>

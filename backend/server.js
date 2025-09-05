@@ -18,6 +18,7 @@ const adminRoutes = require('./routes/admin');
 const userRoutes = require('./routes/users');
 const googleFormsRoutes = require('./routes/googleForms');
 const clusterRoutes = require('./routes/clusters');
+const policiesRoutes = require('./routes/policies');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -207,6 +208,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/google-forms', googleFormsRoutes);
 app.use('/api/clusters', clusterRoutes);
+app.use('/api/policies', policiesRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

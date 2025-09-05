@@ -16,6 +16,9 @@ import Dashboard from './pages/Dashboard';
 import SyllabiList from './pages/SyllabiList';
 import SyllabusUpload from './pages/SyllabusUpload';
 import SyllabusAnalysis from './pages/SyllabusAnalysis';
+import Profile from './pages/Profile';
+import Settings from './pages/Settings';
+import PoliciesPage from './pages/PoliciesPage';
 
 // Admin pages
 import AdminDashboard from './pages/Admin/AdminDashboard';
@@ -23,9 +26,8 @@ import UserManagement from './components/Admin/UserManagement';
 
 // Manager pages
 import ManagerDashboard from './pages/Manager/ManagerDashboard';
-import Reports from './components/Manager/Reports';
-import Profile from './pages/Profile';
-import Settings from './pages/Settings';
+import ManagerSummary from './components/Manager/ManagerSummary';
+import ReportsCatalog from './pages/ReportsCatalog';
 
 function App() {
   const { user, isLoading } = useAuth();
@@ -67,6 +69,7 @@ function App() {
         <Route path="dashboard" element={<Dashboard />} />
   <Route path="profile" element={<Profile />} />
   <Route path="settings" element={<Settings />} />
+        <Route path="policies" element={<PoliciesPage />} />
         
         {/* Syllabus routes for instructors */}
         <Route path="syllabi" element={<SyllabiList />} />
@@ -106,14 +109,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="admin/analytics"
-          element={
-            <ProtectedRoute requiredRoles={['admin']}>
-              <Reports />
-            </ProtectedRoute>
-          }
-        />
+  {/* admin/analytics route removed (deprecated aggregated reports) */}
 
         {/* Manager routes */}
         <Route
@@ -125,10 +121,18 @@ function App() {
           }
         />
         <Route
-          path="manager/reports"
+          path="manager/catalog"
           element={
             <ProtectedRoute requiredRoles={['manager', 'admin']}>
-              <Reports />
+              <ReportsCatalog />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="manager/summary"
+          element={
+            <ProtectedRoute requiredRoles={['manager', 'admin']}>
+              <ManagerSummary />
             </ProtectedRoute>
           }
         />

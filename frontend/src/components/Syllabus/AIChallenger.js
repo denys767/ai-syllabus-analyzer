@@ -9,7 +9,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate }) => {
   const [error, setError] = useState('');
   const challenge = syllabus.practicalChallenge;
   const discussionCount = useMemo(() => (challenge?.discussion?.length || 0), [challenge]);
-  const maxRounds = 3; // finite number of AI follow-ups
+  const maxRounds = 3; // configurable number of follow-ups
   const isCompleted = (challenge?.status === 'completed') || (discussionCount >= maxRounds);
 
   const handleSubmit = async (e) => {
@@ -50,8 +50,8 @@ const AIChallenger = ({ syllabus, onChallengeUpdate }) => {
   if (!challenge || !challenge.initialQuestion) {
     return (
       <Box mt={4}>
-        <Typography variant="h6" gutterBottom>AI Challenger</Typography>
-        <Typography color="text.secondary">The AI challenger has not been initiated for this syllabus yet.</Typography>
+        <Typography variant="h6" gutterBottom>AI Челенджер</Typography>
+        <Typography color="text.secondary">AI-челенджер для цього силабусу ще не запущено.</Typography>
       </Box>
     );
   }
@@ -59,7 +59,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate }) => {
   return (
     <Box mt={2}>
       <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-        <Psychology sx={{ mr: 1, color: 'primary.main' }} /> AI Challenger
+  <Psychology sx={{ mr: 1, color: 'primary.main' }} /> AI Челенджер ({Math.min(discussionCount, maxRounds)}/{maxRounds})
       </Typography>
   <Paper elevation={2} sx={{ p: 2, maxHeight: '400px', overflowY: 'auto' }}>
         {/* Initial Question */}
@@ -110,7 +110,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate }) => {
           multiline
           rows={3}
           variant="outlined"
-          placeholder="Your response..."
+          placeholder="Ваша відповідь..."
           value={response}
           onChange={(e) => setResponse(e.target.value)}
           disabled={loading || isCompleted}
@@ -122,11 +122,11 @@ const AIChallenger = ({ syllabus, onChallengeUpdate }) => {
           sx={{ mt: 1 }}
           disabled={loading || !response.trim() || isCompleted}
         >
-          {loading ? <CircularProgress size={24} /> : isCompleted ? 'Завершено' : 'Send Response'}
+          {loading ? <CircularProgress size={24} /> : isCompleted ? 'Завершено' : 'Надіслати відповідь'}
         </Button>
         {isCompleted && (
           <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
-            Дискусію завершено. Результати включено до звіту.
+            Дискусію завершено. Нові ідеї додано до списку.
           </Typography>
         )}
       </Box>

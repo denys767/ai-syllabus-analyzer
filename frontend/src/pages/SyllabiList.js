@@ -297,7 +297,6 @@ const SyllabiList = () => {
               <TableCell>Статус</TableCell>
               <TableCell>Рекомендації</TableCell>
               <TableCell>Дата завантаження</TableCell>
-              <TableCell>AI Оцінка</TableCell>
               <TableCell align="right">Дії</TableCell>
             </TableRow>
           </TableHead>
@@ -364,20 +363,7 @@ const SyllabiList = () => {
                       {new Date(syllabus.createdAt).toLocaleTimeString('uk-UA')}
                     </Typography>
                   </TableCell>
-                  <TableCell>
-          {syllabus.analysis?.templateCompliance?.score ? (
-                      <Chip
-            label={`${syllabus.analysis.templateCompliance.score}%`}
-            color={syllabus.analysis.templateCompliance.score >= 80 ? 'success' : 
-                 syllabus.analysis.templateCompliance.score >= 60 ? 'warning' : 'error'}
-                        size="small"
-                      />
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        —
-                      </Typography>
-                    )}
-                  </TableCell>
+                  {/* AI оцінка прибрана */}
                   <TableCell align="right">
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
                       <Tooltip title="Переглянути аналіз">
