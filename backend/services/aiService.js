@@ -183,12 +183,21 @@ MBA-27 Learning Objectives for Kyiv School of Economics:
 
   async analyzeSyllabus(syllabusId) {
     try {
-      console.log(`Starting comprehensive AI analysis for syllabus ${syllabusId}`);
+      console.log('\n🚀 ==========================================');
+      console.log('🚀 ПОЧАТОК ПОВНОГО АНАЛІЗУ СИЛАБУСУ');
+      console.log('🚀 ==========================================');
+      console.log(`📄 ID силабусу: ${syllabusId}`);
       
       const syllabus = await Syllabus.findById(syllabusId);
       if (!syllabus) {
+        console.error('❌ Силабус не знайдено в базі даних');
         throw new Error('Syllabus not found');
       }
+
+      console.log('✅ Силабус завантажено з бази даних');
+      console.log('📖 Назва курсу:', syllabus.course?.name || 'Не вказано');
+      console.log('👨‍🏫 Викладач ID:', syllabus.instructor);
+      console.log('📄 Довжина тексту:', syllabus.extractedText?.length || 0, 'символів');
 
       // Get current student cluster data (changes quarterly)
       const currentStudentClusters = await this.getCurrentStudentClusters();
@@ -204,8 +213,14 @@ MBA-27 Learning Objectives for Kyiv School of Economics:
       );
 
       // Check for plagiarism against existing syllabi
+      console.log('\n📋 === ПЕРЕВІРКА НА ПЛАГІАТ ===');
       const plagiarismCheck = await this.checkPlagiarism(syllabus);
+      console.log('🔍 Унікальність:', plagiarismCheck.uniquenessScore + '%');
+      console.log('⚠️ Рівень ризику:', plagiarismCheck.riskLevel);
+      console.log('📊 Схожих силабусів знайдено:', plagiarismCheck.similarSyllabi?.length || 0);
+      console.log('=== ПЕРЕВІРКА НА ПЛАГІАТ ЗАВЕРШЕНО ===\n');
 
+      console.log('\n💾 === ЗБЕРЕЖЕННЯ РЕЗУЛЬТАТІВ ===');
       // Update syllabus with complete analysis results (aligned with model)
       await Syllabus.findByIdAndUpdate(syllabusId, {
         structure: analysis.structure,
@@ -222,25 +237,53 @@ MBA-27 Learning Objectives for Kyiv School of Economics:
         status: 'analyzed'
       });
 
-      console.log(`Comprehensive AI analysis completed for syllabus ${syllabusId}`);
+      console.log('✅ Результати збережено в базі даних');
+      console.log('📊 Статус силабусу: analyzed');
+      console.log('🎯 Загальна кількість рекомендацій:', analysis.recommendations?.length || 0);
+      console.log('🧬 Векторне представлення згенеровано');
+
+      console.log('\n🎉 ==========================================');
+      console.log('🎉 АНАЛІЗ СИЛАБУСУ УСПІШНО ЗАВЕРШЕНО');
+      console.log('🎉 ==========================================\n');
       return true;
 
     } catch (error) {
-      console.error(`AI analysis failed for syllabus ${syllabusId}:`, error);
+      console.error('❌ ==========================================');
+      console.error('❌ ПОМИЛКА АНАЛІЗУ СИЛАБУСУ');
+      console.error('❌ ==========================================');
+      console.error(`📄 ID силабусу: ${syllabusId}`);
+      console.error('🔥 Детальна помилка:', error.message);
+      console.error('📊 Stack trace:', error.stack);
+      
       // Persist error state so UI can reflect failure
       try {
         await Syllabus.findByIdAndUpdate(syllabusId, {
           status: 'error'
         });
+        console.log('💾 Статус помилки збережено в базі даних');
       } catch (persistErr) {
-        console.error('Failed to persist error status for syllabus', syllabusId, persistErr);
+        console.error('❌ Не вдалося зберегти статус помилки:', persistErr.message);
       }
+      
+      console.error('❌ ==========================================\n');
       throw error;
     }
   }
 
   async performComprehensiveAnalysis(syllabusText, studentClusters, surveyInsights) {
-  const prompt = `
+    console.log('\n=== ПОЧАТО КОМПЛЕКСНИЙ АНАЛІЗ СИЛАБУСУ ===');
+    console.log('📄 Довжина тексту силабусу:', syllabusText?.length || 0, 'символів');
+    console.log('👥 Кластери студентів:', JSON.stringify(studentClusters, null, 2));
+    console.log('📊 Результати опитувань:', JSON.stringify(surveyInsights, null, 2));
+    
+    // Log input material sources and quality
+    console.log('\n--- АНАЛІЗ ВХІДНИХ МАТЕРІАЛІВ ---');
+    console.log('✅ Статичний шаблон силабусу: Завантажено з initializeStaticContent()');
+    console.log('✅ MBA-27 навчальні цілі: Завантажено з initializeStaticContent()');
+    console.log('📊 Кластери студентів - джерело:', studentClusters?.source || 'getCurrentStudentClusters()');
+    console.log('📋 Опитування - джерело:', surveyInsights?.totalResponses ? `${surveyInsights.totalResponses} відповідей` : 'getSurveyInsights()');
+    
+    const prompt = `
 Виконай комплексний аналіз силабусу MBA курсу на основі наступних критеріїв:
 
 ШАБЛОН СИЛАБУСУ:
@@ -294,6 +337,15 @@ ${syllabusText}
 
 Відповідь має бути виключно у форматі JSON без додаткового тексту.
 `;
+
+    console.log('\n--- ПІДГОТОВКА ПРОМПТУ ДЛЯ AI ---');
+    console.log('📝 Довжина промпту:', prompt.length, 'символів');
+    console.log('🤖 Модель AI:', this.llmModel);
+    console.log('⚙️ Формат відповіді: JSON object');
+    console.log('📋 Промпт (перші 500 символів):', prompt.substring(0, 500) + '...');
+    console.log('\n--- ВИКЛИК OpenAI API ---');
+    const startTime = Date.now();
+    
     const response = await this.openai.responses.create({
       model: this.llmModel,
       input: [
@@ -303,14 +355,33 @@ ${syllabusText}
       text: {"format": {"type": "json_object"}}
     });
 
+    const endTime = Date.now();
+    console.log('⏱️ Час виконання запиту до AI:', endTime - startTime, 'мс');
+
     const raw = (response.output_text || this.extractResponsesText(response) || '').trim();
+    console.log('📥 Отримано відповідь від AI:');
+    console.log('  - Довжина відповіді:', raw.length, 'символів');
+    console.log('  - Перші 300 символів:', raw.substring(0, 300) + '...');
+    
     const analysisResult = this.safeParseJSON(raw);
     if (!analysisResult || Object.keys(analysisResult).length === 0) {
+      console.error('❌ ПОМИЛКА: Пуста або неправильна JSON відповідь від моделі');
+      console.error('Сира відповідь:', raw);
       throw new Error('Empty or invalid JSON from model');
     }
+    
+    console.log('✅ JSON успішно розпарсено');
+    console.log('📊 Секції в аналізі:', Object.keys(analysisResult));
+    console.log('🎯 Кількість загальних рекомендацій:', (analysisResult.recommendations || []).length);
 
     // Enhance with Ukrainian case studies using search
+    console.log('\n--- ПОШУК УКРАЇНСЬКИХ КЕЙСІВ ---');
     const enhancedCases = await this.searchUkrainianCases(studentClusters, syllabusText);
+    console.log('🔍 Знайдено українських кейсів:', enhancedCases.length);
+    if (enhancedCases.length > 0) {
+      console.log('📋 Кейси:', enhancedCases.map(c => `"${c.title}" (${c.cluster})`).join(', '));
+    }
+    
     if (!analysisResult.studentClusterAnalysis) {
       analysisResult.studentClusterAnalysis = {};
     }
@@ -318,9 +389,18 @@ ${syllabusText}
       ...(analysisResult.studentClusterAnalysis.suggestedCases || []),
       ...enhancedCases
     ];
+    
+    console.log('📊 Загальна кількість кейсів після об\'єднання:', analysisResult.studentClusterAnalysis.suggestedCases.length);
 
     // Normalize to match Syllabus model shape
-    return this.normalizeAnalysisForModel(analysisResult);
+    console.log('\n--- НОРМАЛІЗАЦІЯ РЕЗУЛЬТАТІВ ---');
+    const normalizedResult = this.normalizeAnalysisForModel(analysisResult);
+    console.log('✅ Аналіз нормалізовано для схеми моделі');
+    console.log('📊 Фінальна кількість рекомендацій:', normalizedResult.recommendations.length);
+    console.log('🎯 Категорії рекомендацій:', normalizedResult.recommendations.map(r => r.category).join(', '));
+    console.log('=== КОМПЛЕКСНИЙ АНАЛІЗ ЗАВЕРШЕНО ===\n');
+    
+    return normalizedResult;
   }
 
   // Removed basicAnalysis fallback; failures now surface and mark syllabus status as 'error'
@@ -339,37 +419,96 @@ ${syllabusText}
   }
 
   formatRecommendations(recommendations) {
-    if (!Array.isArray(recommendations)) return [];
+    console.log('\n🎯 === ФОРМАТУВАННЯ РЕКОМЕНДАЦІЙ ===');
+    console.log('📥 Вхідний тип:', Array.isArray(recommendations) ? 'Array' : typeof recommendations);
+    console.log('📊 Кількість вхідних рекомендацій:', Array.isArray(recommendations) ? recommendations.length : 0);
+    
+    if (!Array.isArray(recommendations)) {
+      console.log('⚠️ Рекомендації не є масивом, повертаємо порожній масив');
+      console.log('=== ФОРМАТУВАННЯ РЕКОМЕНДАЦІЙ ЗАВЕРШЕНО ===\n');
+      return [];
+    }
 
     const allowedCategories = new Set(['structure', 'content', 'objectives', 'assessment', 'cases', 'methods']);
     const coerceCategory = (cat) => (allowedCategories.has(cat) ? cat : 'content');
 
-    return recommendations.map((rec, index) => ({
-      id: `rec_${index + 1}`,
-      category: coerceCategory(rec.category),
-      title: rec.title || `Рекомендація ${index + 1}`,
-      description: typeof rec === 'string' ? rec : (rec.description || ''),
-      priority: rec.priority && ['low','medium','high','critical'].includes(rec.priority) ? rec.priority : 'medium'
-    }));
+    console.log('📋 Дозволені категорії:', Array.from(allowedCategories).join(', '));
+    console.log('🔧 Категорія за замовчуванням: content');
+
+    const formatted = recommendations.map((rec, index) => {
+      const originalCategory = rec.category;
+      const finalCategory = coerceCategory(rec.category);
+      
+      if (originalCategory && originalCategory !== finalCategory) {
+        console.log(`  ⚠️ Категорія "${originalCategory}" змінена на "${finalCategory}" для рекомендації ${index + 1}`);
+      }
+      
+      return {
+        id: `rec_${index + 1}`,
+        category: finalCategory,
+        title: rec.title || `Рекомендація ${index + 1}`,
+        description: typeof rec === 'string' ? rec : (rec.description || ''),
+        priority: rec.priority && ['low','medium','high','critical'].includes(rec.priority) ? rec.priority : 'medium'
+      };
+    });
+
+    console.log('✅ Рекомендації відформатовано');
+    console.log('📊 Підсумок по категоріях:');
+    const categoryCount = {};
+    formatted.forEach(r => {
+      categoryCount[r.category] = (categoryCount[r.category] || 0) + 1;
+    });
+    Object.entries(categoryCount).forEach(([cat, count]) => {
+      console.log(`  📁 ${cat}: ${count} рекомендацій`);
+    });
+    
+    console.log('🎯 Пріоритети:');
+    const priorityCount = {};
+    formatted.forEach(r => {
+      priorityCount[r.priority] = (priorityCount[r.priority] || 0) + 1;
+    });
+    Object.entries(priorityCount).forEach(([priority, count]) => {
+      console.log(`  ⭐ ${priority}: ${count} рекомендацій`);
+    });
+    
+    console.log('=== ФОРМАТУВАННЯ РЕКОМЕНДАЦІЙ ЗАВЕРШЕНО ===\n');
+    return formatted;
   }
 
   async getCurrentStudentClusters() {
     try {
+      console.log('\n📊 === ОТРИМАННЯ ПОТОЧНИХ КЛАСТЕРІВ СТУДЕНТІВ ===');
       // Get current active clusters from database (updated quarterly)
       const currentClusters = await StudentCluster.getCurrentClusters();
+      console.log('✅ Кластери завантажено з бази даних');
+      console.log('📊 Кількість кластерів:', currentClusters?.clusters?.length || 0);
+      if (currentClusters?.clusters?.length > 0) {
+        console.log('👥 Назви кластерів:', currentClusters.clusters.map(c => c.name || c.cluster).join(', '));
+      }
+      console.log('📅 Джерело: StudentCluster.getCurrentClusters()');
+      console.log('🔄 Оновлення: Щоквартально');
+      console.log('=== КЛАСТЕРИ СТУДЕНТІВ ЗАВЕРШЕНО ===\n');
       return currentClusters;
     } catch (error) {
-      console.error('Error getting student clusters:', error);
+      console.error('❌ ПОМИЛКА отримання кластерів студентів:', error.message);
+      console.log('🔄 Повертаємо порожні кластери');
+      console.log('=== КЛАСТЕРИ СТУДЕНТІВ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
       return { clusters: [] };
     }
   }
 
   async getSurveyInsights() {
     try {
+      console.log('\n📋 === ОТРИМАННЯ РЕЗУЛЬТАТІВ ОПИТУВАНЬ ===');
       // Use only Google Forms-based survey (by title)
       const surveyTitle = 'Student Profiling Survey for MBA Program';
+      console.log('🔍 Пошук опитування:', surveyTitle);
+      
       const survey = await Survey.findOne({ title: surveyTitle });
       if (!survey) {
+        console.log('⚠️ Опитування не знайдено в базі даних');
+        console.log('🔄 Повертаємо порожні результати');
+        console.log('=== РЕЗУЛЬТАТИ ОПИТУВАНЬ ЗАВЕРШЕНО ===\n');
         return {
           totalResponses: 0,
           commonChallenges: [],
@@ -377,12 +516,21 @@ ${syllabusText}
           learningPreferences: []
         };
       }
+      
+      console.log('✅ Опитування знайдено, ID:', survey._id);
+      console.log('📊 Кількість питань:', survey.questions?.length || 0);
+      
       // Get recent responses for that survey
       const recentSurveys = await SurveyResponse.find({ survey: survey._id })
         .sort({ createdAt: -1 })
         .limit(100);
 
+      console.log('📥 Завантажено відповідей:', recentSurveys.length, '(максимум 100)');
+
       if (recentSurveys.length === 0) {
+        console.log('⚠️ Відповіді на опитування відсутні');
+        console.log('🔄 Повертаємо порожні результати');
+        console.log('=== РЕЗУЛЬТАТИ ОПИТУВАНЬ ЗАВЕРШЕНО ===\n');
         return {
           totalResponses: 0,
           commonChallenges: [],
@@ -413,20 +561,44 @@ ${syllabusText}
       const decisions = recentSurveys.map(r => findAnswerByText(r, Q.decisions)).filter(Boolean);
       const learningStyles = recentSurveys.map(r => findAnswerByText(r, Q.learningStyle)).filter(Boolean);
 
-      return {
+      console.log('📊 Обробка відповідей:');
+      console.log('  🎯 Виклики на роботі:', challenges.length, 'відповідей');
+      console.log('  🤔 Типи рішень:', decisions.length, 'відповідей');
+      console.log('  📚 Стилі навчання:', learningStyles.length, 'відповідей');
+
+      const commonChallenges = this.extractCommonThemes(challenges);
+      const decisionTypes = this.extractCommonThemes(decisions);
+      const learningPreferences = this.extractCommonThemes(learningStyles);
+
+      console.log('🔍 Виділені спільні теми:');
+      console.log('  🎯 Топ виклики:', commonChallenges.slice(0,3).map(c => c.theme).join(', '));
+      console.log('  🤔 Топ рішення:', decisionTypes.slice(0,3).map(d => d.theme).join(', '));
+      console.log('  📚 Топ стилі:', learningPreferences.slice(0,3).map(l => l.theme).join(', '));
+
+      const insights = {
         totalResponses: recentSurveys.length,
         lastUpdated: recentSurveys[0].createdAt,
-        commonChallenges: this.extractCommonThemes(challenges),
-        decisionTypes: this.extractCommonThemes(decisions), 
-        learningPreferences: this.extractCommonThemes(learningStyles),
+        commonChallenges,
+        decisionTypes, 
+        learningPreferences,
         rawInsights: {
           topChallenges: challenges.slice(0, 10),
           topDecisions: decisions.slice(0, 10),
           topLearningStyles: learningStyles.slice(0, 10)
         }
       };
+
+      console.log('✅ Інсайти опитувань підготовано');
+      console.log('📊 Загальна кількість відповідей:', insights.totalResponses);
+      console.log('📅 Останнє оновлення:', insights.lastUpdated);
+      console.log('🔄 Джерело: Google Forms через Survey/SurveyResponse моделі');
+      console.log('=== РЕЗУЛЬТАТИ ОПИТУВАНЬ ЗАВЕРШЕНО ===\n');
+      
+      return insights;
     } catch (error) {
-      console.error('Error getting survey insights:', error);
+      console.error('❌ ПОМИЛКА отримання результатів опитувань:', error.message);
+      console.log('🔄 Повертаємо порожні результати');
+      console.log('=== РЕЗУЛЬТАТИ ОПИТУВАНЬ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
       return { totalResponses: 0, commonChallenges: [], decisionTypes: [], learningPreferences: [] };
     }
   }
@@ -455,28 +627,54 @@ ${syllabusText}
 
   async searchUkrainianCases(studentClusters, syllabusContent) {
     try {
+      console.log('\n  🔍 === ПОШУК УКРАЇНСЬКИХ КЕЙСІВ ===');
+      console.log('  📊 Кластери для пошуку:', studentClusters?.clusters?.length || 0);
+      console.log('  📄 Довжина контенту силабусу для аналізу:', syllabusContent?.length || 0);
+      
       const prompt = `Знайди 3-5 релевантних українських бізнес-кейсів для MBA курсу на основі наступних даних.\n\nКластери студентів: ${JSON.stringify(studentClusters.clusters, null, 2)}\nЗміст курсу (фрагмент): ${syllabusContent.substring(0, 1000)}\n\nДля кожного кейсу поверни поля: title, cluster, description, learningPoints, source, relevanceScore.\nПоверни валідний JSON тільки у форматі: {\\"cases\\": [ ... ]} без додаткового тексту.`;
 
+      console.log('  📝 Довжина промпту:', prompt.length, 'символів');
+      console.log('  🌐 Використання web_search_preview інструменту: ТАК');
+      console.log('  ⚙️ JSON режим: НІ (не сумісний з web_search)');
+
       // Can't use JSON mode with web_search tool: omit text.format
+      const startTime = Date.now();
       const response = await this.openai.responses.create({
         model: this.llmModel,
         tools: [{ type: 'web_search_preview' }],
         input: prompt
       });
+      const endTime = Date.now();
+      
+      console.log('  ⏱️ Час виконання пошуку:', endTime - startTime, 'мс');
 
       const raw = (response.output_text || this.extractResponsesText(response) || '').trim();
+      console.log('  📥 Довжина відповіді:', raw.length, 'символів');
+      console.log('  📋 Початок відповіді:', raw.substring(0, 200) + '...');
+      
       let parsed = this.safeParseJSON(raw);
       if (!parsed) {
+        console.log('  ⚠️ Перший парсинг не вдався, спроба екстракції JSON...');
         // Attempt to extract first JSON object manually
         const match = raw.match(/\{[\s\S]*\}/);
         if (match) {
+          console.log('  🔧 Знайдено JSON в тексті, спроба парсингу...');
           parsed = this.safeParseJSON(match[0]);
         }
       }
       parsed = parsed || {};
-      return Array.isArray(parsed.cases) ? parsed.cases : [];
+      const cases = Array.isArray(parsed.cases) ? parsed.cases : [];
+      
+      console.log('  ✅ Успішно знайдено кейсів:', cases.length);
+      if (cases.length > 0) {
+        console.log('  📋 Кейси:', cases.map(c => `"${c.title || c.company}" (${c.cluster})`));
+      }
+      console.log('  === ПОШУК УКРАЇНСЬКИХ КЕЙСІВ ЗАВЕРШЕНО ===\n');
+      
+      return cases;
     } catch (error) {
-      console.error('Error searching Ukrainian cases (responses API):', error);
+      console.error('  ❌ ПОМИЛКА пошуку українських кейсів:', error.message);
+      console.log('  === ПОШУК УКРАЇНСЬКИХ КЕЙСІВ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
       return [];
     }
   }
@@ -606,8 +804,14 @@ ${syllabusText}
 
   async startPracticalChallenge(syllabusId) {
     try {
+      console.log('\n=== AI ЧЕЛЕНДЖЕР: ПОЧАТОК ВИКЛИКУ ===');
+      console.log('📄 ID силабусу:', syllabusId);
+      
       const syllabus = await Syllabus.findById(syllabusId).select('extractedText analysis');
       if (!syllabus) throw new Error('Syllabus not found');
+
+      console.log('📊 Наявність аналізу:', !!syllabus.analysis);
+      console.log('📄 Довжина тексту силабусу:', syllabus.extractedText?.length || 0, 'символів');
 
       const prompt = `
         Based on the following syllabus text and analysis, generate a single, thought-provoking, open-ended question for the instructor.
@@ -623,6 +827,11 @@ ${syllabusText}
         Generate only the question, without any introductory text.
       `;
 
+      console.log('📝 Довжина промпту:', prompt.length, 'символів');
+      console.log('🎯 Профіль студентів: IT, Finance, Military, Management');
+      console.log('🌐 Мова питання: Українська');
+
+      const startTime = Date.now();
       const response = await this.openai.responses.create({
         model: this.llmModel,
         input: [
@@ -630,29 +839,46 @@ ${syllabusText}
           { role: 'user', content: prompt }
         ]
       });
+      const endTime = Date.now();
+
+      console.log('⏱️ Час генерації питання:', endTime - startTime, 'мс');
 
       const initialQuestion = (response.output_text || this.extractResponsesText(response) || '').trim();
+      console.log('❓ Згенероване питання (довжина):', initialQuestion.length, 'символів');
+      console.log('❓ Питання:', initialQuestion.substring(0, 150) + '...');
 
       await Syllabus.findByIdAndUpdate(syllabusId, {
         'practicalChallenge.initialQuestion': initialQuestion,
         'practicalChallenge.status': 'pending'
       });
 
+      console.log('💾 Питання збережено в базі даних');
+      console.log('📊 Статус челенджера: pending');
+      console.log('=== AI ЧЕЛЕНДЖЕР ПОЧАТОК ЗАВЕРШЕНО ===\n');
+
       return initialQuestion;
     } catch (error) {
-      console.error('Error starting practical challenge:', error);
+      console.error('❌ ПОМИЛКА початку челенджера:', error.message);
+      console.log('=== AI ЧЕЛЕНДЖЕР ПОЧАТОК ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
       // Don't throw error up, as this is a non-critical background task
     }
   }
 
   async respondToChallenge(syllabusId, instructorResponse) {
     try {
+      console.log('\n=== AI ЧЕЛЕНДЖЕР: ВІДПОВІДЬ НА ВИКЛИК ===');
+      console.log('📄 ID силабусу:', syllabusId);
+      console.log('👨‍🏫 Відповідь викладача (довжина):', instructorResponse?.length || 0, 'символів');
+      
       const syllabus = await Syllabus.findById(syllabusId);
       if (!syllabus) throw new Error('Syllabus not found');
 
       const discussion = Array.isArray(syllabus.practicalChallenge?.discussion)
         ? syllabus.practicalChallenge.discussion
         : [];
+
+      console.log('💬 Попередніх обмінів в дискусії:', discussion.length);
+      console.log('❓ Початкове питання:', syllabus.practicalChallenge?.initialQuestion || 'Відсутнє');
 
       const discussionHistory = discussion.map(d => 
         `Instructor: ${d.instructorResponse}\nAI: ${d.aiResponse}`
@@ -678,6 +904,10 @@ ${syllabusText}
         Keep the response concise and professional.
       `;
 
+      console.log('📝 Довжина промпту:', prompt.length, 'символів');
+      console.log('🎯 Контекст: Кластери IT, Finance, Military, Management');
+
+      const startTime = Date.now();
       const response = await this.openai.responses.create({
         model: this.llmModel,
         input: [
@@ -685,8 +915,12 @@ ${syllabusText}
           { role: 'user', content: prompt }
         ]
       });
+      const endTime = Date.now();
+
+      console.log('⏱️ Час виконання запиту до AI:', endTime - startTime, 'мс');
 
       const aiResponse = (response.output_text || this.extractResponsesText(response) || '').trim();
+      console.log('📥 Довжина AI відповіді:', aiResponse.length, 'символів');
 
       // Add to discussion history
       if (!Array.isArray(syllabus.practicalChallenge.discussion)) {
@@ -698,14 +932,22 @@ ${syllabusText}
         respondedAt: new Date()
       });
       await syllabus.save();
+      
+      console.log('💾 Дискусію збережено в базі даних');
+      console.log('💬 Загальна кількість обмінів:', syllabus.practicalChallenge.discussion.length);
 
       // OPTIONAL: generate 1-2 concise improvement recommendations derived from AI response
+      console.log('\n--- ЕКСТРАКЦІЯ РЕКОМЕНДАЦІЙ З AI ВІДПОВІДІ ---');
       try {
         const recPrompt = `Виділи з наступної відповіді AI до викладача 1-2 найкорисніші конкретні покращення силабусу у форматі JSON:
 {"recommendations":[{"category":"content|structure|objectives|assessment|cases|methods","title":"Коротка назва","description":"Лаконічний опис <=160 символів"}]}
 Текст відповіді:
 ${aiResponse}
 Поверни тільки JSON.`;
+
+        console.log('📝 Промпт для екстракції (довжина):', recPrompt.length, 'символів');
+        
+        const recStartTime = Date.now();
         const recResp = await this.openai.responses.create({
           model: this.llmModel,
           input: [
@@ -714,7 +956,13 @@ ${aiResponse}
           ],
           text: { format: 'json' }
         });
+        const recEndTime = Date.now();
+        
+        console.log('⏱️ Час екстракції:', recEndTime - recStartTime, 'мс');
+        
         const rawRec = (recResp.output_text || this.extractResponsesText(recResp) || '').trim();
+        console.log('📥 Сира відповідь екстракції:', rawRec.substring(0, 200) + '...');
+        
         const parsed = this.safeParseJSON(rawRec) || {};
         const newRecs = (parsed.recommendations || []).slice(0,2).map(r => ({
           id: 'chlg_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
@@ -724,23 +972,34 @@ ${aiResponse}
           priority: 'medium',
           status: 'pending'
         }));
+        
+        console.log('✅ Екстраговано рекомендацій:', newRecs.length);
         if (newRecs.length) {
+          console.log('📋 Нові рекомендації:', newRecs.map(r => `"${r.title}" (${r.category})`));
           syllabus.recommendations.push(...newRecs);
           await syllabus.save();
+          console.log('💾 Рекомендації додано до силабусу');
         }
       } catch(ex){
-        console.warn('Challenge recommendation extraction failed (non-critical):', ex.message);
+        console.warn('⚠️ Екстракція рекомендацій не вдалася (не критично):', ex.message);
       }
 
+      console.log('=== AI ЧЕЛЕНДЖЕР ВІДПОВІДЬ ЗАВЕРШЕНО ===\n');
       return aiResponse;
     } catch (error) {
-      console.error('Error responding to challenge:', error);
+      console.error('❌ ПОМИЛКА відповіді на челенджер:', error.message);
+      console.log('=== AI ЧЕЛЕНДЖЕР ВІДПОВІДЬ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
       throw new Error('Failed to generate AI response for challenge.');
     }
   }
 
   async generateInteractiveRecommendations(topic, studentClusters = [], difficulty = 'intermediate') {
     try {
+      console.log('\n=== ГЕНЕРАЦІЯ ІНТЕРАКТИВНИХ РЕКОМЕНДАЦІЙ ===');
+      console.log('📝 Тема:', topic);
+      console.log('👥 Кластери студентів:', studentClusters);
+      console.log('📊 Рівень складності:', difficulty);
+      
       const prompt = `
         Generate a list of 3-5 practical and interactive teaching recommendations for an MBA course on the topic of "${topic}".
         The recommendations should be tailored for the following student clusters: ${studentClusters.join(', ')}.
@@ -756,20 +1015,40 @@ ${aiResponse}
         Provide the output as a JSON object containing a single key "recommendations" which is an array of objects. For example: {"recommendations": [...]}.
       `;
 
-  const response = await this.openai.responses.create({
+      console.log('📝 Довжина промпту:', prompt.length, 'символів');
+      console.log('🤖 Модель AI:', this.llmModel);
+      console.log('⚙️ JSON режим: ТАК');
+
+      const startTime = Date.now();
+      const response = await this.openai.responses.create({
         model: this.llmModel,
         input: [
           { role: 'system', content: 'You are an expert in curriculum design for MBA programs. Generate practical, interactive teaching ideas in JSON format.' },
           { role: 'user', content: prompt }
         ],
         text: { format: 'json' }
-  });
+      });
+      const endTime = Date.now();
+
+      console.log('⏱️ Час виконання запиту до AI:', endTime - startTime, 'мс');
 
       const raw = (response.output_text || this.extractResponsesText(response) || '').trim();
+      console.log('📥 Довжина відповіді:', raw.length, 'символів');
+      console.log('📋 Початок відповіді:', raw.substring(0, 200) + '...');
+      
       const recommendations = this.safeParseJSON(raw) || {};
-      return recommendations.recommendations || recommendations; // Handle potential nesting
+      const finalRecommendations = recommendations.recommendations || recommendations; // Handle potential nesting
+      
+      console.log('✅ Успішно згенеровано рекомендацій:', Array.isArray(finalRecommendations) ? finalRecommendations.length : 0);
+      if (Array.isArray(finalRecommendations) && finalRecommendations.length > 0) {
+        console.log('🎯 Типи активностей:', finalRecommendations.map(r => r.type).join(', '));
+      }
+      console.log('=== ГЕНЕРАЦІЯ ІНТЕРАКТИВНИХ РЕКОМЕНДАЦІЙ ЗАВЕРШЕНО ===\n');
+      
+      return finalRecommendations;
     } catch (error) {
-      console.error('Error generating interactive recommendations:', error);
+      console.error('❌ ПОМИЛКА генерації інтерактивних рекомендацій:', error.message);
+      console.log('=== ГЕНЕРАЦІЯ ІНТЕРАКТИВНИХ РЕКОМЕНДАЦІЙ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
       throw new Error('Failed to generate interactive recommendations.');
     }
   }
