@@ -70,6 +70,8 @@ class AIService {
   }
 
   initializeStaticContent() {
+    console.log('🔧 === ІНІЦІАЛІЗАЦІЯ СТАТИЧНОГО КОНТЕНТУ ===');
+    console.log('📋 Завантаження шаблону силабусу MBA...');
     // MBA Syllabus Template (static, unchanging)
     this.syllabusTemplate = `
 📌  ROLE  
@@ -123,6 +125,7 @@ Act strictly as a mentor, challenger, and quality guardian; never replace the in
 • No extra sections beyond those specified.
     `;
 
+    console.log('🎯 Завантаження навчальних цілей MBA-27...');
     // MBA Learning Objectives (static, unchanging)
     this.mbaLearningObjectives = `
 MBA-27 Learning Objectives for Kyiv School of Economics:
@@ -178,7 +181,11 @@ MBA-27 Learning Objectives for Kyiv School of Economics:
     - Leverage technology for competitive advantage
     `;
 
-    console.log('✅ Static content initialized successfully');
+    console.log('✅ Статичний контент успішно ініціалізовано');
+    console.log('📊 Довжина шаблону силабусу:', this.syllabusTemplate.length, 'символів');
+    console.log('📊 Довжина навчальних цілей:', this.mbaLearningObjectives.length, 'символів');
+    console.log('🎯 Кількість навчальних цілей: 10 основних категорій');
+    console.log('=== ІНІЦІАЛІЗАЦІЯ СТАТИЧНОГО КОНТЕНТУ ЗАВЕРШЕНО ===\n');
   }
 
   async analyzeSyllabus(syllabusId) {
