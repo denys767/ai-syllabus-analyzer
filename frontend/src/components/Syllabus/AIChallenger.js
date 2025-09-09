@@ -3,7 +3,7 @@ import { Box, Typography, TextField, Button, CircularProgress, Paper, Avatar, Gr
 import { Psychology, School } from '@mui/icons-material';
 import api from '../../services/api';
 
-const AIChallenger = ({ syllabus, onChallengeUpdate }) => {
+const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => {
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -19,30 +19,23 @@ const AIChallenger = ({ syllabus, onChallengeUpdate }) => {
     setLoading(true);
     setError('');
     try {
-      // Respond and let backend persist discussion; backend will also decide next AI reply
-      await api.post('/ai/challenge/respond', {
+      const res = await api.post('/ai/challenge/respond', {
         syllabusId: syllabus._id,
         response: response,
       });
       setResponse('');
-      // If reached max rounds, finalize to summary
+      // Backend returns updated challenge + any new recs
+      if (res.data?.newRecommendations && onNewRecommendations) {
+        onNewRecommendations(res.data.newRecommendations);
+      }
       if (discussionCount + 1 >= maxRounds) {
-        try {
-          await api.post(`/syllabus/${syllabus._id}/challenge/finalize`);
-        } catch (e) {
-          console.warn('Finalize challenge failed (non-critical):', e?.response?.data || e.message);
-        }
+        try { await api.post(`/syllabus/${syllabus._id}/challenge/finalize`); } catch(e){ /* non-critical */ }
       }
-      // Notify parent component to refetch syllabus data
-      if (onChallengeUpdate) {
-        onChallengeUpdate();
-      }
+      if (onChallengeUpdate) onChallengeUpdate();
     } catch (err) {
-      setError(err.response?.data?.message || 'An error occurred.');
+      setError(err.response?.data?.message || 'Помилка запиту');
       console.error(err);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   
@@ -72,7 +65,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate }) => {
               <Typography variant="body2">{challenge.initialQuestion}</Typography>
             </Paper>
           </Grid>
-        </Grid>
+  </Grid>
 
         {/* Discussion History */}
         {challenge.discussion && challenge.discussion.map((entry, index) => (

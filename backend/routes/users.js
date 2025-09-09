@@ -25,25 +25,12 @@ router.get('/stats', auth, async (req, res) => {
     });
     
     
-    // Calculate AI score (average quality score across user's syllabi)
-    const syllabi = await Syllabus.find({ instructor: userId });
-    let aiScore = 0;
-    
-    if (syllabi.length > 0) {
-      const scores = syllabi
-        .filter(s => s.analysis?.templateCompliance?.score)
-        .map(s => s.analysis.templateCompliance.score);
-      
-      if (scores.length > 0) {
-        aiScore = Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
-      }
-    }
-    
+    // Deprecated AI score removed (numeric scoring no longer used)
+
     const stats = {
       totalSyllabi,
       analyzedSyllabi,
-  // completedSurveys: 0, // metric not implemented currently
-      aiScore
+      // aiScore removed
     };
     
     res.json(stats);

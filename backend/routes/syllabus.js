@@ -603,105 +603,136 @@ router.get('/:id/download-modified', auth, async (req, res) => {
     if (!syllabus) return res.status(404).json({ message: 'Силабус не знайдено' });
     if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Доступ заборонено' });
 
-    // If already generated and file exists — stream it
-    if (syllabus.modifiedFile?.path) {
-      try {
-        await fs.access(syllabus.modifiedFile.path);
-        return res.download(syllabus.modifiedFile.path, syllabus.modifiedFile.originalName);
-      } catch (_) {
-        // proceed to regenerate
-      }
-    }
-
+    // Regenerate fresh TXT with inline angle-bracket comments: "...оригінальний текст... <КОМЕНТАР>"
     const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
     const original = (syllabus.extractedText || '').trim();
-
-    // Build simple heuristic: append numbered markers like [[AI-REC-1]] near the end of the document with a summary list.
-    // TRUE Word "track changes" not supported by docx lib; we emulate comments section.
-    const commentSectionHeader = '\n\n=== КОМЕНТАРІ ТА ВПРОВАДЖЕНІ РЕКОМЕНДАЦІЇ AI ===\n';
-    const list = accepted.map((r, i) => `[[AI-REC-${i + 1}]] ${r.title || 'Рекомендація'} — ${r.description || ''}`);
-    const noAcceptedNote = 'Немає прийнятих рекомендацій (файл сформовано без змін).';
-
-    // Decide output format: prefer DOCX if dependency available, else fallback to TXT
-    let useDocx = false;
-    let docx;
-    try {
-      // Lazy require to avoid crash if optional dep missing
-      docx = require('docx');
-      useDocx = !!docx;
-    } catch (e) {
-      useDocx = false;
+    const lines = original.split(/\n+/);
+    const keywordMap = {
+      structure: [/objective|ціл[ії]/i, /assessment|оцінюв/i, /schedule|розклад/i],
+      objectives: [/objective|ціл[ії]/i],
+      assessment: [/assessment|оцінюв/i],
+      cases: [/case|кейс|приклад/i],
+      methods: [/method|метод|активн|interactive|інтерактив/i],
+      content: [/course|module|модул/i]
+    };
+    const used = new Set();
+    function buildComment(rec, idx){
+      const base = `${rec.title || 'Рекомендація'}: ${(rec.description||'').replace(/\s+/g,' ').slice(0,220)}`;
+      const instr = rec.instructorComment ? ` Коментар викладача: ${rec.instructorComment.replace(/\s+/g,' ').slice(0,160)}` : '';
+      return `<${idx+1}. ${base}${instr}>`;
     }
-
+    const annotated = lines.map(line => {
+      let appended = line;
+      accepted.forEach((rec, i) => {
+        if (used.has(i)) return;
+        const pats = keywordMap[rec.category] || [];
+        if (pats.some(r => r.test(line))) {
+          appended = line + ' ' + buildComment(rec, i);
+          used.add(i);
+        }
+      });
+      return appended;
+    });
+    // Append any remaining accepted recs at end in a dedicated section
+    const remaining = accepted.filter((_, i) => !used.has(i));
+    if (remaining.length) {
+      annotated.push('', '=== ДОДАНІ КОМЕНТАРІ БЕЗ ПРИВ\'ЯЗКИ ДО РЯДКА ===');
+      remaining.forEach((rec, i) => {
+        const globalIndex = accepted.indexOf(rec);
+        annotated.push(buildComment(rec, globalIndex));
+      });
+    }
+    if (!accepted.length) {
+      annotated.push('', '<Немає прийнятих рекомендацій — змін не внесено>');
+    }
+    const merged = annotated.join('\n');
     const outDir = require('path').join(__dirname, '../uploads/syllabi');
     await fs.mkdir(outDir, { recursive: true });
     const base = (syllabus.originalFile?.originalName || syllabus.title || 'syllabus').replace(/\.[^.]+$/, '');
-
-    if (useDocx) {
-      const { Document, Packer, Paragraph, HeadingLevel, TextRun } = docx;
-      const paragraphs = [];
-      paragraphs.push(new Paragraph({ text: 'ОНОВЛЕНИЙ СИЛАБУС', heading: HeadingLevel.TITLE }));
-      paragraphs.push(new Paragraph({ text: 'Версія з інтегрованими прийнятими рекомендаціями AI', spacing: { after: 200 } }));
-
-      // Split original text into paragraphs to avoid giant run
-      original.split(/\n+/).forEach(line => {
-        const trimmed = line.trim();
-        if (trimmed.length) paragraphs.push(new Paragraph(trimmed));
-      });
-
-      paragraphs.push(new Paragraph({ text: ' ', spacing: { after: 200 } }));
-      paragraphs.push(new Paragraph({ text: 'Коментарі та впроваджені рекомендації', heading: HeadingLevel.HEADING_1 }));
-      if (accepted.length === 0) {
-        paragraphs.push(new Paragraph(noAcceptedNote));
-      } else {
-        accepted.forEach((r, i) => {
-          paragraphs.push(new Paragraph({ children: [
-            new TextRun({ text: `[#${i + 1}] ${r.title || 'Рекомендація'} `, bold: true }),
-            new TextRun({ text: (r.description || '').slice(0, 600) })
-          ] }));
-          if (r.instructorComment) {
-            paragraphs.push(new Paragraph({ children: [ new TextRun({ text: 'Коментар викладача: ', italics: true }), new TextRun(r.instructorComment) ] }));
-          }
-        });
-      }
-
-      const doc = new Document({ sections: [{ properties: {}, children: paragraphs }] });
-      const buffer = await Packer.toBuffer(doc);
-      const filename = `${base}-modified-${Date.now()}.docx`;
-      const fullPath = require('path').join(outDir, filename);
-      await fs.writeFile(fullPath, buffer);
-      syllabus.modifiedFile = {
-        filename,
-        originalName: filename,
-        path: fullPath,
-        size: buffer.length,
-        generatedAt: new Date(),
-        mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      };
-      await syllabus.save();
-      return res.download(fullPath, filename);
-    } else {
-      // Fallback plaintext
-      const header = 'ОНОВЛЕНИЙ СИЛАБУС (з інтегрованими AI-рекомендаціями)\n';
-      const changesHeader = commentSectionHeader + (accepted.length ? list.join('\n') : noAcceptedNote) + '\n';
-      const merged = header + original + changesHeader;
-      const filename = `${base}-modified-${Date.now()}.txt`;
-      const fullPath = require('path').join(outDir, filename);
-      await fs.writeFile(fullPath, merged, 'utf8');
-      syllabus.modifiedFile = {
-        filename,
-        originalName: filename,
-        path: fullPath,
-        size: Buffer.byteLength(merged, 'utf8'),
-        generatedAt: new Date(),
-        mimetype: 'text/plain'
-      };
-      await syllabus.save();
-      return res.download(fullPath, filename);
-    }
+    const filename = `${base}-modified-${Date.now()}.txt`;
+    const fullPath = require('path').join(outDir, filename);
+    await fs.writeFile(fullPath, merged, 'utf8');
+    syllabus.modifiedFile = {
+      filename,
+      originalName: filename,
+      path: fullPath,
+      size: Buffer.byteLength(merged, 'utf8'),
+      generatedAt: new Date(),
+      mimetype: 'text/plain'
+    };
+    await syllabus.save();
+    return res.download(fullPath, filename);
   } catch (error) {
     console.error('Download modified syllabus error:', error);
     res.status(500).json({ message: 'Внутрішня помилка сервера' });
+  }
+});
+
+// Direct download of edited plain text (uses editedText if exists, else fallback to generate on the fly without persisting)
+router.get('/:id/download-edited-txt', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id);
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+    if (!syllabus.editedText) {
+      return res.status(400).json({ message: 'Edited text not generated yet' });
+    }
+    const base = (syllabus.originalFile?.originalName || syllabus.title || 'syllabus').replace(/\.[^.]+$/, '');
+    const filename = `${base}-edited.txt`;
+    res.setHeader('Content-Type','text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition',`attachment; filename="${filename}"`);
+    return res.send(syllabus.editedText);
+  } catch (e) {
+    console.error('Download edited txt error:', e);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Generate editedText (inline comments) after accept/reject phase
+router.post('/:id/generate-edited-text', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id);
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+    const accepted = (syllabus.recommendations||[]).filter(r=> r.status==='accepted');
+    const original = (syllabus.extractedText||'').trim();
+    const lines = original.split(/\n+/);
+    const keywordMap = {
+      structure: [/objective|ціл[ії]/i, /assessment|оцінюв/i, /schedule|розклад/i],
+      objectives: [/objective|ціл[ії]/i],
+      assessment: [/assessment|оцінюв/i],
+      cases: [/case|кейс|приклад/i],
+      methods: [/method|метод|активн|interactive|інтерактив/i],
+      content: [/course|module|модул/i]
+    };
+    const used = new Set();
+    const buildComment = (rec, idx) => {
+      const changeText = (rec.description||'').replace(/\s+/g,' ').slice(0,240);
+      const recCore = `${rec.title || 'Рекомендація'} — ${changeText}`;
+      return `<${idx+1}. ${recCore}>`;
+    };
+    const annotated = lines.map(line => {
+      let out = line;
+      accepted.forEach((rec,i) => {
+        if (used.has(i)) return;
+        const pats = keywordMap[rec.category]||[];
+        if (pats.some(r=> r.test(line))) { out = line + ' ' + buildComment(rec,i); used.add(i); }
+      });
+      return out;
+    });
+    const remaining = accepted.filter((_,i)=> !used.has(i));
+    if (remaining.length) {
+      annotated.push('', '=== КОМЕНТАРІ БЕЗ ПРИВ\'ЯЗКИ ===');
+      remaining.forEach(r => annotated.push(buildComment(r, accepted.indexOf(r))));
+    }
+    if (!accepted.length) annotated.push('', '<Немає прийнятих рекомендацій – змін не внесено>');
+    syllabus.editedText = annotated.join('\n');
+    await syllabus.save();
+    return res.json({ message: 'Edited text generated', editedText: syllabus.editedText });
+  } catch (e) {
+    console.error('Generate edited text error:', e);
+    return res.status(500).json({ message: 'Internal server error' });
   }
 });
 

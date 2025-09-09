@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Typography,
@@ -8,8 +8,12 @@ import {
   TextField,
   Paper,
   Divider,
+  Tabs,
+  Tab,
+  CircularProgress,
 } from '@mui/material';
 import api from '../../services/api';
+import AIChallenger from './AIChallenger';
 
 const StatusChip = ({ status }) => {
   const color =
@@ -22,11 +26,45 @@ const PriorityChip = ({ priority }) => {
   return <Chip label={`priority: ${priority || 'medium'}`} color={color} size="small" variant="outlined" />;
 };
 
-export default function RecommendationsPanel({ syllabusId, recommendations = [], onChanged }) {
+export default function RecommendationsPanel({ syllabusId, recommendations = [], onChanged, syllabus }) {
   const [workingId, setWorkingId] = useState(null);
   const [commentingId, setCommentingId] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [error, setError] = useState('');
+  const [tab, setTab] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [editedReady, setEditedReady] = useState(!!syllabus?.editedText);
+
+  // Map internal category to UA group tag per spec
+  const tagMap = {
+    structure: 'Відповідність до шаблону',
+    objectives: 'Відповідність до learning objectives',
+    cases: 'Інтеграція прикладів для кластеру студентів',
+    content: 'Інші покращення контенту',
+    assessment: 'Оцінювання',
+    methods: 'Методика / інтерактив'
+  };
+
+  const grouped = useMemo(() => {
+    const groups = {
+      'Відповідність до шаблону': [],
+      'Відповідність до learning objectives': [],
+      'Збіг з попередніми силабусами': [],
+      'Інтеграція прикладів для кластеру студентів': [],
+      'Інше': []
+    };
+    recommendations.forEach(r => {
+      if (r.category === 'structure') groups['Відповідність до шаблону'].push(r);
+      else if (r.category === 'objectives') groups['Відповідність до learning objectives'].push(r);
+      else if (r.category === 'cases') groups['Інтеграція прикладів для кластеру студентів'].push(r);
+      else if (r.category === 'content' || r.category === 'methods' || r.category === 'assessment') groups['Інше'].push(r);
+    });
+    // Placeholder: plagiarism based recs would be inserted here if backend supplies category
+    return groups;
+  }, [recommendations]);
+
+  const tabs = Object.keys(grouped);
 
   const update = async (rec, data) => {
     try {
@@ -43,6 +81,34 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
     }
   };
 
+  const allAccepted = recommendations.some(r => r.status === 'accepted');
+
+  const triggerBackendGeneration = async () => {
+    if (!syllabus) return;
+    try {
+      setGenerating(true);
+      await api.post(`/syllabus/${syllabus._id}/generate-edited-text`);
+      setEditedReady(true);
+      setEditing(false);
+      if (onChanged) onChanged();
+    } catch(e){ setError('Не вдалося згенерувати оновлений текст'); }
+    finally { setGenerating(false); }
+  };
+  const downloadEdited = async () => {
+    try {
+      setGenerating(true);
+      const resp = await api.get(`/syllabus/${syllabus._id}/download-edited-txt`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([resp.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${(syllabus.title||'syllabus')}-edited.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch(e){ setError('Не вдалося завантажити файл'); }
+    finally { setGenerating(false); }
+  };
   return (
     <Box sx={{
       // Make the panel feel wider by relaxing max width constraints inside the Paper
@@ -54,6 +120,14 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Приймайте або відхиляйте пропозиції змін до силабусу. Після завершення буде згенеровано оновлений файл.
       </Typography>
+      <Tabs value={tab} onChange={(e,v)=> setTab(v)} sx={{ mb:2 }} variant="scrollable" scrollButtons allowScrollButtonsMobile>
+        {tabs.map(label => <Tab key={label} label={`${label} (${grouped[label].length})`} />)}
+      </Tabs>
+      <Stack direction="row" spacing={1} sx={{ mb:2 }}>
+        <Button size="small" variant={editing? 'contained':'outlined'} disabled={!allAccepted} onClick={()=> setEditing(v=>!v)}>Редагувати текст силабусу</Button>
+  {editing && <Button size="small" variant="contained" color="secondary" onClick={triggerBackendGeneration} disabled={generating}>{generating? <CircularProgress size={16}/> : 'Згенерувати текст з коментарями'}</Button>}
+  {!editing && editedReady && <Button size="small" variant="contained" color="success" onClick={downloadEdited} disabled={generating}>{generating? <CircularProgress size={16}/> : 'Завантажити відредагований TXT'}</Button>}
+      </Stack>
       {error && (
         <Typography color="error" variant="caption" sx={{ display: 'block', mb: 1 }}>
           {error}
@@ -70,7 +144,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
           '& > *': { width: '100%' }
         }
       }}>
-        {recommendations.map((rec, idx) => (
+        {(grouped[tabs[tab]]||[]).map((rec, idx) => (
           <Paper key={rec._id || rec.id || idx} className="rec-card" sx={{ p: 2 }} variant="outlined">
             <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
               <Stack direction="row" spacing={1} alignItems="center">
@@ -149,6 +223,10 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
           </Paper>
         ))}
       </Stack>
+      {/* Inline AI Challenger */}
+      <Box sx={{ mt:4 }}>
+        <AIChallenger syllabus={syllabus} onChallengeUpdate={onChanged} />
+      </Box>
     </Box>
   );
 }

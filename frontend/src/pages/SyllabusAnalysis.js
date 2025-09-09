@@ -3,8 +3,6 @@ import { useParams } from 'react-router-dom';
 import { Box, Typography, CircularProgress, Alert, Container, Paper, Grid, Stack, Button, Snackbar, Alert as MuiAlert } from '@mui/material';
 import api from '../services/api';
 import RecommendationsPanel from '../components/Syllabus/RecommendationsPanel';
-import AIChallenger from '../components/Syllabus/AIChallenger';
-import InteractiveRecommendations from '../components/Syllabus/InteractiveRecommendations';
 
 const SyllabusAnalysis = () => {
   const { id } = useParams();
@@ -96,19 +94,13 @@ const SyllabusAnalysis = () => {
           <Paper sx={{ p: 2 }}>
             <RecommendationsPanel
               syllabusId={syllabus._id}
+              syllabus={syllabus}
               recommendations={syllabus.recommendations || []}
               onChanged={fetchSyllabus}
             />
           </Paper>
         </Grid>
-  <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 2, mb: 3 }}>
-            <AIChallenger syllabus={syllabus} onChallengeUpdate={fetchSyllabus} />
-          </Paper>
-          <Paper sx={{ p: 2 }}>
-            <InteractiveRecommendations syllabus={syllabus} />
-          </Paper>
-        </Grid>
+
       </Grid>
   </Container>
   <Snackbar open={!!exportError} autoHideDuration={4000} onClose={()=> setExportError('')} anchorOrigin={{ vertical:'bottom', horizontal:'center' }}>

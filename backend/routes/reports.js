@@ -75,8 +75,6 @@ router.get('/manager-summary', auth, manager, async (req, res) => {
         totalCommented: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'commented').length, 0)
       },
       learningOutcomesAlignment: {
-        averageScore: syllabi.length > 0 ?
-          syllabi.reduce((sum, s) => sum + (s.analysis?.learningObjectivesAlignment?.score || 0), 0) / syllabi.length : 0,
         coveredObjectives: [...new Set(syllabi.flatMap(s => s.analysis?.learningObjectivesAlignment?.alignedObjectives || []))],
         gaps: [...new Set(syllabi.flatMap(s => s.analysis?.learningObjectivesAlignment?.missingObjectives || []))]
       },
@@ -384,9 +382,8 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
 
       // Section 3: Оцінка практичності та інтерактивності
       h2('Оцінка практичності та інтерактивності курсу');
-  const compScore = (syllabus.structure?.completenessScore || 0);
-  const practicalityScore = Math.round(((baseReport.analysis?.templateCompliance?.score||0)*0.3 + compScore*0.3 + Math.min(100,(syllabus.practicalChallenge?.aiSuggestions?.length||0)*10)*0.4));
-      p(`Інтегральна оцінка практичності: ${Math.max(0, Math.min(100, practicalityScore))}/100`);
+  // Deprecated numeric practicality score removed
+      p('Інтегральна оцінка практичності (якісна): формалізоване числове оцінювання видалено.');
       const ideas = Array.isArray(syllabus.practicalChallenge?.aiSuggestions) ? syllabus.practicalChallenge.aiSuggestions : [];
       if (ideas.length) {
         p('Інтерактивні пропозиції:');
@@ -531,16 +528,8 @@ function getOverallAssessment(qualityScore) {
 
 function getKeyStrengths(syllabus) {
   const strengths = [];
-  
-  if (syllabus.analysis?.templateCompliance?.score >= 80) {
-    strengths.push('Well-structured with all required sections');
-  }
-  if (syllabus.analysis?.learningObjectivesAlignment?.score >= 80) {
-    strengths.push('Strong alignment with MBA learning objectives');
-  }
-  if (syllabus.analysis?.plagiarismCheck?.uniquenessScore >= 80) {
-    strengths.push('Highly unique content');
-  }
+  if ((syllabus.analysis?.templateCompliance?.missingElements||[]).length === 0) strengths.push('Required sections present');
+  if ((syllabus.analysis?.learningObjectivesAlignment?.missingObjectives||[]).length === 0) strengths.push('Breadth of learning objectives addressed');
   if (syllabus.recommendations.filter(r => r.status === 'accepted').length > syllabus.recommendations.length * 0.7) {
     strengths.push('High engagement with improvement recommendations');
   }
@@ -550,16 +539,8 @@ function getKeyStrengths(syllabus) {
 
 function getAreasForImprovement(syllabus) {
   const improvements = [];
-  
-  if (syllabus.analysis?.templateCompliance?.score < 70) {
-    improvements.push('Course structure and required sections');
-  }
-  if (syllabus.analysis?.learningObjectivesAlignment?.score < 70) {
-    improvements.push('Alignment with MBA learning objectives');
-  }
-  if (syllabus.analysis?.plagiarismCheck?.uniquenessScore < 70) {
-    improvements.push('Content uniqueness and originality');
-  }
+  if ((syllabus.analysis?.templateCompliance?.missingElements||[]).length > 0) improvements.push('Add missing required sections');
+  if ((syllabus.analysis?.learningObjectivesAlignment?.missingObjectives||[]).length > 0) improvements.push('Cover missing learning objectives');
   if (syllabus.recommendations.filter(r => r.status === 'pending').length > 3) {
     improvements.push('Response to improvement recommendations');
   }
@@ -754,7 +735,7 @@ async function generateTimeSeriesData(dateFilter, syllabusQuery) {
         $group: {
           _id: null,
           count: { $sum: 1 },
-          avgQuality: { $avg: '$analysis.templateCompliance.score' }
+          // Removed avgQuality (numeric scoring deprecated)
         }
       }
     ]);
@@ -786,9 +767,9 @@ function generateCSVExport(syllabi) {
     s.createdAt.toISOString().split('T')[0],
     s.status,
     s.calculateQualityScore(),
-    s.analysis?.templateCompliance?.score || 0,
-    s.analysis?.learningObjectivesAlignment?.score || 0,
-    s.analysis?.plagiarismCheck?.uniquenessScore || 0,
+  0,
+  0,
+  0,
     s.recommendations.length,
     s.recommendations.filter(r => r.status === 'accepted').length,
     s.recommendations.filter(r => r.status === 'rejected').length
@@ -823,9 +804,9 @@ async function generateExcelExportBuffer(syllabi) {
       (s.instructor && s.instructor.department) || '',
       s.status,
       s.calculateQualityScore(),
-      s.analysis?.templateCompliance?.score || 0,
-      s.analysis?.learningObjectivesAlignment?.score || 0,
-      s.analysis?.plagiarismCheck?.uniquenessScore || 0,
+  0,
+  0,
+  0,
       s.recommendations.length,
       s.recommendations.filter(r=>r.status==='accepted').length,
       s.recommendations.filter(r=>r.status==='rejected').length,

@@ -42,22 +42,23 @@ const syllabusSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // Generated annotated version with inline comments after applying accepted recommendations
+  editedText: {
+    type: String
+  },
   structure: {
     hasObjectives: Boolean,
     hasAssessment: Boolean,
     hasSchedule: Boolean,
     hasResources: Boolean,
-    completenessScore: Number,
     missingParts: [String]
   },
   analysis: {
     templateCompliance: {
-      score: Number,
       missingElements: [String],
       recommendations: [String]
     },
     learningObjectivesAlignment: {
-      score: Number,
       alignedObjectives: [String],
       missingObjectives: [String],
       recommendations: [String]
@@ -84,7 +85,6 @@ const syllabusSchema = new mongoose.Schema({
         course: String,
         year: Number
       }],
-      uniquenessScore: Number,
       riskLevel: {
         type: String,
         enum: ['low', 'medium', 'high']
@@ -103,6 +103,8 @@ const syllabusSchema = new mongoose.Schema({
       enum: ['structure', 'content', 'objectives', 'assessment', 'cases', 'methods'],
       required: true
     },
+  // UI grouping tag (UA labels) — NOT enforced enum to allow future expansion
+  groupTag: { type: String }, // e.g. "Відповідність до шаблону"
     title: String,
     description: String,
     priority: {
@@ -160,7 +162,7 @@ const syllabusSchema = new mongoose.Schema({
 syllabusSchema.index({ instructor: 1, createdAt: -1 });
 syllabusSchema.index({ 'course.code': 1, 'course.year': 1 });
 syllabusSchema.index({ status: 1 });
-syllabusSchema.index({ 'analysis.plagiarismCheck.uniquenessScore': 1 });
+// Removed uniquenessScore index (numeric scoring deprecated)
 
 // Method to calculate overall quality score
 // Deprecated: quality score removed per new simplified spec (no percentage scoring)

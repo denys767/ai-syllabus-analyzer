@@ -19,8 +19,8 @@ class AIService {
     const defaultModel = 'gpt-5-nano';
     this.llmModel = envModel && envModel.startsWith('gpt-') ? envModel : defaultModel;
     
-    // Define static templates and objectives (unchanging)
-    this.initializeStaticContent();
+  // Removed embedded syllabus template per new spec; only retain learning objectives text if needed
+  this.mbaLearningObjectives = `MBA-27 Learning Objectives (summary categories only): Strategic Thinking; Leadership; Finance; Marketing; Operations; Data & BI; Innovation; Ethics & CSR; Global & Cultural; Digital Transformation.`;
   }
 
   // Extract plain text from Responses API response structure
@@ -69,124 +69,7 @@ class AIService {
     }
   }
 
-  initializeStaticContent() {
-    console.log('🔧 === ІНІЦІАЛІЗАЦІЯ СТАТИЧНОГО КОНТЕНТУ ===');
-    console.log('📋 Завантаження шаблону силабусу MBA...');
-    // MBA Syllabus Template (static, unchanging)
-    this.syllabusTemplate = `
-📌  ROLE  
-You are **MBA Syllabus Mentor** for Kyiv School of Economics – Graduate Business School (KSE GBS).  
-Act strictly as a mentor, challenger, and quality guardian; never replace the instructor's work.
-
-📂  KNOWLEDGE FILES  
-• "MBA_Student_Cluster_Analysis.md" – clustered profile of the current MBA cohort.  
-• The syllabus uploaded by the user.
-
-🌐  DEFAULT LANGUAGE — EN-US
-
-────────────────────────────  WORKFLOW  ────────────────────────────
-
-0. **Executive Overview** – ≤ 200 words.
-
-0b. **Strengths & Gaps Snapshot** – Top-3 + Top-3 (bullets).
-
-1. **Format Compliance** – bullets per block (✅ / ⚠️ / ❌).
-
-2. **ILO Coverage** – bullets with Score + Bloom + Justification.
-
-2a. **ILO ↔ Assessment Map** – bullets.
-
-3. **Audience Fit**  *(bullet list per weekly topic)*  
-   Student clusters (fixed):  
-     1 Technology Leaders 2 Finance/Banking 3 Military/Public 4 Business Ops & Mgmt  
-
-   For **each topic** output:  
-   • **Topic:** <title>  
-     – **Primary Cluster:** <1-4> – **Fit:** <0-5>  
-     – **Why it matters:** ≤ 20 words  
-     – **Gap / Enhancement:** ≤ 40 chars or "None"  
-     – **Hook:** <provocative question / micro-task, ≤ 15 words>  
-       **Hook Benefit:** <how the instructor can use it, ≤ 15 words>  
-   • Prefix 🟥 **Low Relevance** if Fit ≤ 2 for all clusters.
-
-4. **Practicality Boost**  *(table)*  
-   | Intervention | Description ≤ 20 words | Target Clusters 1-4 | Expected Benefit |
-
-4a. **Case Library**  *(table)*  
-   | Case Title | Source/link placeholder | Primary Topic | Cluster(s) | Key Learning Point |
-
-5. **Action Plan**  *(table, sorted High-Impact → Low)*  
-   | Task | Owner | Deadline | Impact/Effort tag |
-
-────────────────────────────  OUTPUT STYLE  ────────────────────────────
-• Markdown headings (##), no deeper than H3.  
-• Steps 1-3 use bullet formats exactly as above; steps 4-5 may stay tables.  
-• Tone: constructive, succinct, supportive.  
-• No extra sections beyond those specified.
-    `;
-
-    console.log('🎯 Завантаження навчальних цілей MBA-27...');
-    // MBA Learning Objectives (static, unchanging)
-    this.mbaLearningObjectives = `
-MBA-27 Learning Objectives for Kyiv School of Economics:
-
-1. **Strategic Thinking & Analysis**
-   - Develop strategic vision and long-term planning capabilities
-   - Analyze complex business environments and competitive dynamics
-   - Make data-driven strategic decisions under uncertainty
-
-2. **Leadership & Team Management**
-   - Lead and motivate diverse teams in dynamic environments
-   - Build organizational culture and manage change effectively
-   - Develop emotional intelligence and interpersonal skills
-
-3. **Financial Analysis & Decision Making**
-   - Perform advanced financial modeling and valuation
-   - Understand capital markets and investment strategies
-   - Manage financial risks and optimize capital structure
-
-4. **Marketing Strategy & Consumer Behavior**
-   - Develop comprehensive marketing strategies and brand management
-   - Analyze consumer behavior and market research data
-   - Design digital marketing campaigns and customer acquisition strategies
-
-5. **Operations & Supply Chain Management**
-   - Optimize business processes and operational efficiency
-   - Design and manage global supply chains
-   - Implement quality management and lean methodologies
-
-6. **Data Analysis & Business Intelligence**
-   - Apply statistical methods and data analytics to business problems
-   - Use business intelligence tools for decision support
-   - Understand machine learning applications in business
-
-7. **Entrepreneurship & Innovation**
-   - Identify and evaluate business opportunities
-   - Develop business models and startup strategies
-   - Foster innovation and creative problem-solving
-
-8. **Ethics & Corporate Responsibility**
-   - Apply ethical frameworks to business decisions
-   - Understand corporate social responsibility and sustainability
-   - Navigate legal and regulatory environments
-
-9. **Global Business & Cultural Awareness**
-   - Understand international business and global markets
-   - Navigate cross-cultural business environments
-   - Develop cultural intelligence and global mindset
-
-10. **Digital Transformation & Technology**
-    - Understand emerging technologies and their business applications
-    - Lead digital transformation initiatives
-    - Leverage technology for competitive advantage
-    `;
-
-    console.log('✅ Статичний контент успішно ініціалізовано');
-    console.log('📊 Довжина шаблону силабусу:', this.syllabusTemplate.length, 'символів');
-    console.log('📊 Довжина навчальних цілей:', this.mbaLearningObjectives.length, 'символів');
-    console.log('🎯 Кількість навчальних цілей: 10 основних категорій');
-    console.log('=== ІНІЦІАЛІЗАЦІЯ СТАТИЧНОГО КОНТЕНТУ ЗАВЕРШЕНО ===\n');
-  }
+  // Legacy initializeStaticContent removed (template no longer embedded)
 
   async analyzeSyllabus(syllabusId) {
     try {
@@ -221,8 +104,7 @@ MBA-27 Learning Objectives for Kyiv School of Economics:
 
       // Check for plagiarism against existing syllabi
       console.log('\n📋 === ПЕРЕВІРКА НА ПЛАГІАТ ===');
-      const plagiarismCheck = await this.checkPlagiarism(syllabus);
-      console.log('🔍 Унікальність:', plagiarismCheck.uniquenessScore + '%');
+  const plagiarismCheck = await this.checkPlagiarism(syllabus);
       console.log('⚠️ Рівень ризику:', plagiarismCheck.riskLevel);
       console.log('📊 Схожих силабусів знайдено:', plagiarismCheck.similarSyllabi?.length || 0);
       console.log('=== ПЕРЕВІРКА НА ПЛАГІАТ ЗАВЕРШЕНО ===\n');
@@ -285,65 +167,25 @@ MBA-27 Learning Objectives for Kyiv School of Economics:
     
     // Log input material sources and quality
     console.log('\n--- АНАЛІЗ ВХІДНИХ МАТЕРІАЛІВ ---');
-    console.log('✅ Статичний шаблон силабусу: Завантажено з initializeStaticContent()');
-    console.log('✅ MBA-27 навчальні цілі: Завантажено з initializeStaticContent()');
+  console.log('✅ Вбудований шаблон видалено (per spec) — аналіз без відсоткових оцінок');
+  console.log('✅ Навчальні цілі (стислий список категорій) використані для семантики');
     console.log('📊 Кластери студентів - джерело:', studentClusters?.source || 'getCurrentStudentClusters()');
     console.log('📋 Опитування - джерело:', surveyInsights?.totalResponses ? `${surveyInsights.totalResponses} відповідей` : 'getSurveyInsights()');
     
-    const prompt = `
-Виконай комплексний аналіз силабусу MBA курсу на основі наступних критеріїв:
-
-ШАБЛОН СИЛАБУСУ:
-${this.syllabusTemplate}
-
-НАВЧАЛЬНІ ЦІЛІ MBA-27:
-${this.mbaLearningObjectives}
-
-ПОТОЧНІ КЛАСТЕРИ СТУДЕНТІВ:
-${JSON.stringify(studentClusters, null, 2)}
-
-РЕЗУЛЬТАТИ ОПИТУВАНЬ СТУДЕНТІВ:
-${JSON.stringify(surveyInsights, null, 2)}
-
-СИЛАБУС ДЛЯ АНАЛІЗУ:
-${syllabusText}
-
-Надай детальний аналіз у JSON форматі з наступними секціями:
-
-1. **templateCompliance**: 
-   - score: 0-100 (відповідність шаблону)
-   - missingElements: []
-   - recommendations: []
-
-2. **learningObjectivesAlignment**:
-   - overallScore: 0-100
-   - coveredObjectives: []
-   - missingObjectives: []
-   - recommendations: []
-
-3. **studentClusterAnalysis**:
-   - clusterRelevance: {cluster: relevanceScore}
-   - suggestedCases: [] (українські кейси з OpenAI пошуку)
-   - adaptationRecommendations: []
-
-4. **surveyInsights**:
-   - addressedChallenges: []
-   - missedOpportunities: []
-   - recommendations: []
-
-5. **structure**:
-   - hasObjectives: boolean
-   - hasAssessment: boolean
-   - hasSchedule: boolean
-   - hasResources: boolean
-   - completenessScore: 0-100
-
-6. **recommendations**: [] (загальні рекомендації з пріоритетами)
-
-Використовуй функцію пошуку для знаходження релевантних українських бізнес-кейсів для кожного кластера студентів.
-
-Відповідь має бути виключно у форматі JSON без додаткового тексту.
-`;
+    const prompt = `Проаналізуй силабус MBA курсу. Поверни JSON з полями:
+{
+  "templateCompliance": {"missingElements":[], "recommendations":[]},
+  "learningObjectivesAlignment": {"alignedObjectives":[], "missingObjectives":[], "recommendations":[]},
+  "studentClusterAnalysis": {"clusterRelevance":{}, "suggestedCases":[], "adaptationRecommendations":[]},
+  "surveyInsights": {"addressedChallenges":[], "missedOpportunities":[], "recommendations":[]},
+  "structure": {"hasObjectives":bool, "hasAssessment":bool, "hasSchedule":bool, "hasResources":bool},
+  "recommendations": [ {"category":"structure|content|objectives|assessment|cases|methods", "title":"...", "description":"...", "priority":"low|medium|high|critical"} ]
+}
+Без будь-яких числових балів чи відсотків. Кластери студентів та опитування нижче.
+Навчальні цілі (категорії): ${this.mbaLearningObjectives}
+Кластери: ${JSON.stringify(studentClusters, null, 2)}
+Опитування: ${JSON.stringify(surveyInsights, null, 2)}
+Текст силабусу: ${syllabusText}`;
 
     console.log('\n--- ПІДГОТОВКА ПРОМПТУ ДЛЯ AI ---');
     console.log('📝 Довжина промпту:', prompt.length, 'символів');
@@ -420,7 +262,7 @@ ${syllabusText}
       hasAssessment: lowerText.includes('assessment') || lowerText.includes('оцінювання') || lowerText.includes('іспит'),
       hasSchedule: lowerText.includes('schedule') || lowerText.includes('розклад') || lowerText.includes('календар'),
       hasResources: lowerText.includes('resources') || lowerText.includes('література') || lowerText.includes('джерела'),
-      completenessScore: Math.min(100, text.length / 50), // Basic scoring
+  // Removed numeric completeness scoring per new spec
       missingParts: []
     };
   }
@@ -442,6 +284,11 @@ ${syllabusText}
     console.log('📋 Дозволені категорії:', Array.from(allowedCategories).join(', '));
     console.log('🔧 Категорія за замовчуванням: content');
 
+    const groupMap = {
+      structure: 'Відповідність до шаблону',
+      objectives: 'Відповідність до learning objectives',
+      cases: 'Інтеграція прикладів для кластеру студентів'
+    };
     const formatted = recommendations.map((rec, index) => {
       const originalCategory = rec.category;
       const finalCategory = coerceCategory(rec.category);
@@ -453,6 +300,7 @@ ${syllabusText}
       return {
         id: `rec_${index + 1}`,
         category: finalCategory,
+        groupTag: groupMap[finalCategory] || 'Інше',
         title: rec.title || `Рекомендація ${index + 1}`,
         description: typeof rec === 'string' ? rec : (rec.description || ''),
         priority: rec.priority && ['low','medium','high','critical'].includes(rec.priority) ? rec.priority : 'medium'
@@ -737,15 +585,12 @@ ${syllabusText}
 
       // Determine uniqueness score and risk level
       const maxSimilarity = similarSyllabi.length > 0 ? similarSyllabi[0].similarity : 0;
-      const uniquenessScore = Math.max(0, 100 - maxSimilarity);
-      
       let riskLevel = 'low';
       if (maxSimilarity > 85) riskLevel = 'high';
       else if (maxSimilarity > 70) riskLevel = 'medium';
 
       return {
         similarSyllabi: similarSyllabi.slice(0, 5), // Top 5 similar syllabi
-        uniquenessScore,
         riskLevel
       };
 
@@ -753,7 +598,6 @@ ${syllabusText}
       console.error('Plagiarism check error:', error);
       return {
         similarSyllabi: [],
-        uniquenessScore: 100,
         riskLevel: 'low'
       };
     }
@@ -971,14 +815,23 @@ ${aiResponse}
         console.log('📥 Сира відповідь екстракції:', rawRec.substring(0, 200) + '...');
         
         const parsed = this.safeParseJSON(rawRec) || {};
-        const newRecs = (parsed.recommendations || []).slice(0,2).map(r => ({
-          id: 'chlg_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
-          category: ['structure','content','objectives','assessment','cases','methods'].includes(r.category) ? r.category : 'methods',
-          title: r.title?.slice(0,120) || 'Рекомендація',
-          description: r.description?.slice(0,300) || '',
-          priority: 'medium',
-          status: 'pending'
-        }));
+        const groupMap = {
+          structure: 'Відповідність до шаблону',
+          objectives: 'Відповідність до learning objectives',
+          cases: 'Інтеграція прикладів для кластеру студентів'
+        };
+        const newRecs = (parsed.recommendations || []).slice(0,2).map(r => {
+          const category = ['structure','content','objectives','assessment','cases','methods'].includes(r.category) ? r.category : 'methods';
+          return {
+            id: 'chlg_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+            category,
+            groupTag: groupMap[category] || 'Інше',
+            title: r.title?.slice(0,120) || 'Рекомендація',
+            description: r.description?.slice(0,300) || '',
+            priority: 'medium',
+            status: 'pending'
+          };
+        });
         
         console.log('✅ Екстраговано рекомендацій:', newRecs.length);
         if (newRecs.length) {
@@ -1200,25 +1053,23 @@ ${aiResponse}
     if (normalized.learningObjectivesAlignment) {
       const loa = normalized.learningObjectivesAlignment;
       normalized.learningObjectivesAlignment = {
-        score: typeof loa.score === 'number' ? loa.score : (loa.overallScore || 0),
         alignedObjectives: loa.alignedObjectives || loa.coveredObjectives || [],
         missingObjectives: loa.missingObjectives || [],
         recommendations: loa.recommendations || []
       };
     } else {
-      normalized.learningObjectivesAlignment = { score: 0, alignedObjectives: [], missingObjectives: [], recommendations: [] };
+      normalized.learningObjectivesAlignment = { alignedObjectives: [], missingObjectives: [], recommendations: [] };
     }
 
     // Normalize template compliance
     if (normalized.templateCompliance) {
       const tc = normalized.templateCompliance;
       normalized.templateCompliance = {
-        score: tc.score || 0,
         missingElements: tc.missingElements || [],
         recommendations: tc.recommendations || []
       };
     } else {
-      normalized.templateCompliance = { score: 0, missingElements: [], recommendations: [] };
+      normalized.templateCompliance = { missingElements: [], recommendations: [] };
     }
 
     // Normalize student cluster analysis
@@ -1261,12 +1112,13 @@ ${aiResponse}
       hasAssessment: false,
       hasSchedule: false,
       hasResources: false,
-      completenessScore: 0,
       missingParts: []
     };
 
     // Normalize recommendations
     normalized.recommendations = this.formatRecommendations(normalized.recommendations || []);
+  // Potential extension: add implicit recommendations for plagiarism similarity or missing template parts
+  // (left minimal now to avoid reintroducing numeric scoring logic)
 
     return normalized;
   }
