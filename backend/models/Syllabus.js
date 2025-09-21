@@ -100,7 +100,7 @@ const syllabusSchema = new mongoose.Schema({
     },
     category: {
       type: String,
-      enum: ['structure', 'content', 'objectives', 'assessment', 'cases', 'methods'],
+      enum: ['structure', 'content', 'objectives', 'assessment', 'cases', 'methods', 'plagiarism'],
       required: true
     },
   // UI grouping tag (UA labels) — NOT enforced enum to allow future expansion

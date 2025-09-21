@@ -57,6 +57,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
     recommendations.forEach(r => {
       if (r.category === 'structure') groups['Відповідність до шаблону'].push(r);
       else if (r.category === 'objectives') groups['Відповідність до learning objectives'].push(r);
+      else if (r.category === 'plagiarism') groups['Збіг з попередніми силабусами'].push(r);
       else if (r.category === 'cases') groups['Інтеграція прикладів для кластеру студентів'].push(r);
       else if (r.category === 'content' || r.category === 'methods' || r.category === 'assessment') groups['Інше'].push(r);
     });

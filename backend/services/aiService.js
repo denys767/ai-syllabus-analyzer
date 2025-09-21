@@ -110,6 +110,22 @@ class AIService {
       console.log('=== ПЕРЕВІРКА НА ПЛАГІАТ ЗАВЕРШЕНО ===\n');
 
       console.log('\n💾 === ЗБЕРЕЖЕННЯ РЕЗУЛЬТАТІВ ===');
+      // Optionally generate anti-plagiarism recommendations if risk present
+      let plagiarismRecommendations = [];
+      if (plagiarismCheck && (plagiarismCheck.riskLevel === 'medium' || plagiarismCheck.riskLevel === 'high')) {
+        try {
+          console.log('\n🧠 === ГЕНЕРАЦІЯ АНТИ-ПЛАГІАТ РЕКОМЕНДАЦІЙ ===');
+          plagiarismRecommendations = await this.generateAntiPlagiarismRecommendations(
+            syllabus,
+            analysis,
+            plagiarismCheck
+          );
+          console.log('✅ Згенеровано анти-плагіат рекомендацій:', plagiarismRecommendations.length);
+        } catch (ex) {
+          console.warn('⚠️ Не вдалося згенерувати анти-плагіат рекомендації:', ex.message);
+        }
+      }
+
       // Update syllabus with complete analysis results (aligned with model)
       await Syllabus.findByIdAndUpdate(syllabusId, {
         structure: analysis.structure,
@@ -121,7 +137,7 @@ class AIService {
           // Persist survey insights if present for downstream reporting
           surveyInsights: analysis.surveyInsights || undefined
         },
-        recommendations: analysis.recommendations,
+        recommendations: [...analysis.recommendations, ...plagiarismRecommendations],
         vectorEmbedding: this.generateVectorEmbedding(syllabus.extractedText),
         status: 'analyzed'
       });
@@ -278,7 +294,7 @@ class AIService {
       return [];
     }
 
-    const allowedCategories = new Set(['structure', 'content', 'objectives', 'assessment', 'cases', 'methods']);
+    const allowedCategories = new Set(['structure', 'content', 'objectives', 'assessment', 'cases', 'methods', 'plagiarism']);
     const coerceCategory = (cat) => (allowedCategories.has(cat) ? cat : 'content');
 
     console.log('📋 Дозволені категорії:', Array.from(allowedCategories).join(', '));
@@ -287,7 +303,8 @@ class AIService {
     const groupMap = {
       structure: 'Відповідність до шаблону',
       objectives: 'Відповідність до learning objectives',
-      cases: 'Інтеграція прикладів для кластеру студентів'
+      cases: 'Інтеграція прикладів для кластеру студентів',
+      plagiarism: 'Збіг з попередніми силабусами'
     };
     const formatted = recommendations.map((rec, index) => {
       const originalCategory = rec.category;
@@ -930,6 +947,60 @@ ${aiResponse}
     }
   }
 
+  // Generate anti-plagiarism recommendations referencing similar sections
+  async generateAntiPlagiarismRecommendations(currentSyllabus, normalizedAnalysis, plagiarismCheck) {
+    try {
+      const topSimilar = (plagiarismCheck?.similarSyllabi || []).slice(0, 3)
+        .map(s => `• ${s.course} (${s.year}) — викладач: ${s.instructor} — схожість: ${s.similarity}%`).join('\n');
+
+      const prompt = `
+Створи короткі, предметні рекомендації українською мовою щодо зменшення ризику плагіату в силабусі.
+
+Вхідні дані:
+- Назва курсу: ${currentSyllabus.course?.name || currentSyllabus.title}
+- Ризик плагіату: ${plagiarismCheck?.riskLevel || 'low'}
+- Схожі силабуси (топ-3):\n${topSimilar || 'немає'}
+- Структура силабусу (є/немає): ${JSON.stringify(normalizedAnalysis.structure)}
+
+Завдання:
+1) Вкажи, які розділи типово викликають збіг (цілі, методи, оцінювання, кейси, література) і як їх змінити.
+2) Дай 3–6 конкретних пропозицій: що переформулювати, що додати власного (українські приклади, авторські кейси, унікальні активності, адаптації під аудиторію), як змінити структуру.
+3) Формат виходу виключно JSON:
+{
+  "recommendations": [
+    {"category": "plagiarism", "title": "...", "description": "<=300 символів"}
+  ]
+}
+Без пояснювального тексту, тільки JSON.`;
+
+      const resp = await this.openai.responses.create({
+        model: this.llmModel,
+        input: [
+          { role: 'system', content: 'Ти академічний радник. Генеруй стислі, дієві рекомендації українською мовою у форматі JSON.' },
+          { role: 'user', content: prompt }
+        ],
+        text: { format: { type: 'json_object' } }
+      });
+
+      const raw = (resp.output_text || this.extractResponsesText(resp) || '').trim();
+      const parsed = this.safeParseJSON(raw) || {};
+      const recs = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
+      // Normalize and coerce to our schema
+      const formatted = this.formatRecommendations(
+        recs.map(r => ({
+          category: 'plagiarism',
+          title: r.title,
+          description: r.description,
+          priority: 'high'
+        }))
+      );
+      return formatted;
+    } catch (err) {
+      console.warn('generateAntiPlagiarismRecommendations error:', err.message);
+      return [];
+    }
+  }
+
   // Integration with Google Forms (webhook handling)
   async processSurveyResponse(formData) {
     try {
@@ -1077,14 +1148,29 @@ ${aiResponse}
     // Map clusterRelevance {cluster: score} to dominantClusters with percentages
     const rel = sca.clusterRelevance || {};
     const relEntries = Object.entries(rel);
+    // Coerce scores to finite, non-negative numbers and drop zeros/non-numeric
+    const sanitized = relEntries
+      .map(([cluster, value]) => {
+        const num = typeof value === 'number' ? value : Number(value);
+        const safe = Number.isFinite(num) && num >= 0 ? num : 0;
+        return [String(cluster), safe];
+      })
+      .filter(([, safe]) => safe > 0);
+
     let dominantClusters = [];
-    if (relEntries.length > 0) {
-      const total = relEntries.reduce((sum, [, v]) => sum + (typeof v === 'number' ? v : 0), 0) || 1;
-      dominantClusters = relEntries.map(([cluster, value]) => ({
-        cluster,
-        percentage: Math.round((value / total) * 100),
-        recommendations: []
-      }));
+    if (sanitized.length > 0) {
+      const total = sanitized.reduce((sum, [, v]) => sum + v, 0);
+      if (total > 0) {
+        dominantClusters = sanitized.map(([cluster, value]) => {
+          const raw = (value / total) * 100;
+          const pct = Math.max(0, Math.min(100, Math.round(raw)));
+          return {
+            cluster,
+            percentage: pct,
+            recommendations: []
+          };
+        });
+      }
     }
 
     // Normalize suggested cases (merge any incoming formats)
@@ -1099,11 +1185,38 @@ ${aiResponse}
       ...((sca.suggestedCases || []).map(mapCase))
     ];
 
+    // Coerce adaptationRecommendations to array of strings to match schema
+    let adaptationRecommendations = [];
+    const rawAdapt = sca.adaptationRecommendations;
+    const coerceAdaptItem = (item) => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') {
+        const cluster = item.cluster ? String(item.cluster) + ': ' : '';
+        const text = item.recommendation || item.text || item.description || '';
+        if (text) return cluster + String(text);
+        try { return JSON.stringify(item); } catch { return String(item); }
+      }
+      return String(item ?? '');
+    };
+    if (Array.isArray(rawAdapt)) {
+      adaptationRecommendations = rawAdapt.map(coerceAdaptItem).filter(s => typeof s === 'string' && s.trim().length > 0);
+    } else if (typeof rawAdapt === 'string') {
+      // Attempt to parse stringified array/object
+      const parsed = this.safeParseJSON(rawAdapt);
+      if (Array.isArray(parsed)) {
+        adaptationRecommendations = parsed.map(coerceAdaptItem).filter(s => typeof s === 'string' && s.trim().length > 0);
+      } else if (parsed && typeof parsed === 'object') {
+        adaptationRecommendations = [coerceAdaptItem(parsed)].filter(s => s.trim().length > 0);
+      } else if (rawAdapt.trim()) {
+        adaptationRecommendations = [rawAdapt.trim()];
+      }
+    }
+
     normalized.studentClusterAnalysis = {
       dominantClusters,
       suggestedCases,
-      // preserve AI-provided adaptation recommendations if present
-      adaptationRecommendations: Array.isArray(sca.adaptationRecommendations) ? sca.adaptationRecommendations : []
+      // preserve AI-provided adaptation recommendations if present, coerced to strings
+      adaptationRecommendations
     };
 
     // Ensure structure exists
