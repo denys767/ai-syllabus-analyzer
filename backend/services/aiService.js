@@ -1,8 +1,26 @@
+const fs = require('fs').promises;
+const path = require('path');
 const Syllabus = require('../models/Syllabus');
 const { Survey, SurveyResponse } = require('../models/Survey');
 const StudentCluster = require('../models/StudentCluster');
 const natural = require('natural');
 const OpenAI = require('openai');
+const { diff_match_patch } = require('diff-match-patch');
+const puppeteer = require('puppeteer');
+
+const dmp = new diff_match_patch();
+
+const escapeHtml = (value = '') => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const clampText = (text = '', limit = 24000) => {
+  if (!text) return '';
+  return text.length > limit ? text.slice(0, limit) : text;
+};
 
 class AIService {
   constructor() {
@@ -822,7 +840,7 @@ ${aiResponse}
             { role: 'system', content: 'Ти асистент. Екстрагуєш короткі actionable рекомендації.' },
             { role: 'user', content: recPrompt }
           ],
-          text: { format: 'json' }
+          text: { format: { type: 'json_object' } }
         });
         const recEndTime = Date.now();
         
@@ -870,6 +888,389 @@ ${aiResponse}
     }
   }
 
+  async generateDiffPdf(syllabusId) {
+    console.log('\n=== LLM DIFF PDF: ПОЧАТОК ===');
+    console.log('📄 ID силабусу:', syllabusId);
+
+    let browser;
+    try {
+      const syllabus = await Syllabus.findById(syllabusId);
+      if (!syllabus) throw new Error('Syllabus not found');
+
+      const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
+      console.log('✅ Прийнятих рекомендацій:', accepted.length);
+      if (!accepted.length) {
+        throw new Error('Немає прийнятих рекомендацій для генерації PDF');
+      }
+
+      const originalText = (syllabus.extractedText || '').trim();
+      if (!originalText) {
+        throw new Error('Відсутній вихідний текст силабусу');
+      }
+
+      // Генеруємо точкові зміни для кожної рекомендації
+      console.log('🎯 Генерація точкових змін для кожної рекомендації');
+      const edits = [];
+      
+      for (let i = 0; i < accepted.length; i++) {
+        const rec = accepted[i];
+        console.log(`📝 Обробка рекомендації ${i + 1}/${accepted.length}: ${rec.title}`);
+        
+        // Знаходимо релевантну частину тексту для цієї рекомендації
+        const contextual = this.findRelevantTextSection(originalText, rec);
+        if (!contextual.found) {
+          console.log(`⚠️ Не знайдено контекст для рекомендації: ${rec.title}`);
+          continue;
+        }
+        
+        const sectionPrompt = `
+Відредагуй ТІЛЬКИ цю частину силабусу згідно з конкретною рекомендацією. Збережи оригінальну мову тексту.
+
+РЕКОМЕНДАЦІЯ: [${rec.category}] ${rec.title} - ${rec.description}
+
+ОРИГІНАЛЬНИЙ ФРАГМЕНТ:
+${contextual.section}
+
+ІНСТРУКЦІЇ:
+- Внеси зміни ТІЛЬКИ згідно з цією рекомендацією
+- Збережи оригінальну мову та стиль
+- Поверни тільки відредагований фрагмент без коментарів
+- Якщо зміни не потрібні, поверни оригінальний текст`;
+
+        try {
+          const editResponse = await this.openai.responses.create({
+            model: this.llmModel,
+            input: [
+              { role: 'system', content: 'Ти редактор, який вносить точкові зміни в документи згідно з конкретними рекомендаціями.' },
+              { role: 'user', content: sectionPrompt }
+            ]
+          });
+          
+          const editedSection = (editResponse.output_text || this.extractResponsesText(editResponse) || '').trim();
+          
+          if (editedSection && editedSection !== contextual.section) {
+            edits.push({
+              original: contextual.section,
+              edited: editedSection,
+              recommendation: rec,
+              startIndex: contextual.startIndex,
+              endIndex: contextual.endIndex
+            });
+            console.log(`✅ Створено редагування для: ${rec.title}`);
+          } else {
+            console.log(`➡️ Без змін для: ${rec.title}`);
+          }
+        } catch (editError) {
+          console.warn(`⚠️ Помилка редагування для ${rec.title}:`, editError.message);
+        }
+      }
+      
+      console.log(`� Створено ${edits.length} редагувань з ${accepted.length} рекомендацій`);
+      
+      // Застосовуємо зміни до оригінального тексту (сортуємо по індексам у зворотному порядку)
+      let modifiedText = originalText;
+      const sortedEdits = [...edits].sort((a, b) => b.startIndex - a.startIndex);
+      
+      for (const edit of sortedEdits) {
+        modifiedText = modifiedText.slice(0, edit.startIndex) + 
+                      edit.edited + 
+                      modifiedText.slice(edit.endIndex);
+      }
+      
+      const diffs = dmp.diff_main(originalText, modifiedText);
+      dmp.diff_cleanupSemantic(diffs);
+      console.log('📊 Кількість сегментів diff після точкових змін:', diffs.length);
+
+      // Створюємо HTML з видимими поясненнями рекомендацій
+      const diffSegments = [];
+      let currentIndex = 0;
+      
+      for (const [op, data] of diffs) {
+        const safe = escapeHtml(data).replace(/\n/g, '<br>');
+        
+        if (op === 0) { // Unchanged
+          diffSegments.push(`<span class="diff-same">${safe}</span>`);
+        } else if (op === -1) { // Removed
+          // Знаходимо пов'язану рекомендацію для цього видалення
+          const relatedEdit = edits.find(edit => 
+            originalText.slice(edit.startIndex, edit.endIndex).includes(data.trim())
+          );
+          const recLabel = relatedEdit ? 
+            `<span class="rec-label">📝 ${escapeHtml(relatedEdit.recommendation.title)}</span>` : '';
+          diffSegments.push(`<span class="diff-remove">${safe}</span>${recLabel}`);
+        } else if (op === 1) { // Added
+          // Знаходимо пов'язану рекомендацію для цього додавання
+          const relatedEdit = edits.find(edit => 
+            edit.edited.includes(data.trim())
+          );
+          const recLabel = relatedEdit ? 
+            `<span class="rec-label">✅ ${escapeHtml(relatedEdit.recommendation.title)}</span>` : '';
+          diffSegments.push(`<span class="diff-add">${safe}</span>${recLabel}`);
+        }
+        
+        if (op !== -1) currentIndex += data.length;
+      }
+      
+      const diffHtml = diffSegments.join('');
+      
+      // Створюємо детальний список рекомендацій з контекстом
+      const contextualRecommendations = accepted.map((rec, index) => {
+        const relatedEdit = edits.find(e => e.recommendation.id === rec.id);
+        const hasChanges = relatedEdit ? '✅' : '➡️';
+        
+        return `
+            <li class="recommendation-item" data-rec-id="${escapeHtml(rec.id)}">
+              <div class="rec-header">
+                <span class="rec-status">${hasChanges}</span>
+                <span class="rec-cat">${escapeHtml(rec.category)}</span>
+                <span class="rec-title">${escapeHtml(rec.title || '')}</span>
+              </div>
+              <div class="rec-desc">${escapeHtml(rec.description || '')}</div>
+              ${relatedEdit ? `
+                <details class="edit-context">
+                  <summary>Контекст змін</summary>
+                  <div class="context-before">Було: "${escapeHtml(relatedEdit.original.slice(0, 120))}..."</div>
+                  <div class="context-after">Стало: "${escapeHtml(relatedEdit.edited.slice(0, 120))}..."</div>
+                </details>
+              ` : ''}
+            </li>`;
+      }).join('');
+
+      const now = new Date();
+      const header = syllabus.course?.name || syllabus.title || 'Силабус';
+      const html = `<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: 'Segoe UI', 'Inter', sans-serif; padding: 42px 48px; color: #0b0d12; background: #fafbfc; line-height: 1.6; }
+      h1 { font-size: 28px; margin-bottom: 8px; color: #1f2937; }
+      h2 { font-size: 20px; margin-top: 40px; margin-bottom: 16px; color: #374151; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; }
+      .meta { color: #6b7280; font-size: 14px; margin-bottom: 32px; }
+      .legend { 
+        margin: 32px 0; padding: 20px; background: #f8fafc; border-radius: 12px; 
+        border: 1px solid #e2e8f0; display: flex; gap: 24px; flex-wrap: wrap; 
+      }
+      .legend span { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+      .legend .add::before { content: ""; width: 16px; height: 16px; background: #10b981; border-radius: 4px; }
+      .legend .remove::before { content: ""; width: 16px; height: 16px; background: #ef4444; border-radius: 4px; }
+      .legend .same::before { content: ""; width: 16px; height: 16px; background: #6b7280; border-radius: 4px; }
+      
+      ul.recommendations { list-style: none; padding: 0; margin: 0; }
+      .recommendation-item { 
+        margin-bottom: 20px; padding: 20px; border-radius: 12px; 
+        border: 1px solid #e5e7eb; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      }
+      .rec-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+      .rec-status { font-size: 18px; }
+      .rec-cat { 
+        text-transform: uppercase; font-size: 11px; letter-spacing: 0.1em; 
+        color: #6366f1; font-weight: 700; background: #eef2ff; 
+        padding: 4px 8px; border-radius: 6px; 
+      }
+      .rec-title { font-weight: 600; font-size: 16px; color: #111827; flex: 1; }
+      .rec-desc { font-size: 14px; color: #4b5563; margin-bottom: 12px; }
+      
+      .edit-context { margin-top: 12px; }
+      .edit-context summary { 
+        cursor: pointer; font-size: 13px; color: #6366f1; 
+        font-weight: 600; padding: 8px 0; 
+      }
+      .context-before, .context-after { 
+        margin: 8px 0; padding: 12px; border-radius: 8px; font-size: 13px; 
+        border-left: 4px solid; padding-left: 16px; 
+      }
+      .context-before { background: #fef2f2; border-color: #fca5a5; color: #7f1d1d; }
+      .context-after { background: #f0fdf4; border-color: #86efac; color: #14532d; }
+      
+      .diff-wrapper { 
+        margin-top: 40px; background: #fff; border-radius: 16px; 
+        border: 1px solid #e5e7eb; padding: 32px; line-height: 1.7; 
+        font-size: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+      }
+      .diff-add { 
+        background: #dcfce7; color: #15803d; border-radius: 4px; 
+        padding: 2px 4px; margin: 0 1px; display: inline;
+      }
+      .diff-remove { 
+        background: #fee2e2; color: #dc2626; text-decoration: line-through; 
+        border-radius: 4px; padding: 2px 4px; margin: 0 1px; display: inline;
+      }
+      .diff-same { color: #111827; }
+      
+      .rec-label {
+        display: inline-block; margin-left: 8px; padding: 2px 6px;
+        background: #f3f4f6; color: #374151; border-radius: 3px;
+        font-size: 11px; font-weight: 600; vertical-align: super;
+        border: 1px solid #d1d5db;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Редагування силабусу: ${escapeHtml(header)}</h1>
+    <div class="meta">
+      📅 Дата генерації: ${escapeHtml(now.toLocaleString('uk-UA'))} <br>
+      📊 Застосовано рекомендацій: ${edits.length} з ${accepted.length}
+    </div>
+    
+    <div class="legend">
+      <span class="add">Додано</span>
+      <span class="remove">Видалено</span>
+      <span class="same">Без змін</span>
+    </div>
+    
+    <h2>📋 Прийняті рекомендації та їх реалізація</h2>
+    <ul class="recommendations">
+      ${contextualRecommendations || '<li class="recommendation-item">Прийнятих рекомендацій не знайдено</li>'}
+    </ul>
+    
+    <h2>📄 Текст силабусу з внесеними змінами</h2>
+    <div class="diff-wrapper">${diffHtml}</div>
+    
+    <div style="margin-top: 40px; padding: 20px; background: #f9fafb; border-radius: 12px; font-size: 13px; color: #6b7280;">
+      💡 <strong>Легенда:</strong> 📝 - видалена частина тексту, ✅ - додана частина тексту. Поряд із кожною зміною вказана рекомендація, що її спричинила.
+    </div>
+  </body>
+</html>`;
+
+      const uploadDir = path.join(__dirname, '../uploads/syllabi');
+      await fs.mkdir(uploadDir, { recursive: true });
+
+      const baseName = (syllabus.originalFile?.originalName || syllabus.title || 'syllabus').replace(/\.[^.]+$/, '');
+      const filename = `${baseName}-diff-${Date.now()}.pdf`;
+      const pdfPath = path.join(uploadDir, filename);
+
+      browser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '40px', bottom: '40px', left: '32px', right: '32px' } });
+      await fs.writeFile(pdfPath, pdfBuffer);
+
+      const stats = await fs.stat(pdfPath);
+
+      if (browser) {
+        await browser.close();
+        browser = null;
+      }
+
+      if (syllabus.editedPdf?.path && syllabus.editedPdf.path !== pdfPath) {
+        try {
+          await fs.unlink(syllabus.editedPdf.path);
+        } catch (cleanupErr) {
+          console.warn('⚠️ Не вдалося видалити попередній PDF:', cleanupErr.message);
+        }
+      }
+
+      syllabus.editedPdf = {
+        filename,
+        originalName: filename,
+        path: pdfPath,
+        size: stats.size,
+        generatedAt: now,
+        mimetype: 'application/pdf'
+      };
+      syllabus.editedText = modifiedText;
+      syllabus.editingStatus = 'ready';
+      syllabus.editingError = undefined;
+      await syllabus.save();
+
+      console.log('✅ PDF збережено за шляхом:', pdfPath);
+      console.log('=== LLM DIFF PDF: ЗАВЕРШЕНО УСПІШНО ===\n');
+      return syllabus.editedPdf;
+    } catch (error) {
+      console.error('❌ ПОМИЛКА генерації diff PDF:', error.message);
+      await Syllabus.findByIdAndUpdate(syllabusId, {
+        editingStatus: 'error',
+        editingError: error.message.slice(0, 280)
+      });
+      console.log('=== LLM DIFF PDF: ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
+      throw error;
+    } finally {
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (closeErr) {
+          console.warn('⚠️ Не вдалося закрити браузер Puppeteer:', closeErr.message);
+        }
+      }
+    }
+  }
+
+  // Допоміжний метод для знаходження релевантної секції тексту для рекомендації
+  findRelevantTextSection(text, recommendation) {
+    const lines = text.split('\n');
+    const category = recommendation.category;
+    const title = (recommendation.title || '').toLowerCase();
+    const description = (recommendation.description || '').toLowerCase();
+    
+    // Ключові слова для кожної категорії
+    const categoryKeywords = {
+      structure: ['objective', 'assessment', 'schedule', 'resource', 'ціл', 'оцінюв', 'розклад', 'програм'],
+      objectives: ['objective', 'goal', 'learning', 'outcome', 'ціл', 'результат', 'навчанн'],
+      assessment: ['assessment', 'exam', 'grade', 'evaluation', 'quiz', 'оцінюв', 'іспит', 'тест'],
+      cases: ['case', 'study', 'example', 'кейс', 'приклад', 'завданн'],
+      methods: ['method', 'activity', 'approach', 'technique', 'метод', 'активн', 'підхід'],
+      content: ['content', 'topic', 'module', 'chapter', 'контент', 'тем', 'модул']
+    };
+    
+    const keywords = categoryKeywords[category] || [];
+    const allKeywords = [...keywords];
+    
+    // Додаємо ключові слова з назви та опису рекомендації
+    if (title) {
+      allKeywords.push(...title.split(/\s+/).filter(w => w.length > 3));
+    }
+    
+    let bestMatch = { found: false, section: '', startIndex: 0, endIndex: 0, score: 0 };
+    const windowSize = 5; // Розмір вікна в рядках
+    
+    // Шукаємо найкращу секцію
+    for (let i = 0; i <= lines.length - windowSize; i++) {
+      const windowLines = lines.slice(i, i + windowSize);
+      const windowText = windowLines.join('\n');
+      const windowLower = windowText.toLowerCase();
+      
+      let score = 0;
+      for (const keyword of allKeywords) {
+        if (windowLower.includes(keyword.toLowerCase())) {
+          score += keyword.length > 4 ? 2 : 1; // Довші ключові слова мають більшу вагу
+        }
+      }
+      
+      if (score > bestMatch.score) {
+        const startIndex = lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
+        const endIndex = startIndex + windowText.length;
+        
+        bestMatch = {
+          found: true,
+          section: windowText,
+          startIndex,
+          endIndex,
+          score
+        };
+      }
+    }
+    
+    // Якщо не знайшли хорошого збігу, беремо початок документа
+    if (!bestMatch.found || bestMatch.score === 0) {
+      const fallbackLines = lines.slice(0, Math.min(windowSize, lines.length));
+      const fallbackText = fallbackLines.join('\n');
+      
+      bestMatch = {
+        found: true,
+        section: fallbackText,
+        startIndex: 0,
+        endIndex: fallbackText.length,
+        score: 0
+      };
+    }
+    
+    return bestMatch;
+  }
+
   async generateInteractiveRecommendations(topic, studentClusters = [], difficulty = 'intermediate') {
     try {
       console.log('\n=== ГЕНЕРАЦІЯ ІНТЕРАКТИВНИХ РЕКОМЕНДАЦІЙ ===');
@@ -903,7 +1304,7 @@ ${aiResponse}
           { role: 'system', content: 'You are an expert in curriculum design for MBA programs. Generate practical, interactive teaching ideas in JSON format.' },
           { role: 'user', content: prompt }
         ],
-        text: { format: 'json' }
+        text: { format: { type: 'json_object' } }
       });
       const endTime = Date.now();
 

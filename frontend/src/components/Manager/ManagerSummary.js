@@ -121,7 +121,10 @@ const ManagerSummary = () => {
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                 <TrendingUp sx={{ mr: 1, color: 'primary.main' }} />
                 <Typography variant="h5" color="primary.main">
-                  {summary.learningOutcomesAlignment.averageScore.toFixed(1)}%
+                  {summary.learningOutcomesAlignment.averageScore ? 
+                    summary.learningOutcomesAlignment.averageScore.toFixed(1) + '%' : 
+                    'Н/Д'
+                  }
                 </Typography>
                 <Typography variant="body2" sx={{ ml: 1 }}>
                   середня відповідність
@@ -129,21 +132,27 @@ const ManagerSummary = () => {
               </Box>
 
               <Typography variant="subtitle2" gutterBottom>
-                Покриті цілі ({summary.learningOutcomesAlignment.coveredObjectives.length}):
+                Покриті цілі ({(summary.learningOutcomesAlignment.coveredObjectives || []).length}):
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                {summary.learningOutcomesAlignment.coveredObjectives.slice(0, 10).map((objective, index) => (
+                {(summary.learningOutcomesAlignment.coveredObjectives || []).slice(0, 10).map((objective, index) => (
                   <Chip key={index} label={objective.substring(0, 30)} size="small" color="success" />
                 ))}
+                {(!summary.learningOutcomesAlignment.coveredObjectives || summary.learningOutcomesAlignment.coveredObjectives.length === 0) && (
+                  <Typography variant="body2" color="text.secondary">Немає даних</Typography>
+                )}
               </Box>
 
               <Typography variant="subtitle2" gutterBottom>
-                Прогалини ({summary.learningOutcomesAlignment.gaps.length}):
+                Прогалини ({(summary.learningOutcomesAlignment.gaps || []).length}):
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {summary.learningOutcomesAlignment.gaps.slice(0, 10).map((gap, index) => (
+                {(summary.learningOutcomesAlignment.gaps || []).slice(0, 10).map((gap, index) => (
                   <Chip key={index} label={gap.substring(0, 30)} size="small" color="warning" />
                 ))}
+                {(!summary.learningOutcomesAlignment.gaps || summary.learningOutcomesAlignment.gaps.length === 0) && (
+                  <Typography variant="body2" color="text.secondary">Немає даних</Typography>
+                )}
               </Box>
             </CardContent>
           </Card>
@@ -160,7 +169,7 @@ const ManagerSummary = () => {
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                 <People sx={{ mr: 1, color: 'secondary.main' }} />
                 <Typography variant="h6">
-                  {summary.practicalityAndInteractivity.totalChallengesCompleted} / {summary.totalSyllabi}
+                  {summary.practicalityAndInteractivity.totalChallengesCompleted || 0} / {summary.totalSyllabi || 0}
                 </Typography>
                 <Typography variant="body2" sx={{ ml: 1 }}>
                   завершених AI-челенджів
@@ -168,21 +177,26 @@ const ManagerSummary = () => {
               </Box>
 
               <Typography variant="body2" sx={{ mb: 2 }}>
-                Загальна кількість AI пропозицій: {summary.practicalityAndInteractivity.aiSuggestionsCount}
+                Загальна кількість AI пропозицій: {summary.practicalityAndInteractivity.aiSuggestionsCount || 0}
               </Typography>
 
               <Typography variant="subtitle2" gutterBottom>
                 Топ пропозицій AI:
               </Typography>
               <List dense sx={{ maxHeight: 200, overflow: 'auto' }}>
-                {summary.practicalityAndInteractivity.topSuggestions.slice(0, 5).map((suggestion, index) => (
+                {(summary.practicalityAndInteractivity.topSuggestions || []).slice(0, 5).map((suggestion, index) => (
                   <ListItem key={index}>
                     <ListItemText
-                      primary={suggestion.suggestion?.substring(0, 100) + '...'}
-                      secondary={suggestion.category}
+                      primary={(suggestion.suggestion || 'Немає опису')?.substring(0, 100) + '...'}
+                      secondary={suggestion.category || 'Без категорії'}
                     />
                   </ListItem>
                 ))}
+                {(!summary.practicalityAndInteractivity.topSuggestions || summary.practicalityAndInteractivity.topSuggestions.length === 0) && (
+                  <ListItem>
+                    <ListItemText primary="Немає AI пропозицій" />
+                  </ListItem>
+                )}
               </List>
             </CardContent>
           </Card>
@@ -193,35 +207,40 @@ const ManagerSummary = () => {
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            Пропозиції щодо покращень ({summary.improvementProposals.length})
+            Пропозиції щодо покращень ({(summary.improvementProposals || []).length})
           </Typography>
 
           <List sx={{ maxHeight: 400, overflow: 'auto' }}>
-            {summary.improvementProposals.map((proposal, index) => (
+            {(summary.improvementProposals || []).map((proposal, index) => (
               <React.Fragment key={index}>
                 <ListItem>
                   <ListItemText
                     primary={
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Chip label={proposal.category} size="small" />
-                        <Typography variant="subtitle2">{proposal.title}</Typography>
+                        <Chip label={proposal.category || 'Без категорії'} size="small" />
+                        <Typography variant="subtitle2">{proposal.title || 'Без назви'}</Typography>
                       </Box>
                     }
                     secondary={
                       <Box>
-                        <Typography variant="body2">{proposal.description}</Typography>
+                        <Typography variant="body2">{proposal.description || 'Без опису'}</Typography>
                         {proposal.instructor && (
                           <Typography variant="caption" color="text.secondary">
-                            Викладач: {proposal.instructor.firstName} {proposal.instructor.lastName}
+                            Викладач: {proposal.instructor.firstName || ''} {proposal.instructor.lastName || ''}
                           </Typography>
                         )}
                       </Box>
                     }
                   />
                 </ListItem>
-                {index < summary.improvementProposals.length - 1 && <Divider />}
+                {index < (summary.improvementProposals || []).length - 1 && <Divider />}
               </React.Fragment>
             ))}
+            {(!summary.improvementProposals || summary.improvementProposals.length === 0) && (
+              <ListItem>
+                <ListItemText primary="Немає пропозицій щодо покращень" />
+              </ListItem>
+            )}
           </List>
         </CardContent>
       </Card>

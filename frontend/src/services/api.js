@@ -123,6 +123,15 @@ class ApiService {
     
     deleteSyllabus: (id) =>
       this.client.delete(`/syllabus/${id}`),
+
+    requestDiffPdf: (id) =>
+      this.client.post(`/syllabus/${id}/generate-diff-pdf`),
+
+    getEditingStatus: (id) =>
+      this.client.get(`/syllabus/${id}/editing-status`),
+
+    downloadEditedPdf: (id) =>
+      this.client.get(`/syllabus/${id}/download-edited-pdf`, { responseType: 'blob' }),
   };
 
   // Survey endpoints

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -34,17 +34,10 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
   const [tab, setTab] = useState(0);
   const [editing, setEditing] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [editedReady, setEditedReady] = useState(!!syllabus?.editedText);
-
-  // Map internal category to UA group tag per spec
-  const tagMap = {
-    structure: 'Відповідність до шаблону',
-    objectives: 'Відповідність до learning objectives',
-    cases: 'Інтеграція прикладів для кластеру студентів',
-    content: 'Інші покращення контенту',
-    assessment: 'Оцінювання',
-    methods: 'Методика / інтерактив'
-  };
+  const [pdfReady, setPdfReady] = useState(syllabus?.editingStatus === 'ready' && syllabus?.editedPdf);
+  const [pdfMeta, setPdfMeta] = useState(syllabus?.editedPdf || null);
+  const [editingStatus, setEditingStatus] = useState(syllabus?.editingStatus || 'idle');
+  const [polling, setPolling] = useState(false);
 
   const grouped = useMemo(() => {
     const groups = {
@@ -84,31 +77,76 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
 
   const allAccepted = recommendations.some(r => r.status === 'accepted');
 
-  const triggerBackendGeneration = async () => {
-    if (!syllabus) return;
+  useEffect(() => {
+    setEditingStatus(syllabus?.editingStatus || 'idle');
+    setPdfMeta(syllabus?.editedPdf || null);
+    setPdfReady(syllabus?.editingStatus === 'ready' && !!syllabus?.editedPdf);
+    setPolling(syllabus?.editingStatus === 'processing');
+  }, [syllabus]);
+
+  useEffect(() => {
+    if (!polling) return;
+    const interval = setInterval(async () => {
+      try {
+        const { data } = await api.syllabus.getEditingStatus(syllabus._id);
+        setEditingStatus(data.status);
+        if (data.editedPdf && data.status === 'ready') {
+          setPdfMeta(data.editedPdf);
+          setPdfReady(true);
+          setPolling(false);
+          onChanged?.();
+        }
+        if (data.status === 'error') {
+          setError(data.error || 'LLM не зміг згенерувати зміни');
+          setPolling(false);
+          setGenerating(false); // Вимикаємо індикатор завантаження при помилці
+        }
+      } catch (err) {
+        setError('Не вдалося оновити статус редагування');
+        setPolling(false);
+        setGenerating(false); // Вимикаємо індикатор завантаження при помилці
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [polling, syllabus?._id, onChanged]);
+
+  const requestPdfGeneration = async () => {
     try {
       setGenerating(true);
-      await api.post(`/syllabus/${syllabus._id}/generate-edited-text`);
-      setEditedReady(true);
+      setError('');
+      await api.syllabus.requestDiffPdf(syllabus._id);
+      setEditingStatus('processing');
+      setPdfReady(false);
+      setPolling(true);
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Не вдалося запустити генерацію PDF';
+      setError(msg);
+    } finally {
+      setGenerating(false);
       setEditing(false);
-      if (onChanged) onChanged();
-    } catch(e){ setError('Не вдалося згенерувати оновлений текст'); }
-    finally { setGenerating(false); }
+    }
   };
-  const downloadEdited = async () => {
+
+  const downloadPdf = async () => {
     try {
       setGenerating(true);
-      const resp = await api.get(`/syllabus/${syllabus._id}/download-edited-txt`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([resp.data]));
+      const resp = await api.syllabus.downloadEditedPdf(syllabus._id);
+      const url = window.URL.createObjectURL(new Blob([resp.data], { type: resp.headers['content-type'] || 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${(syllabus.title||'syllabus')}-edited.txt`;
+      const disposition = resp.headers['content-disposition'] || '';
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      const filename = match ? match[1] : (pdfMeta?.filename || `${(syllabus.title || 'syllabus')}-diff.pdf`);
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch(e){ setError('Не вдалося завантажити файл'); }
-    finally { setGenerating(false); }
+    } catch (err) {
+      setError('Не вдалося завантажити PDF зі змінами');
+    } finally {
+      setGenerating(false);
+    }
   };
   return (
     <Box sx={{
@@ -125,9 +163,57 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
         {tabs.map(label => <Tab key={label} label={`${label} (${grouped[label].length})`} />)}
       </Tabs>
       <Stack direction="row" spacing={1} sx={{ mb:2 }}>
-        <Button size="small" variant={editing? 'contained':'outlined'} disabled={!allAccepted} onClick={()=> setEditing(v=>!v)}>Редагувати текст силабусу</Button>
-  {editing && <Button size="small" variant="contained" color="secondary" onClick={triggerBackendGeneration} disabled={generating}>{generating? <CircularProgress size={16}/> : 'Згенерувати текст з коментарями'}</Button>}
-  {!editing && editedReady && <Button size="small" variant="contained" color="success" onClick={downloadEdited} disabled={generating}>{generating? <CircularProgress size={16}/> : 'Завантажити відредагований TXT'}</Button>}
+        <Button
+          size="small"
+          variant={editing ? 'contained' : 'outlined'}
+          disabled={!allAccepted || editingStatus === 'processing'}
+          onClick={() => setEditing(v => !v)}
+        >
+          Редагувати силабус з AI
+        </Button>
+        {editing && (
+          <Button
+            size="small"
+            variant="contained"
+            color="secondary"
+            onClick={requestPdfGeneration}
+            disabled={generating}
+            startIcon={generating ? <CircularProgress size={14} /> : null}
+          >
+            {generating ? 'Надсилаємо...' : 'Відправити на обробку' }
+          </Button>
+        )}
+        {!editing && pdfReady && (
+          <Button
+            size="small"
+            variant="contained"
+            color="success"
+            onClick={downloadPdf}
+            disabled={generating}
+            startIcon={generating ? <CircularProgress size={14} /> : null}
+          >
+            {generating ? 'Готуємо файл...' : 'Завантажити PDF зі змінами'}
+          </Button>
+        )}
+        {editingStatus === 'processing' && (
+          <Chip 
+            color="info" 
+            label="LLM обробляє..." 
+            size="small"
+            icon={<CircularProgress size={14} />}
+          />
+        )}
+        {editingStatus === 'error' && (
+          <Chip 
+            color="error" 
+            label="Помилка обробки" 
+            size="small"
+            variant="outlined"
+          />
+        )}
+        {pdfMeta && pdfReady && (
+          <Chip color="default" size="small" label={`Оновлено: ${new Date(pdfMeta.generatedAt).toLocaleString('uk-UA')}`} />
+        )}
       </Stack>
       {error && (
         <Typography color="error" variant="caption" sx={{ display: 'block', mb: 1 }}>

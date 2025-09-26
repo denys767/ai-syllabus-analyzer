@@ -31,7 +31,9 @@
     "nodemailer": "latest",
     "openai": "latest",
   "pdf-parse": "latest",
-  "pdfkit": "latest"
+  "pdfkit": "latest",
+  "diff-match-patch": "latest",
+  "puppeteer": "latest"
   },
   "optionalDependencies": {
     "docx": "^9.0.3"

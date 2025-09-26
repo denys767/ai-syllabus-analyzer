@@ -38,6 +38,14 @@ const syllabusSchema = new mongoose.Schema({
     path: String,
     generatedAt: Date
   },
+  editedPdf: {
+    filename: String,
+    originalName: String,
+    mimetype: { type: String, default: 'application/pdf' },
+    size: Number,
+    path: String,
+    generatedAt: Date
+  },
   extractedText: {
     type: String,
     required: true
@@ -145,6 +153,14 @@ const syllabusSchema = new mongoose.Schema({
     }
   },
   vectorEmbedding: [Number], // For similarity comparison
+  editingStatus: {
+    type: String,
+    enum: ['idle', 'processing', 'ready', 'error'],
+    default: 'idle'
+  },
+  editingError: {
+    type: String
+  },
   status: {
     type: String,
     enum: ['processing', 'analyzed', 'reviewed', 'approved', 'error'],

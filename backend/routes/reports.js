@@ -63,7 +63,7 @@ router.get('/manager-summary', auth, manager, async (req, res) => {
   try {
     const syllabi = await Syllabus.find({ status: { $in: ['analyzed','reviewed','approved'] } })
       .populate('instructor', 'firstName lastName email')
-      .select('recommendations analysis.practicalChallenge instructor createdAt');
+      .select('recommendations analysis practicalChallenge instructor createdAt');
 
     const summary = {
       totalSyllabi: syllabi.length,
@@ -76,12 +76,18 @@ router.get('/manager-summary', auth, manager, async (req, res) => {
       },
       learningOutcomesAlignment: {
         coveredObjectives: [...new Set(syllabi.flatMap(s => s.analysis?.learningObjectivesAlignment?.alignedObjectives || []))],
-        gaps: [...new Set(syllabi.flatMap(s => s.analysis?.learningObjectivesAlignment?.missingObjectives || []))]
+        gaps: [...new Set(syllabi.flatMap(s => s.analysis?.learningObjectivesAlignment?.missingObjectives || []))],
+        averageScore: syllabi.length > 0 ? 
+          syllabi.reduce((sum, s) => {
+            const covered = (s.analysis?.learningObjectivesAlignment?.alignedObjectives || []).length;
+            const total = covered + (s.analysis?.learningObjectivesAlignment?.missingObjectives || []).length;
+            return sum + (total > 0 ? (covered / total) * 100 : 0);
+          }, 0) / syllabi.length : 0
       },
       practicalityAndInteractivity: {
-        totalChallengesCompleted: syllabi.filter(s => s.analysis?.practicalChallenge?.status === 'completed').length,
-        aiSuggestionsCount: syllabi.reduce((sum, s) => sum + (s.analysis?.practicalChallenge?.aiSuggestions?.length || 0), 0),
-        topSuggestions: syllabi.flatMap(s => s.analysis?.practicalChallenge?.aiSuggestions || [])
+        totalChallengesCompleted: syllabi.filter(s => s.practicalChallenge?.status === 'completed').length,
+        aiSuggestionsCount: syllabi.reduce((sum, s) => sum + (s.practicalChallenge?.aiSuggestions?.length || 0), 0),
+        topSuggestions: syllabi.flatMap(s => s.practicalChallenge?.aiSuggestions || [])
           .slice(0, 20) // Top 20 suggestions
       },
       improvementProposals: syllabi.flatMap(s => s.recommendations.filter(r => r.status === 'accepted'))

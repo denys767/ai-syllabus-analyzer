@@ -557,6 +557,91 @@ router.post('/:id/analyze', auth, async (req, res) => {
   }
 });
 
+// Start LLM-powered PDF diff generation
+router.post('/:id/generate-diff-pdf', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id);
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+    const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
+    if (!accepted.length) {
+      return res.status(400).json({ message: 'Спочатку прийміть принаймні одну рекомендацію' });
+    }
+
+    if (syllabus.editingStatus === 'processing') {
+      return res.status(409).json({ message: 'Генерація вже триває' });
+    }
+
+    syllabus.editingStatus = 'processing';
+    syllabus.editingError = undefined;
+    await syllabus.save();
+
+    setImmediate(async () => {
+      try {
+        await aiService.generateDiffPdf(syllabus._id);
+      } catch (err) {
+        console.error('Diff PDF generation error:', err);
+      }
+    });
+
+    return res.status(202).json({
+      message: 'Генерацію PDF розпочато',
+      status: syllabus.editingStatus
+    });
+  } catch (error) {
+    console.error('Start diff PDF error:', error);
+    return res.status(500).json({ message: 'Не вдалося розпочати генерацію PDF' });
+  }
+});
+
+// Poll current editing status
+router.get('/:id/editing-status', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id).select('editingStatus editingError editedPdf instructor title course');
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+    const { editingStatus, editingError, editedPdf } = syllabus;
+    return res.json({
+      status: editingStatus,
+      error: editingError,
+      editedPdf: editedPdf ? {
+        filename: editedPdf.originalName,
+        generatedAt: editedPdf.generatedAt,
+        size: editedPdf.size
+      } : null
+    });
+  } catch (error) {
+    console.error('Get editing status error:', error);
+    return res.status(500).json({ message: 'Не вдалося отримати статус редагування' });
+  }
+});
+
+// Download generated PDF diff
+router.get('/:id/download-edited-pdf', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id);
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+    if (!syllabus.editedPdf?.path || syllabus.editingStatus !== 'ready') {
+      return res.status(400).json({ message: 'PDF ще не згенеровано' });
+    }
+
+    try {
+      await fs.access(syllabus.editedPdf.path);
+    } catch {
+      return res.status(404).json({ message: 'Файл PDF не знайдено' });
+    }
+
+    res.download(syllabus.editedPdf.path, syllabus.editedPdf.originalName || 'syllabus-diff.pdf');
+  } catch (error) {
+    console.error('Download edited pdf error:', error);
+    return res.status(500).json({ message: 'Не вдалося завантажити PDF' });
+  }
+});
+
 // Download syllabus file
 router.get('/:id/download', auth, async (req, res) => {
   try {
