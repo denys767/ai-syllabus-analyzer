@@ -43,6 +43,15 @@ const userSchema = new mongoose.Schema({
     default: false
   },
   verificationToken: String,
+  // Pending email change flow
+  pendingEmail: {
+    type: String,
+    lowercase: true,
+    trim: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
+  },
+  emailChangeToken: String,
+  emailChangeTokenExpires: Date,
   resetPasswordToken: String,
   resetPasswordExpires: Date,
   lastLogin: Date,

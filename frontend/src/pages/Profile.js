@@ -8,6 +8,9 @@ const Profile = () => {
   const [firstName, setFirstName] = useState(user?.firstName || '');
   const [lastName, setLastName] = useState(user?.lastName || '');
   const [email, setEmail] = useState(user?.email || '');
+  const [newEmail, setNewEmail] = useState('');
+  const [emailChangeMsg, setEmailChangeMsg] = useState('');
+  const [emailChangeErr, setEmailChangeErr] = useState('');
   const [department, setDepartment] = useState(user?.department || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
   const [loading, setLoading] = useState(false);
@@ -23,9 +26,9 @@ const Profile = () => {
   const saveProfile = async () => {
     setLoading(true); setErr(''); setMsg('');
     try {
-      const res = await updateProfile({ firstName, lastName, department, avatarUrl, email });
+  const res = await updateProfile({ firstName, lastName, department, avatarUrl });
       if (!res.success) throw new Error(res.error || 'Помилка оновлення профілю');
-      setMsg('Профіль оновлено. Якщо ви змінили email, підтвердьте його через лист.');
+  setMsg('Профіль оновлено.');
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -88,7 +91,7 @@ const Profile = () => {
                 <TextField label="Прізвище" fullWidth value={lastName} onChange={(e)=>setLastName(e.target.value)} />
               </Grid>
               <Grid item xs={12}>
-                <TextField type="email" label="Email" fullWidth value={email} onChange={(e)=>setEmail(e.target.value)} />
+                <TextField type="email" label="Поточний email" fullWidth value={email} disabled />
               </Grid>
               <Grid item xs={12}>
                 <TextField label="Факультет/Відділ" fullWidth value={department} onChange={(e)=>setDepartment(e.target.value)} />
@@ -103,6 +106,36 @@ const Profile = () => {
           </Paper>
         </Grid>
         <Grid item xs={12} md={5}>
+          <Paper sx={{ p: 3, mb: 2 }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>Зміна email</Typography>
+            {emailChangeErr && <Alert severity="error" sx={{ mb: 2 }}>{emailChangeErr}</Alert>}
+            {emailChangeMsg && <Alert severity="success" sx={{ mb: 2 }}>{emailChangeMsg}</Alert>}
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Вкажіть нову адресу. Ми надішлемо на неї лист із посиланням. Після підтвердження ваш email буде змінено.
+            </Typography>
+            <TextField
+              type="email"
+              label="Нова адреса email"
+              fullWidth
+              sx={{ mb: 2 }}
+              value={newEmail}
+              onChange={(e)=>setNewEmail(e.target.value)}
+            />
+            <Button
+              variant="outlined"
+              onClick={async ()=>{
+                setEmailChangeErr(''); setEmailChangeMsg('');
+                try {
+                  if (!newEmail) throw new Error('Вкажіть нову адресу email');
+                  const res = await api.emailChange.request(newEmail);
+                  setEmailChangeMsg(res.data?.message || 'Перевірте пошту для підтвердження');
+                  setNewEmail('');
+                } catch (e) {
+                  setEmailChangeErr(e.response?.data?.message || 'Не вдалося надіслати підтвердження');
+                }
+              }}
+            >Запросити зміну</Button>
+          </Paper>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" fontWeight={700} gutterBottom>Аватар</Typography>
             <Box display="flex" alignItems="center" gap={2}>

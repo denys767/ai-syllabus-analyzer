@@ -130,8 +130,25 @@ async function sendAccountDeletionEmail(email) {
   return sendMail({ to: email, subject, html });
 }
 
+async function sendEmailChangeConfirmation(newEmail, token) {
+  const url = buildFrontendUrl(`/confirm-email-change?token=${encodeURIComponent(token)}`);
+  const subject = 'Підтвердження зміни email — KSE AI Syllabus Analyzer';
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#333">
+      <h2>Підтвердіть зміну електронної пошти</h2>
+      <p>Ви або хтось інший запросили змінити email для вашого акаунта на цю адресу. Для підтвердження натисніть кнопку нижче. Якщо ви не робили цього — проігноруйте лист.</p>
+      <p style="margin:24px 0">
+        <a href="${url}" style="background:#1976d2;color:#fff;padding:12px 18px;border-radius:6px;text-decoration:none;display:inline-block">Підтвердити зміну email</a>
+      </p>
+      <p>Посилання: <a href="${url}">${url}</a> (дійсне 24 години)</p>
+    </div>
+  `;
+  return sendMail({ to: newEmail, subject, html });
+}
+
 module.exports = {
   sendInvitationEmail,
   sendPasswordResetEmail,
   sendAccountDeletionEmail,
+  sendEmailChangeConfirmation,
 };

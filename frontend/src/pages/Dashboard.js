@@ -128,11 +128,11 @@ const Dashboard = () => {
     // Опитування: немає окремої сторінки у фронтенді, приховано для всіх ролей
     // AI Challenger moved into per-syllabus view, no global entry
     {
-      title: 'Каталог звітів',
-      description: 'Переглянути звіти силабусів',
+      title: 'Звіти силабусів',
+      description: 'Аналітичні звіти по кожному силабусу',
       icon: <Analytics />,
       color: 'warning',
-      path: '/manager/catalog',
+      path: '/manager/reports',
       roles: ['manager', 'admin'],
     },
   ];

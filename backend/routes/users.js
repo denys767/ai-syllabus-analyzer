@@ -6,7 +6,8 @@ const Syllabus = require('../models/Syllabus');
 // const { Survey, SurveyResponse } = require('../models/Survey'); // removed unused survey stats for now
 const User = require('../models/User');
 const PracticalIdea = require('../models/PracticalIdea');
-const { sendAccountDeletionEmail } = require('../services/emailService');
+const { sendAccountDeletionEmail, sendEmailChangeConfirmation } = require('../services/emailService');
+const crypto = require('crypto');
 
 const router = express.Router();
 
@@ -177,6 +178,90 @@ router.delete('/account', auth, [
     res.status(500).json({
       message: 'Помилка видалення акаунта'
     });
+  }
+});
+
+// Request email change: store pendingEmail and send confirmation to the new address
+router.post('/email-change/request', auth, [
+  body('newEmail').isEmail().withMessage('Вкажіть коректний email').normalizeEmail({ gmail_remove_dots: false })
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: 'Помилки валідації', errors: errors.array() });
+    }
+
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ message: 'Користувача не знайдено' });
+
+    const { newEmail } = req.body;
+    if (newEmail.toLowerCase() === user.email.toLowerCase()) {
+      return res.status(400).json({ message: 'Новий email співпадає з поточним' });
+    }
+
+    // Ensure email is not used by another account
+    const exists = await User.findOne({ email: newEmail.toLowerCase() });
+    if (exists) return res.status(409).json({ message: 'Цей email вже використовується' });
+
+    user.pendingEmail = newEmail.toLowerCase();
+    user.emailChangeToken = crypto.randomBytes(32).toString('hex');
+    user.emailChangeTokenExpires = Date.now() + 24 * 60 * 60 * 1000; // 24h
+    await user.save();
+
+    // Best-effort email to new address
+    try {
+      await sendEmailChangeConfirmation(user.pendingEmail, user.emailChangeToken);
+    } catch (e) {
+      console.warn('Failed to send email change confirmation:', e.message);
+    }
+
+    return res.json({ message: 'Майже готово! Перевірте нову пошту для підтвердження зміни.' });
+  } catch (error) {
+    console.error('Email change request error:', error);
+    return res.status(500).json({ message: 'Внутрішня помилка сервера' });
+  }
+});
+
+// Confirm email change via token sent to the new email address
+router.post('/email-change/confirm', [
+  body('token').notEmpty().withMessage('Потрібен токен підтвердження')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: 'Помилки валідації', errors: errors.array() });
+    }
+
+    const { token } = req.body;
+    const user = await User.findOne({ emailChangeToken: token, emailChangeTokenExpires: { $gt: Date.now() } });
+    if (!user) {
+      return res.status(400).json({ message: 'Недійсний або прострочений токен' });
+    }
+
+    if (!user.pendingEmail) {
+      return res.status(400).json({ message: 'Немає запиту на зміну email' });
+    }
+
+    // Final check that pendingEmail is still free
+    const exists = await User.findOne({ email: user.pendingEmail });
+    if (exists && exists._id.toString() !== user._id.toString()) {
+      return res.status(409).json({ message: 'Цей email вже використовується' });
+    }
+
+    user.email = user.pendingEmail;
+    user.pendingEmail = undefined;
+    user.emailChangeToken = undefined;
+    user.emailChangeTokenExpires = undefined;
+
+    // When changing email, user must re-verify? Typically not if already verified, but business can decide.
+    // We'll keep existing verification status. Optionally could set isVerified=false and issue new verification.
+
+    await user.save();
+
+    return res.json({ message: 'Email успішно змінено' });
+  } catch (error) {
+    console.error('Email change confirm error:', error);
+    return res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 

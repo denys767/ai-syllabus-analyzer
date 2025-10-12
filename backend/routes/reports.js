@@ -107,6 +107,23 @@ router.get('/manager-summary', auth, manager, async (req, res) => {
   }
 });
 
+// Recent syllabi for manager dashboard
+router.get('/recent-syllabi', auth, manager, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    const syllabi = await Syllabus.find()
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .select('title course createdAt status instructor')
+      .populate('instructor', 'firstName lastName');
+    
+    res.json({ syllabi });
+  } catch (e) {
+    console.error('Recent syllabi error:', e);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Catalogue of analyzed syllabi (manager/admin) – minimal fields for listing
 router.get('/catalog', auth, manager, async (req, res) => {
   try {
@@ -128,6 +145,29 @@ router.get('/catalog', auth, manager, async (req, res) => {
     res.json({ items });
   } catch (e) {
     console.error('Catalog error', e); res.status(500).json({ message: 'Internal server error'});
+  }
+});
+
+// Analytics overview (manager/admin)
+router.get('/analytics', auth, manager, async (req, res) => {
+  try {
+    const [totalInstructors, totalSyllabi] = await Promise.all([
+      User.countDocuments({ role: 'instructor' }),
+      Syllabus.countDocuments()
+    ]);
+
+    const analytics = {
+      overview: {
+        totalInstructors,
+        totalSyllabi,
+        averageQualityScore: 0 // Deprecated numeric scoring per spec
+      }
+    };
+
+    res.json({ analytics });
+  } catch (e) {
+    console.error('Analytics error:', e);
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 

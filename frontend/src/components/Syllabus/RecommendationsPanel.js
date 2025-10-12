@@ -38,6 +38,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
   const [pdfMeta, setPdfMeta] = useState(syllabus?.editedPdf || null);
   const [editingStatus, setEditingStatus] = useState(syllabus?.editingStatus || 'idle');
   const [polling, setPolling] = useState(false);
+  const [processingComments, setProcessingComments] = useState(new Set()); // Треки рекомендацій, що чекають на AI відповідь
 
   const grouped = useMemo(() => {
     const groups = {
@@ -64,15 +65,75 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
     try {
       setWorkingId(rec._id || rec.id);
       setError('');
+      
+      // Якщо це коментар, додаємо в список очікування AI відповіді
+      if (data.status === 'commented') {
+        setProcessingComments(prev => new Set([...prev, rec._id || rec.id]));
+      }
+      
       await api.syllabus.updateRecommendation(syllabusId, rec._id || rec.id, data);
       setCommentingId(null);
       setCommentText('');
-      onChanged?.();
+      
+      // Якщо це коментар, запускаємо polling для отримання AI відповіді
+      if (data.status === 'commented') {
+        pollForAIResponse(rec._id || rec.id);
+      } else {
+        onChanged?.();
+      }
     } catch (e) {
       setError(e.response?.data?.message || 'Не вдалося оновити рекомендацію');
+      setProcessingComments(prev => {
+        const next = new Set(prev);
+        next.delete(rec._id || rec.id);
+        return next;
+      });
     } finally {
       setWorkingId(null);
     }
+  };
+
+  // Polling для отримання AI відповіді на коментар
+  const pollForAIResponse = (recId) => {
+    let attempts = 0;
+    const maxAttempts = 20; // максимум 60 секунд (20 * 3 сек)
+    
+    const interval = setInterval(async () => {
+      attempts++;
+      
+      try {
+        const response = await api.syllabus.getSyllabus(syllabusId);
+        const updatedRec = response.data.recommendations?.find(r => (r._id || r.id) === recId);
+        
+        if (updatedRec?.aiResponse) {
+          // AI відповідь отримано!
+          setProcessingComments(prev => {
+            const next = new Set(prev);
+            next.delete(recId);
+            return next;
+          });
+          clearInterval(interval);
+          onChanged?.();
+        } else if (attempts >= maxAttempts) {
+          // Таймаут - припиняємо спроби
+          setProcessingComments(prev => {
+            const next = new Set(prev);
+            next.delete(recId);
+            return next;
+          });
+          clearInterval(interval);
+          setError('AI відповідь затримується. Спробуйте оновити сторінку пізніше.');
+        }
+      } catch (err) {
+        console.error('Polling AI response error:', err);
+        setProcessingComments(prev => {
+          const next = new Set(prev);
+          next.delete(recId);
+          return next;
+        });
+        clearInterval(interval);
+      }
+    }, 3000);
   };
 
   const allAccepted = recommendations.some(r => r.status === 'accepted');
@@ -90,23 +151,30 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       try {
         const { data } = await api.syllabus.getEditingStatus(syllabus._id);
         setEditingStatus(data.status);
+        
         if (data.editedPdf && data.status === 'ready') {
           setPdfMeta(data.editedPdf);
           setPdfReady(true);
           setPolling(false);
+          setGenerating(false);
+          
+          // Показуємо повідомлення про успіх
+          setError(''); // Очищуємо попередні помилки
           onChanged?.();
         }
+        
         if (data.status === 'error') {
-          setError(data.error || 'LLM не зміг згенерувати зміни');
+          setError(data.error || 'LLM не зміг згенерувати зміни. Спробуйте ще раз.');
           setPolling(false);
-          setGenerating(false); // Вимикаємо індикатор завантаження при помилці
+          setGenerating(false);
         }
       } catch (err) {
-        setError('Не вдалося оновити статус редагування');
+        console.error('Polling editing status error:', err);
+        setError('Не вдалося оновити статус редагування. Перевірте з\'єднання.');
         setPolling(false);
-        setGenerating(false); // Вимикаємо індикатор завантаження при помилці
+        setGenerating(false);
       }
-    }, 4000);
+    }, 3000); // Перевірка кожні 3 секунди
     return () => clearInterval(interval);
   }, [polling, syllabus?._id, onChanged]);
 
@@ -198,9 +266,16 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
         {editingStatus === 'processing' && (
           <Chip 
             color="info" 
-            label="LLM обробляє..." 
+            label="LLM обробляє... (може зайняти до 2 хв)" 
             size="small"
             icon={<CircularProgress size={14} />}
+          />
+        )}
+        {editingStatus === 'ready' && pdfReady && (
+          <Chip 
+            color="success" 
+            label="✓ PDF готовий!" 
+            size="small"
           />
         )}
         {editingStatus === 'error' && (
@@ -250,6 +325,17 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
                 Ваш коментар: {rec.instructorComment}
               </Typography>
             )}
+            
+            {/* Індикатор очікування AI відповіді */}
+            {processingComments.has(rec._id || rec.id) && !rec.aiResponse && (
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                <CircularProgress size={16} />
+                <Typography variant="caption" color="info.main">
+                  AI готує відповідь на ваш коментар...
+                </Typography>
+              </Stack>
+            )}
+            
             {rec.aiResponse && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                 Відповідь AI: {rec.aiResponse}

@@ -19,6 +19,7 @@ import SyllabusAnalysis from './pages/SyllabusAnalysis';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import PoliciesPage from './pages/PoliciesPage';
+import ConfirmEmailChange from './pages/ConfirmEmailChange';
 
 // Admin pages
 import AdminDashboard from './pages/Admin/AdminDashboard';
@@ -26,8 +27,7 @@ import UserManagement from './components/Admin/UserManagement';
 
 // Manager pages
 import ManagerDashboard from './pages/Manager/ManagerDashboard';
-import ManagerSummary from './components/Manager/ManagerSummary';
-import ReportsCatalog from './pages/ReportsCatalog';
+import ManagerReports from './pages/Manager/ManagerReports';
 
 function App() {
   const { user, isLoading } = useAuth();
@@ -53,6 +53,7 @@ function App() {
         path="/login"
         element={user ? <Navigate to="/dashboard" replace /> : <Login />}
       />
+      <Route path="/confirm-email-change" element={<ConfirmEmailChange />} />
   <Route path="/reset-password" element={<ResetPassword />} />
   <Route path="/verify-email" element={<VerifyEmail />} />
 
@@ -121,18 +122,10 @@ function App() {
           }
         />
         <Route
-          path="manager/catalog"
+          path="manager/reports"
           element={
             <ProtectedRoute requiredRoles={['manager', 'admin']}>
-              <ReportsCatalog />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="manager/summary"
-          element={
-            <ProtectedRoute requiredRoles={['manager', 'admin']}>
-              <ManagerSummary />
+              <ManagerReports />
             </ProtectedRoute>
           }
         />

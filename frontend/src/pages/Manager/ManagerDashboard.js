@@ -34,9 +34,10 @@ const ManagerDashboard = () => {
       setLoading(true);
       
       // Fetch dashboard statistics
-      const [analyticsRes, topInstructorsRes] = await Promise.all([
+      const [analyticsRes, topInstructorsRes, recentResponse] = await Promise.all([
         api.get('/reports/analytics'),
-        api.get('/reports/top-instructors?limit=10')
+        api.get('/reports/top-instructors?limit=10'),
+        api.get('/reports/recent-syllabi?limit=5')
       ]);
 
       const analytics = analyticsRes.data.analytics || {};
@@ -47,14 +48,11 @@ const ManagerDashboard = () => {
         recentActivity: []
       });
       setTopInstructors(topInstructorsRes.data.instructors || []);
-
-      // Get recent syllabi
-      const recentResponse = await api.get('/admin/syllabi?limit=5&sort=createdAt');
       setRecentSyllabi(recentResponse.data.syllabi || []);
 
     } catch (err) {
       setError('Помилка завантаження даних дешборду');
-      console.error(err);
+      console.error('Dashboard error:', err);
     } finally {
       setLoading(false);
     }

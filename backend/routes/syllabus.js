@@ -9,6 +9,7 @@ const { body, validationResult } = require('express-validator');
 const Syllabus = require('../models/Syllabus');
 const { auth, authorize, requireVerification } = require('../middleware/auth');
 const aiService = require('../services/aiService');
+const { admin } = require('../middleware/roles');
 
 const router = express.Router();
 
@@ -414,10 +415,8 @@ router.delete('/:id', auth, async (req, res) => {
       });
     }
 
-    // Delete the file from filesystem
-    if (syllabus.originalFile.path) {
-      await fs.unlink(syllabus.originalFile.path).catch(console.error);
-    }
+    // Delete associated files from filesystem (best-effort)
+    try { await syllabus.cleanupFiles(); } catch (e) { /* ignore */ }
 
     await Syllabus.findByIdAndDelete(req.params.id);
 
@@ -845,6 +844,35 @@ router.post('/:id/challenge/finalize', auth, async (req, res) => {
   } catch (error) {
     console.error('Finalize challenge error:', error);
     return res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Admin: cleanup orphaned files under uploads/syllabi not referenced in DB
+router.post('/maintenance/cleanup-uploads', auth, admin, async (req, res) => {
+  try {
+    const dir = path.join(__dirname, '../uploads/syllabi');
+    let entries = [];
+    try { entries = await fs.readdir(dir); } catch { entries = []; }
+
+    // Collect all file paths referenced in DB
+    const docs = await Syllabus.find().select('originalFile.path editedPdf.path modifiedFile.path');
+    const referenced = new Set();
+    for (const d of docs) {
+      if (d.originalFile?.path) referenced.add(path.basename(d.originalFile.path));
+      if (d.editedPdf?.path) referenced.add(path.basename(d.editedPdf.path));
+      if (d.modifiedFile?.path) referenced.add(path.basename(d.modifiedFile.path));
+    }
+
+    let deleted = 0;
+    for (const name of entries) {
+      if (!referenced.has(name)) {
+        try { await fs.unlink(path.join(dir, name)); deleted++; } catch { /* ignore */ }
+      }
+    }
+    return res.json({ message: 'Cleanup completed', deleted });
+  } catch (e) {
+    console.error('Cleanup uploads error:', e);
+    return res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 

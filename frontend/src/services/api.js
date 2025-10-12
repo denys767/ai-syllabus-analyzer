@@ -102,12 +102,21 @@ class ApiService {
       this.client.put('/users/settings', data)
   };
 
+  // Email change flow
+  emailChange = {
+    request: (newEmail) => this.client.post('/users/email-change/request', { newEmail }),
+    confirm: (token) => this.client.post('/users/email-change/confirm', { token })
+  };
+
   // Syllabus endpoints
   syllabus = {
     upload: (formData) =>
       this.client.post('/syllabus/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       }),
+    
+    getAll: (params = {}) =>
+      this.client.get('/reports/catalog', { params }),
     
     getMySyllabi: (params = {}) =>
       this.client.get('/syllabus/my-syllabi', { params }),

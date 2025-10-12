@@ -89,15 +89,9 @@ const Sidebar = ({ onItemClick }) => {
       roles: ['manager', 'admin'],
     },
     {
-      text: 'Каталог звітів',
+      text: 'Звіти',
       icon: <Assessment />,
-      path: '/manager/catalog',
-      roles: ['manager','admin'],
-    },
-    {
-      text: 'Агрегований звіт',
-      icon: <BarChart />,
-      path: '/manager/summary',
+      path: '/manager/reports',
       roles: ['manager','admin'],
     },
   ];
@@ -119,12 +113,6 @@ const Sidebar = ({ onItemClick }) => {
       text: 'Системна аналітика',
       icon: <BarChart />,
       path: '/admin/analytics',
-      roles: ['admin'],
-    },
-    {
-      text: 'Каталог звітів',
-      icon: <Assessment />,
-      path: '/manager/catalog',
       roles: ['admin'],
     },
   ];

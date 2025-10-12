@@ -51,7 +51,7 @@ const ManagerSummary = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
-        Менеджерський звіт (розділ 2.4 ТЗ)
+        Менеджерський звіт
       </Typography>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>

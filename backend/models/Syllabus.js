@@ -184,4 +184,29 @@ syllabusSchema.index({ status: 1 });
 // Deprecated: quality score removed per new simplified spec (no percentage scoring)
 syllabusSchema.methods.calculateQualityScore = function() { return 0; };
 
+// Helper to remove associated files from disk
+syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
+  const fs = fsPromises || require('fs').promises;
+  const tryUnlink = async (p) => {
+    if (!p) return;
+    try { await fs.unlink(p); } catch (e) { /* ignore */ }
+  };
+  try {
+    await tryUnlink(this.originalFile?.path);
+    await tryUnlink(this.editedPdf?.path);
+    await tryUnlink(this.modifiedFile?.path);
+  } catch (e) {
+    // swallow errors; cleanup is best-effort
+  }
+};
+
+// Static helper to cleanup multiple syllabi files by filter
+syllabusSchema.statics.cleanupFilesByFilter = async function(filter = {}) {
+  const fs = require('fs').promises;
+  const docs = await this.find(filter).select('originalFile.path editedPdf.path modifiedFile.path');
+  for (const doc of docs) {
+    await doc.cleanupFiles(fs);
+  }
+};
+
 module.exports = mongoose.model('Syllabus', syllabusSchema);
