@@ -95,7 +95,7 @@ const syllabusSchema = new mongoose.Schema({
       }],
       riskLevel: {
         type: String,
-        enum: ['low', 'medium', 'high']
+        enum: ['none', 'low', 'medium', 'high', 'unknown']
       }
   },
   // Optional survey insights snapshot used for grouped recommendations
@@ -108,7 +108,12 @@ const syllabusSchema = new mongoose.Schema({
     },
     category: {
       type: String,
-      enum: ['structure', 'content', 'objectives', 'assessment', 'cases', 'methods', 'plagiarism'],
+      enum: [
+        // Legacy categories (backward compatibility)
+        'structure', 'content', 'objectives', 'assessment', 'cases', 'methods', 'plagiarism',
+        // New v2.0.0 categories
+        'template-compliance', 'learning-objectives', 'content-quality', 'student-clusters', 'policy', 'other'
+      ],
       required: true
     },
   // UI grouping tag (UA labels) — NOT enforced enum to allow future expansion

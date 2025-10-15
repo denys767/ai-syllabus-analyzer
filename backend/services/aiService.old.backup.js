@@ -1,0 +1,1641 @@
+const fs = require('fs').promises;
+const path = require('path');
+const Syllabus = require('../models/Syllabus');
+const { Survey, SurveyResponse } = require('../models/Survey');
+const StudentCluster = require('../models/StudentCluster');
+const natural = require('natural');
+const OpenAI = require('openai');
+const { diff_match_patch } = require('diff-match-patch');
+const puppeteer = require('puppeteer');
+
+const dmp = new diff_match_patch();
+
+const escapeHtml = (value = '') => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const clampText = (text = '', limit = 24000) => {
+  if (!text) return '';
+  return text.length > limit ? text.slice(0, limit) : text;
+};
+
+class AIService {
+  constructor() {
+    this.stemmer = natural.PorterStemmer;
+    this.tfidf = new natural.TfIdf();
+    
+    // Initialize OpenAI from environment (no explicit per-request timeout)
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+
+    // Get LLM model from environment with safe default
+    const envModel = (process.env.LLM_MODEL || '').trim();
+    const defaultModel = 'gpt-5-nano';
+    this.llmModel = envModel && envModel.startsWith('gpt-') ? envModel : defaultModel;
+    
+  // Removed embedded syllabus template per new spec; only retain learning objectives text if needed
+  this.mbaLearningObjectives = `MBA-27 Learning Objectives (summary categories only): Strategic Thinking; Leadership; Finance; Marketing; Operations; Data & BI; Innovation; Ethics & CSR; Global & Cultural; Digital Transformation.`;
+  }
+
+  // Extract plain text from Responses API response structure
+  extractResponsesText(resp) {
+    if (!resp) return '';
+    // New SDK may expose output_text
+    if (resp.output_text) return resp.output_text.trim();
+    // Fallback manual extraction
+    try {
+      const parts = [];
+      if (Array.isArray(resp.output)) {
+        for (const item of resp.output) {
+          if (item.content) {
+            for (const c of item.content) {
+              if (c.type === 'output_text' && c.text?.value) parts.push(c.text.value);
+              else if (c.text?.value) parts.push(c.text.value);
+            }
+          }
+        }
+      }
+      return parts.join('\n').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  // Safely parse JSON output from the model, tolerating code fences or trailing commas
+  safeParseJSON(text) {
+    if (!text || typeof text !== 'string') return null;
+    // Remove Markdown code fences if present
+    let cleaned = text.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```[a-zA-Z]*\n?/, '').replace(/```\s*$/, '').trim();
+    }
+    try {
+      return JSON.parse(cleaned);
+    } catch (e) {
+      try {
+        // Attempt minor fixes: remove trailing commas
+        const noTrailingCommas = cleaned.replace(/,\s*([}\]])/g, '$1');
+        return JSON.parse(noTrailingCommas);
+      } catch {
+        console.error('safeParseJSON failed. Text was:', text);
+        return null;
+      }
+    }
+  }
+
+  // Legacy initializeStaticContent removed (template no longer embedded)
+
+  async analyzeSyllabus(syllabusId) {
+    try {
+      console.log('\n🚀 ==========================================');
+      console.log('🚀 ПОЧАТОК ПОВНОГО АНАЛІЗУ СИЛАБУСУ');
+      console.log('🚀 ==========================================');
+      console.log(`📄 ID силабусу: ${syllabusId}`);
+      
+      const syllabus = await Syllabus.findById(syllabusId);
+      if (!syllabus) {
+        console.error('❌ Силабус не знайдено в базі даних');
+        throw new Error('Syllabus not found');
+      }
+
+      console.log('✅ Силабус завантажено з бази даних');
+      console.log('📖 Назва курсу:', syllabus.course?.name || 'Не вказано');
+      console.log('👨‍🏫 Викладач ID:', syllabus.instructor);
+      console.log('📄 Довжина тексту:', syllabus.extractedText?.length || 0, 'символів');
+
+      // Get current student cluster data (changes quarterly)
+      const currentStudentClusters = await this.getCurrentStudentClusters();
+      
+      // Get latest survey responses for context
+      const surveyInsights = await this.getSurveyInsights();
+
+      // Perform comprehensive analysis using OpenAI
+      const analysis = await this.performComprehensiveAnalysis(
+        syllabus.extractedText, 
+        currentStudentClusters, 
+        surveyInsights
+      );
+
+      // Check for plagiarism against existing syllabi
+      console.log('\n📋 === ПЕРЕВІРКА НА ПЛАГІАТ ===');
+  const plagiarismCheck = await this.checkPlagiarism(syllabus);
+      console.log('⚠️ Рівень ризику:', plagiarismCheck.riskLevel);
+      console.log('📊 Схожих силабусів знайдено:', plagiarismCheck.similarSyllabi?.length || 0);
+      console.log('=== ПЕРЕВІРКА НА ПЛАГІАТ ЗАВЕРШЕНО ===\n');
+
+      console.log('\n💾 === ЗБЕРЕЖЕННЯ РЕЗУЛЬТАТІВ ===');
+      // Optionally generate anti-plagiarism recommendations if risk present
+      let plagiarismRecommendations = [];
+      if (plagiarismCheck && (plagiarismCheck.riskLevel === 'medium' || plagiarismCheck.riskLevel === 'high')) {
+        try {
+          console.log('\n🧠 === ГЕНЕРАЦІЯ АНТИ-ПЛАГІАТ РЕКОМЕНДАЦІЙ ===');
+          plagiarismRecommendations = await this.generateAntiPlagiarismRecommendations(
+            syllabus,
+            analysis,
+            plagiarismCheck
+          );
+          console.log('✅ Згенеровано анти-плагіат рекомендацій:', plagiarismRecommendations.length);
+        } catch (ex) {
+          console.warn('⚠️ Не вдалося згенерувати анти-плагіат рекомендації:', ex.message);
+        }
+      }
+
+      // Update syllabus with complete analysis results (aligned with model)
+      await Syllabus.findByIdAndUpdate(syllabusId, {
+        structure: analysis.structure,
+        analysis: {
+          templateCompliance: analysis.templateCompliance,
+          learningObjectivesAlignment: analysis.learningObjectivesAlignment,
+          studentClusterAnalysis: analysis.studentClusterAnalysis,
+          plagiarismCheck: plagiarismCheck,
+          // Persist survey insights if present for downstream reporting
+          surveyInsights: analysis.surveyInsights || undefined
+        },
+        recommendations: [...analysis.recommendations, ...plagiarismRecommendations],
+        vectorEmbedding: this.generateVectorEmbedding(syllabus.extractedText),
+        status: 'analyzed'
+      });
+
+      console.log('✅ Результати збережено в базі даних');
+      console.log('📊 Статус силабусу: analyzed');
+      console.log('🎯 Загальна кількість рекомендацій:', analysis.recommendations?.length || 0);
+      console.log('🧬 Векторне представлення згенеровано');
+
+      console.log('\n🎉 ==========================================');
+      console.log('🎉 АНАЛІЗ СИЛАБУСУ УСПІШНО ЗАВЕРШЕНО');
+      console.log('🎉 ==========================================\n');
+      return true;
+
+    } catch (error) {
+      console.error('❌ ==========================================');
+      console.error('❌ ПОМИЛКА АНАЛІЗУ СИЛАБУСУ');
+      console.error('❌ ==========================================');
+      console.error(`📄 ID силабусу: ${syllabusId}`);
+      console.error('🔥 Детальна помилка:', error.message);
+      console.error('📊 Stack trace:', error.stack);
+      
+      // Persist error state so UI can reflect failure
+      try {
+        await Syllabus.findByIdAndUpdate(syllabusId, {
+          status: 'error'
+        });
+        console.log('💾 Статус помилки збережено в базі даних');
+      } catch (persistErr) {
+        console.error('❌ Не вдалося зберегти статус помилки:', persistErr.message);
+      }
+      
+      console.error('❌ ==========================================\n');
+      throw error;
+    }
+  }
+
+  async performComprehensiveAnalysis(syllabusText, studentClusters, surveyInsights) {
+    console.log('\n=== ПОЧАТО КОМПЛЕКСНИЙ АНАЛІЗ СИЛАБУСУ ===');
+    console.log('📄 Довжина тексту силабусу:', syllabusText?.length || 0, 'символів');
+    console.log('👥 Кластери студентів:', JSON.stringify(studentClusters, null, 2));
+    console.log('📊 Результати опитувань:', JSON.stringify(surveyInsights, null, 2));
+    
+    // Log input material sources and quality
+    console.log('\n--- АНАЛІЗ ВХІДНИХ МАТЕРІАЛІВ ---');
+  console.log('✅ Вбудований шаблон видалено (per spec) — аналіз без відсоткових оцінок');
+  console.log('✅ Навчальні цілі (стислий список категорій) використані для семантики');
+    console.log('📊 Кластери студентів - джерело:', studentClusters?.source || 'getCurrentStudentClusters()');
+    console.log('📋 Опитування - джерело:', surveyInsights?.totalResponses ? `${surveyInsights.totalResponses} відповідей` : 'getSurveyInsights()');
+    
+    const prompt = `Проаналізуй силабус MBA курсу. Поверни JSON з полями:
+{
+  "templateCompliance": {"missingElements":[], "recommendations":[]},
+  "learningObjectivesAlignment": {"alignedObjectives":[], "missingObjectives":[], "recommendations":[]},
+  "studentClusterAnalysis": {"clusterRelevance":{}, "suggestedCases":[], "adaptationRecommendations":[]},
+  "surveyInsights": {"addressedChallenges":[], "missedOpportunities":[], "recommendations":[]},
+  "structure": {"hasObjectives":bool, "hasAssessment":bool, "hasSchedule":bool, "hasResources":bool},
+  "recommendations": [ {"category":"structure|content|objectives|assessment|cases|methods", "title":"...", "description":"...", "priority":"low|medium|high|critical"} ]
+}
+Без будь-яких числових балів чи відсотків. Кластери студентів та опитування нижче.
+Навчальні цілі (категорії): ${this.mbaLearningObjectives}
+Кластери: ${JSON.stringify(studentClusters, null, 2)}
+Опитування: ${JSON.stringify(surveyInsights, null, 2)}
+Текст силабусу: ${syllabusText}`;
+
+    console.log('\n--- ПІДГОТОВКА ПРОМПТУ ДЛЯ AI ---');
+    console.log('📝 Довжина промпту:', prompt.length, 'символів');
+    console.log('🤖 Модель AI:', this.llmModel);
+    console.log('⚙️ Формат відповіді: JSON object');
+    console.log('📋 Промпт (перші 500 символів):', prompt.substring(0, 500) + '...');
+    console.log('\n--- ВИКЛИК OpenAI API ---');
+    const startTime = Date.now();
+    
+    const response = await this.openai.responses.create({
+      model: this.llmModel,
+      input: [
+        { role: 'system', content: "Ти експерт з аналізу навчальних програм MBA в Kyiv School of Economics. Відповідай виключно у форматі дійсного JSON-об'єкта без кодових блоків. Використовуй українську мову для рекомендацій." },
+        { role: 'user', content: prompt }
+      ],
+      text: {"format": {"type": "json_object"}}
+    });
+
+    const endTime = Date.now();
+    console.log('⏱️ Час виконання запиту до AI:', endTime - startTime, 'мс');
+
+    const raw = (response.output_text || this.extractResponsesText(response) || '').trim();
+    console.log('📥 Отримано відповідь від AI:');
+    console.log('  - Довжина відповіді:', raw.length, 'символів');
+    console.log('  - Перші 300 символів:', raw.substring(0, 300) + '...');
+    
+    const analysisResult = this.safeParseJSON(raw);
+    if (!analysisResult || Object.keys(analysisResult).length === 0) {
+      console.error('❌ ПОМИЛКА: Пуста або неправильна JSON відповідь від моделі');
+      console.error('Сира відповідь:', raw);
+      throw new Error('Empty or invalid JSON from model');
+    }
+    
+    console.log('✅ JSON успішно розпарсено');
+    console.log('📊 Секції в аналізі:', Object.keys(analysisResult));
+    console.log('🎯 Кількість загальних рекомендацій:', (analysisResult.recommendations || []).length);
+
+    // Enhance with Ukrainian case studies using search
+    console.log('\n--- ПОШУК УКРАЇНСЬКИХ КЕЙСІВ ---');
+    const enhancedCases = await this.searchUkrainianCases(studentClusters, syllabusText);
+    console.log('🔍 Знайдено українських кейсів:', enhancedCases.length);
+    if (enhancedCases.length > 0) {
+      console.log('📋 Кейси:', enhancedCases.map(c => `"${c.title}" (${c.cluster})`).join(', '));
+    }
+    
+    if (!analysisResult.studentClusterAnalysis) {
+      analysisResult.studentClusterAnalysis = {};
+    }
+    analysisResult.studentClusterAnalysis.suggestedCases = [
+      ...(analysisResult.studentClusterAnalysis.suggestedCases || []),
+      ...enhancedCases
+    ];
+    
+    console.log('📊 Загальна кількість кейсів після об\'єднання:', analysisResult.studentClusterAnalysis.suggestedCases.length);
+
+    // Normalize to match Syllabus model shape
+    console.log('\n--- НОРМАЛІЗАЦІЯ РЕЗУЛЬТАТІВ ---');
+    const normalizedResult = this.normalizeAnalysisForModel(analysisResult);
+    console.log('✅ Аналіз нормалізовано для схеми моделі');
+    console.log('📊 Фінальна кількість рекомендацій:', normalizedResult.recommendations.length);
+    console.log('🎯 Категорії рекомендацій:', normalizedResult.recommendations.map(r => r.category).join(', '));
+    console.log('=== КОМПЛЕКСНИЙ АНАЛІЗ ЗАВЕРШЕНО ===\n');
+    
+    return normalizedResult;
+  }
+
+  // Removed basicAnalysis fallback; failures now surface and mark syllabus status as 'error'
+
+  analyzeBasicStructure(text) {
+    const lowerText = text.toLowerCase();
+    
+    return {
+      hasObjectives: lowerText.includes('objectives') || lowerText.includes('цілі') || lowerText.includes('мета'),
+      hasAssessment: lowerText.includes('assessment') || lowerText.includes('оцінювання') || lowerText.includes('іспит'),
+      hasSchedule: lowerText.includes('schedule') || lowerText.includes('розклад') || lowerText.includes('календар'),
+      hasResources: lowerText.includes('resources') || lowerText.includes('література') || lowerText.includes('джерела'),
+  // Removed numeric completeness scoring per new spec
+      missingParts: []
+    };
+  }
+
+  formatRecommendations(recommendations) {
+    console.log('\n🎯 === ФОРМАТУВАННЯ РЕКОМЕНДАЦІЙ ===');
+    console.log('📥 Вхідний тип:', Array.isArray(recommendations) ? 'Array' : typeof recommendations);
+    console.log('📊 Кількість вхідних рекомендацій:', Array.isArray(recommendations) ? recommendations.length : 0);
+    
+    if (!Array.isArray(recommendations)) {
+      console.log('⚠️ Рекомендації не є масивом, повертаємо порожній масив');
+      console.log('=== ФОРМАТУВАННЯ РЕКОМЕНДАЦІЙ ЗАВЕРШЕНО ===\n');
+      return [];
+    }
+
+    const allowedCategories = new Set(['structure', 'content', 'objectives', 'assessment', 'cases', 'methods', 'plagiarism']);
+    const coerceCategory = (cat) => (allowedCategories.has(cat) ? cat : 'content');
+
+    console.log('📋 Дозволені категорії:', Array.from(allowedCategories).join(', '));
+    console.log('🔧 Категорія за замовчуванням: content');
+
+    const groupMap = {
+      structure: 'Відповідність до шаблону',
+      objectives: 'Відповідність до learning objectives',
+      cases: 'Інтеграція прикладів для кластеру студентів',
+      plagiarism: 'Збіг з попередніми силабусами'
+    };
+    const formatted = recommendations.map((rec, index) => {
+      const originalCategory = rec.category;
+      const finalCategory = coerceCategory(rec.category);
+      
+      if (originalCategory && originalCategory !== finalCategory) {
+        console.log(`  ⚠️ Категорія "${originalCategory}" змінена на "${finalCategory}" для рекомендації ${index + 1}`);
+      }
+      
+      return {
+        id: `rec_${index + 1}`,
+        category: finalCategory,
+        groupTag: groupMap[finalCategory] || 'Інше',
+        title: rec.title || `Рекомендація ${index + 1}`,
+        description: typeof rec === 'string' ? rec : (rec.description || ''),
+        priority: rec.priority && ['low','medium','high','critical'].includes(rec.priority) ? rec.priority : 'medium'
+      };
+    });
+
+    console.log('✅ Рекомендації відформатовано');
+    console.log('📊 Підсумок по категоріях:');
+    const categoryCount = {};
+    formatted.forEach(r => {
+      categoryCount[r.category] = (categoryCount[r.category] || 0) + 1;
+    });
+    Object.entries(categoryCount).forEach(([cat, count]) => {
+      console.log(`  📁 ${cat}: ${count} рекомендацій`);
+    });
+    
+    console.log('🎯 Пріоритети:');
+    const priorityCount = {};
+    formatted.forEach(r => {
+      priorityCount[r.priority] = (priorityCount[r.priority] || 0) + 1;
+    });
+    Object.entries(priorityCount).forEach(([priority, count]) => {
+      console.log(`  ⭐ ${priority}: ${count} рекомендацій`);
+    });
+    
+    console.log('=== ФОРМАТУВАННЯ РЕКОМЕНДАЦІЙ ЗАВЕРШЕНО ===\n');
+    return formatted;
+  }
+
+  async getCurrentStudentClusters() {
+    try {
+      console.log('\n📊 === ОТРИМАННЯ ПОТОЧНИХ КЛАСТЕРІВ СТУДЕНТІВ ===');
+      // Get current active clusters from database (updated quarterly)
+      const currentClusters = await StudentCluster.getCurrentClusters();
+      console.log('✅ Кластери завантажено з бази даних');
+      console.log('📊 Кількість кластерів:', currentClusters?.clusters?.length || 0);
+      if (currentClusters?.clusters?.length > 0) {
+        console.log('👥 Назви кластерів:', currentClusters.clusters.map(c => c.name || c.cluster).join(', '));
+      }
+      console.log('📅 Джерело: StudentCluster.getCurrentClusters()');
+      console.log('🔄 Оновлення: Щоквартально');
+      console.log('=== КЛАСТЕРИ СТУДЕНТІВ ЗАВЕРШЕНО ===\n');
+      return currentClusters;
+    } catch (error) {
+      console.error('❌ ПОМИЛКА отримання кластерів студентів:', error.message);
+      console.log('🔄 Повертаємо порожні кластери');
+      console.log('=== КЛАСТЕРИ СТУДЕНТІВ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
+      return { clusters: [] };
+    }
+  }
+
+  async getSurveyInsights() {
+    try {
+      console.log('\n📋 === ОТРИМАННЯ РЕЗУЛЬТАТІВ ОПИТУВАНЬ ===');
+      // Use only Google Forms-based survey (by title)
+      const surveyTitle = 'Student Profiling Survey for MBA Program';
+      console.log('🔍 Пошук опитування:', surveyTitle);
+      
+      const survey = await Survey.findOne({ title: surveyTitle });
+      if (!survey) {
+        console.log('⚠️ Опитування не знайдено в базі даних');
+        console.log('🔄 Повертаємо порожні результати');
+        console.log('=== РЕЗУЛЬТАТИ ОПИТУВАНЬ ЗАВЕРШЕНО ===\n');
+        return {
+          totalResponses: 0,
+          commonChallenges: [],
+          decisionTypes: [],
+          learningPreferences: []
+        };
+      }
+      
+      console.log('✅ Опитування знайдено, ID:', survey._id);
+      console.log('📊 Кількість питань:', survey.questions?.length || 0);
+      
+      // Get recent responses for that survey
+      const recentSurveys = await SurveyResponse.find({ survey: survey._id })
+        .sort({ createdAt: -1 })
+        .limit(100);
+
+      console.log('📥 Завантажено відповідей:', recentSurveys.length, '(максимум 100)');
+
+      if (recentSurveys.length === 0) {
+        console.log('⚠️ Відповіді на опитування відсутні');
+        console.log('🔄 Повертаємо порожні результати');
+        console.log('=== РЕЗУЛЬТАТИ ОПИТУВАНЬ ЗАВЕРШЕНО ===\n');
+        return {
+          totalResponses: 0,
+          commonChallenges: [],
+          decisionTypes: [],
+          learningPreferences: []
+        };
+      }
+
+      // Map answers by questionId -> text for each response
+      const qByText = new Map(survey.questions.map(q => [q.text, q]));
+      const findAnswerByText = (resp, text) => {
+        const q = qByText.get(text);
+        if (!q) return undefined;
+        const a = resp.answers.find(x => String(x.questionId) === String(q._id));
+        return a ? (a.textAnswer || a.answer) : undefined;
+      };
+
+      // Known question texts (must match Google Forms / survey-info)
+      const Q = {
+        challenge: "Describe ONE of the biggest challenges you're facing at work right now that you believe could be solved through MBA knowledge. Be as specific as possible.",
+        decisions: 'What are 2–3 types of decisions you make most frequently in your work? What makes these decisions particularly challenging?',
+        situation: "Think of a situation from the past month when you thought: 'I should have known something from management/economics/strategy to handle this better.' What was that situation?",
+        experience: 'In which area or function do you have experience that you could share with colleagues? And conversely - what industry/function experience would be most interesting for you to learn from?',
+        learningStyle: 'How do you typically learn most effectively - through case studies, discussions, hands-on practice, or something else? And what prevents you from applying new knowledge at work?'
+      };
+
+      const challenges = recentSurveys.map(r => findAnswerByText(r, Q.challenge)).filter(Boolean);
+      const decisions = recentSurveys.map(r => findAnswerByText(r, Q.decisions)).filter(Boolean);
+      const learningStyles = recentSurveys.map(r => findAnswerByText(r, Q.learningStyle)).filter(Boolean);
+
+      console.log('📊 Обробка відповідей:');
+      console.log('  🎯 Виклики на роботі:', challenges.length, 'відповідей');
+      console.log('  🤔 Типи рішень:', decisions.length, 'відповідей');
+      console.log('  📚 Стилі навчання:', learningStyles.length, 'відповідей');
+
+      const commonChallenges = this.extractCommonThemes(challenges);
+      const decisionTypes = this.extractCommonThemes(decisions);
+      const learningPreferences = this.extractCommonThemes(learningStyles);
+
+      console.log('🔍 Виділені спільні теми:');
+      console.log('  🎯 Топ виклики:', commonChallenges.slice(0,3).map(c => c.theme).join(', '));
+      console.log('  🤔 Топ рішення:', decisionTypes.slice(0,3).map(d => d.theme).join(', '));
+      console.log('  📚 Топ стилі:', learningPreferences.slice(0,3).map(l => l.theme).join(', '));
+
+      const insights = {
+        totalResponses: recentSurveys.length,
+        lastUpdated: recentSurveys[0].createdAt,
+        commonChallenges,
+        decisionTypes, 
+        learningPreferences,
+        rawInsights: {
+          topChallenges: challenges.slice(0, 10),
+          topDecisions: decisions.slice(0, 10),
+          topLearningStyles: learningStyles.slice(0, 10)
+        }
+      };
+
+      console.log('✅ Інсайти опитувань підготовано');
+      console.log('📊 Загальна кількість відповідей:', insights.totalResponses);
+      console.log('📅 Останнє оновлення:', insights.lastUpdated);
+      console.log('🔄 Джерело: Google Forms через Survey/SurveyResponse моделі');
+      console.log('=== РЕЗУЛЬТАТИ ОПИТУВАНЬ ЗАВЕРШЕНО ===\n');
+      
+      return insights;
+    } catch (error) {
+      console.error('❌ ПОМИЛКА отримання результатів опитувань:', error.message);
+      console.log('🔄 Повертаємо порожні результати');
+      console.log('=== РЕЗУЛЬТАТИ ОПИТУВАНЬ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
+      return { totalResponses: 0, commonChallenges: [], decisionTypes: [], learningPreferences: [] };
+    }
+  }
+
+  extractCommonThemes(textArray) {
+    if (!textArray || textArray.length === 0) return [];
+    
+    // Simple frequency analysis of common words/phrases
+    const wordFreq = {};
+    textArray.forEach(text => {
+      const words = text.toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .filter(word => word.length > 3); // Filter short words
+      
+      words.forEach(word => {
+        wordFreq[word] = (wordFreq[word] || 0) + 1;
+      });
+    });
+
+    return Object.entries(wordFreq)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([word, count]) => ({ theme: word, frequency: count }));
+  }
+
+  async searchUkrainianCases(studentClusters, syllabusContent) {
+    try {
+      console.log('\n  🔍 === ПОШУК УКРАЇНСЬКИХ КЕЙСІВ ===');
+      console.log('  📊 Кластери для пошуку:', studentClusters?.clusters?.length || 0);
+      console.log('  📄 Довжина контенту силабусу для аналізу:', syllabusContent?.length || 0);
+      
+      const prompt = `Знайди 3-5 релевантних українських бізнес-кейсів для MBA курсу на основі наступних даних.\n\nКластери студентів: ${JSON.stringify(studentClusters.clusters, null, 2)}\nЗміст курсу (фрагмент): ${syllabusContent.substring(0, 1000)}\n\nДля кожного кейсу поверни поля: title, cluster, description, learningPoints, source, relevanceScore.\nПоверни валідний JSON тільки у форматі: {\\"cases\\": [ ... ]} без додаткового тексту.`;
+
+      console.log('  📝 Довжина промпту:', prompt.length, 'символів');
+      console.log('  🌐 Використання web_search_preview інструменту: ТАК');
+      console.log('  ⚙️ JSON режим: НІ (не сумісний з web_search)');
+
+      // Can't use JSON mode with web_search tool: omit text.format
+      const startTime = Date.now();
+      const response = await this.openai.responses.create({
+        model: this.llmModel,
+        tools: [{ type: 'web_search_preview' }],
+        input: prompt
+      });
+      const endTime = Date.now();
+      
+      console.log('  ⏱️ Час виконання пошуку:', endTime - startTime, 'мс');
+
+      const raw = (response.output_text || this.extractResponsesText(response) || '').trim();
+      console.log('  📥 Довжина відповіді:', raw.length, 'символів');
+      console.log('  📋 Початок відповіді:', raw.substring(0, 200) + '...');
+      
+      let parsed = this.safeParseJSON(raw);
+      if (!parsed) {
+        console.log('  ⚠️ Перший парсинг не вдався, спроба екстракції JSON...');
+        // Attempt to extract first JSON object manually
+        const match = raw.match(/\{[\s\S]*\}/);
+        if (match) {
+          console.log('  🔧 Знайдено JSON в тексті, спроба парсингу...');
+          parsed = this.safeParseJSON(match[0]);
+        }
+      }
+      parsed = parsed || {};
+      const cases = Array.isArray(parsed.cases) ? parsed.cases : [];
+      
+      console.log('  ✅ Успішно знайдено кейсів:', cases.length);
+      if (cases.length > 0) {
+        console.log('  📋 Кейси:', cases.map(c => `"${c.title || c.company}" (${c.cluster})`));
+      }
+      console.log('  === ПОШУК УКРАЇНСЬКИХ КЕЙСІВ ЗАВЕРШЕНО ===\n');
+      
+      return cases;
+    } catch (error) {
+      console.error('  ❌ ПОМИЛКА пошуку українських кейсів:', error.message);
+      console.log('  === ПОШУК УКРАЇНСЬКИХ КЕЙСІВ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
+      return [];
+    }
+  }
+
+  async checkPlagiarism(currentSyllabus) {
+    try {
+      // Get all other syllabi for comparison
+      const otherSyllabi = await Syllabus.find({
+        _id: { $ne: currentSyllabus._id },
+        vectorEmbedding: { $exists: true, $ne: [] }
+      }).select('_id instructor course.name course.year vectorEmbedding');
+
+      const currentVector = this.generateVectorEmbedding(currentSyllabus.extractedText);
+      const similarSyllabi = [];
+
+      for (const syllabus of otherSyllabi) {
+        if (syllabus.vectorEmbedding && syllabus.vectorEmbedding.length > 0) {
+          const similarity = this.calculateCosineSimilarity(currentVector, syllabus.vectorEmbedding);
+          
+          if (similarity > 0.6) { // 60% similarity threshold
+            try {
+              const populatedSyllabus = await Syllabus.populate(syllabus, { path: 'instructor', select: 'firstName lastName' });
+              
+              // Check if instructor exists and has required fields
+              const instructorName = populatedSyllabus.instructor && populatedSyllabus.instructor.firstName && populatedSyllabus.instructor.lastName
+                ? `${populatedSyllabus.instructor.firstName} ${populatedSyllabus.instructor.lastName}`
+                : 'Unknown Instructor';
+              
+              similarSyllabi.push({
+                syllabusId: syllabus._id,
+                similarity: Math.round(similarity * 100),
+                instructor: instructorName,
+                course: syllabus.course.name,
+                year: syllabus.course.year
+              });
+            } catch (populateError) {
+              console.error('Error populating instructor:', populateError);
+              // Add syllabus with unknown instructor
+              similarSyllabi.push({
+                syllabusId: syllabus._id,
+                similarity: Math.round(similarity * 100),
+                instructor: 'Unknown Instructor',
+                course: syllabus.course.name,
+                year: syllabus.course.year
+              });
+            }
+          }
+        }
+      }
+
+      // Sort by similarity (highest first)
+      similarSyllabi.sort((a, b) => b.similarity - a.similarity);
+
+      // Determine uniqueness score and risk level
+      const maxSimilarity = similarSyllabi.length > 0 ? similarSyllabi[0].similarity : 0;
+      let riskLevel = 'low';
+      if (maxSimilarity > 85) riskLevel = 'high';
+      else if (maxSimilarity > 70) riskLevel = 'medium';
+
+      return {
+        similarSyllabi: similarSyllabi.slice(0, 5), // Top 5 similar syllabi
+        riskLevel
+      };
+
+    } catch (error) {
+      console.error('Plagiarism check error:', error);
+      return {
+        similarSyllabi: [],
+        riskLevel: 'low'
+      };
+    }
+  }
+
+  generateVectorEmbedding(text) {
+    // Simplified TF-IDF based vector generation
+    // In production, use more sophisticated embeddings like sentence-transformers
+    
+    const words = text.toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 2)
+      .map(word => this.stemmer.stem(word));
+
+    const wordFreq = {};
+    words.forEach(word => {
+      wordFreq[word] = (wordFreq[word] || 0) + 1;
+    });
+
+    // Get top 50 most frequent words as vector dimensions
+    const topWords = Object.entries(wordFreq)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 50)
+      .map(([word]) => word);
+
+    // Create vector
+    const vector = topWords.map(word => wordFreq[word] || 0);
+    
+    // Normalize vector
+    const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+    return vector.map(val => magnitude > 0 ? val / magnitude : 0);
+  }
+
+  calculateCosineSimilarity(vectorA, vectorB) {
+    if (vectorA.length !== vectorB.length) return 0;
+
+    let dotProduct = 0;
+    let magnitudeA = 0;
+    let magnitudeB = 0;
+
+    for (let i = 0; i < vectorA.length; i++) {
+      dotProduct += vectorA[i] * vectorB[i];
+      magnitudeA += vectorA[i] * vectorA[i];
+      magnitudeB += vectorB[i] * vectorB[i];
+    }
+
+    magnitudeA = Math.sqrt(magnitudeA);
+    magnitudeB = Math.sqrt(magnitudeB);
+
+    if (magnitudeA === 0 || magnitudeB === 0) return 0;
+
+    return dotProduct / (magnitudeA * magnitudeB);
+  }
+
+  async startPracticalChallenge(syllabusId) {
+    try {
+      console.log('\n=== AI ЧЕЛЕНДЖЕР: ПОЧАТОК ВИКЛИКУ ===');
+      console.log('📄 ID силабусу:', syllabusId);
+      
+      const syllabus = await Syllabus.findById(syllabusId).select('extractedText analysis');
+      if (!syllabus) throw new Error('Syllabus not found');
+
+      console.log('📊 Наявність аналізу:', !!syllabus.analysis);
+      console.log('📄 Довжина тексту силабусу:', syllabus.extractedText?.length || 0, 'символів');
+
+      const prompt = `
+        Based on the following syllabus text and analysis, generate a single, thought-provoking, open-ended question for the instructor.
+        This question should challenge the instructor to think about the practical application of a key topic in their course, considering the student profile (IT, Finance, Military, Management).
+        The question should be in Ukrainian.
+
+        Syllabus Analysis:
+        ${JSON.stringify(syllabus.analysis, null, 2)}
+
+        Syllabus Text:
+        ${syllabus.extractedText.substring(0, 4000)}
+
+        Generate only the question, without any introductory text.
+      `;
+
+      console.log('📝 Довжина промпту:', prompt.length, 'символів');
+      console.log('🎯 Профіль студентів: IT, Finance, Military, Management');
+      console.log('🌐 Мова питання: Українська');
+
+      const startTime = Date.now();
+      const response = await this.openai.responses.create({
+        model: this.llmModel,
+        input: [
+          { role: 'system', content: 'You are an expert academic advisor for an MBA program. Your task is to challenge instructors to improve the practical relevance of their courses.' },
+          { role: 'user', content: prompt }
+        ]
+      });
+      const endTime = Date.now();
+
+      console.log('⏱️ Час генерації питання:', endTime - startTime, 'мс');
+
+      const initialQuestion = (response.output_text || this.extractResponsesText(response) || '').trim();
+      console.log('❓ Згенероване питання (довжина):', initialQuestion.length, 'символів');
+      console.log('❓ Питання:', initialQuestion.substring(0, 150) + '...');
+
+      await Syllabus.findByIdAndUpdate(syllabusId, {
+        'practicalChallenge.initialQuestion': initialQuestion,
+        'practicalChallenge.status': 'pending'
+      });
+
+      console.log('💾 Питання збережено в базі даних');
+      console.log('📊 Статус челенджера: pending');
+      console.log('=== AI ЧЕЛЕНДЖЕР ПОЧАТОК ЗАВЕРШЕНО ===\n');
+
+      return initialQuestion;
+    } catch (error) {
+      console.error('❌ ПОМИЛКА початку челенджера:', error.message);
+      console.log('=== AI ЧЕЛЕНДЖЕР ПОЧАТОК ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
+      // Don't throw error up, as this is a non-critical background task
+    }
+  }
+
+  async respondToChallenge(syllabusId, instructorResponse) {
+    try {
+      console.log('\n=== AI ЧЕЛЕНДЖЕР: ВІДПОВІДЬ НА ВИКЛИК ===');
+      console.log('📄 ID силабусу:', syllabusId);
+      console.log('👨‍🏫 Відповідь викладача (довжина):', instructorResponse?.length || 0, 'символів');
+      
+      const syllabus = await Syllabus.findById(syllabusId);
+      if (!syllabus) throw new Error('Syllabus not found');
+
+      const discussion = Array.isArray(syllabus.practicalChallenge?.discussion)
+        ? syllabus.practicalChallenge.discussion
+        : [];
+
+      console.log('💬 Попередніх обмінів в дискусії:', discussion.length);
+      console.log('❓ Початкове питання:', syllabus.practicalChallenge?.initialQuestion || 'Відсутнє');
+
+      const discussionHistory = discussion.map(d => 
+        `Instructor: ${d.instructorResponse}\nAI: ${d.aiResponse}`
+      ).join('\n\n');
+
+      const prompt = `
+        You are an expert academic advisor for an MBA program. An instructor is responding to your challenge question.
+        Your goal is to provide constructive, actionable suggestions based on their response.
+
+        Context:
+        - Student Profile: The class is composed of students from IT, Finance, Military, and Management backgrounds.
+        - Initial Question: ${syllabus.practicalChallenge.initialQuestion}
+        - Discussion History:
+        ${discussionHistory}
+        - Instructor's Latest Response: "${instructorResponse}"
+
+        Task:
+        Generate a helpful response in Ukrainian that includes:
+        1. Acknowledgment of the instructor's idea.
+        2. 2-3 concrete suggestions for practical exercises, case studies (especially with Ukrainian examples), or interactive methods.
+        3. A follow-up question to encourage deeper thinking.
+
+        Keep the response concise and professional.
+      `;
+
+      console.log('📝 Довжина промпту:', prompt.length, 'символів');
+      console.log('🎯 Контекст: Кластери IT, Finance, Military, Management');
+
+      const startTime = Date.now();
+      const response = await this.openai.responses.create({
+        model: this.llmModel,
+        input: [
+          { role: 'system', content: 'You are an expert academic advisor for an MBA program. Your task is to provide helpful, actionable feedback to instructors.' },
+          { role: 'user', content: prompt }
+        ]
+      });
+      const endTime = Date.now();
+
+      console.log('⏱️ Час виконання запиту до AI:', endTime - startTime, 'мс');
+
+      const aiResponse = (response.output_text || this.extractResponsesText(response) || '').trim();
+      console.log('📥 Довжина AI відповіді:', aiResponse.length, 'символів');
+
+      // Add to discussion history
+      if (!Array.isArray(syllabus.practicalChallenge.discussion)) {
+        syllabus.practicalChallenge.discussion = [];
+      }
+      syllabus.practicalChallenge.discussion.push({
+        instructorResponse,
+        aiResponse,
+        respondedAt: new Date()
+      });
+      await syllabus.save();
+      
+      console.log('💾 Дискусію збережено в базі даних');
+      console.log('💬 Загальна кількість обмінів:', syllabus.practicalChallenge.discussion.length);
+
+      // OPTIONAL: generate 1-2 concise improvement recommendations derived from AI response
+      console.log('\n--- ЕКСТРАКЦІЯ РЕКОМЕНДАЦІЙ З AI ВІДПОВІДІ ---');
+      try {
+        const recPrompt = `Виділи з наступної відповіді AI до викладача 1-2 найкорисніші конкретні покращення силабусу у форматі JSON:
+{"recommendations":[{"category":"content|structure|objectives|assessment|cases|methods","title":"Коротка назва","description":"Лаконічний опис <=160 символів"}]}
+Текст відповіді:
+${aiResponse}
+Поверни тільки JSON.`;
+
+        console.log('📝 Промпт для екстракції (довжина):', recPrompt.length, 'символів');
+        
+        const recStartTime = Date.now();
+        const recResp = await this.openai.responses.create({
+          model: this.llmModel,
+          input: [
+            { role: 'system', content: 'Ти асистент. Екстрагуєш короткі actionable рекомендації.' },
+            { role: 'user', content: recPrompt }
+          ],
+          text: { format: { type: 'json_object' } }
+        });
+        const recEndTime = Date.now();
+        
+        console.log('⏱️ Час екстракції:', recEndTime - recStartTime, 'мс');
+        
+        const rawRec = (recResp.output_text || this.extractResponsesText(recResp) || '').trim();
+        console.log('📥 Сира відповідь екстракції:', rawRec.substring(0, 200) + '...');
+        
+        const parsed = this.safeParseJSON(rawRec) || {};
+        const groupMap = {
+          structure: 'Відповідність до шаблону',
+          objectives: 'Відповідність до learning objectives',
+          cases: 'Інтеграція прикладів для кластеру студентів'
+        };
+        const newRecs = (parsed.recommendations || []).slice(0,2).map(r => {
+          const category = ['structure','content','objectives','assessment','cases','methods'].includes(r.category) ? r.category : 'methods';
+          return {
+            id: 'chlg_' + Date.now() + '_' + Math.random().toString(36).slice(2,8),
+            category,
+            groupTag: groupMap[category] || 'Інше',
+            title: r.title?.slice(0,120) || 'Рекомендація',
+            description: r.description?.slice(0,300) || '',
+            priority: 'medium',
+            status: 'pending'
+          };
+        });
+        
+        console.log('✅ Екстраговано рекомендацій:', newRecs.length);
+        if (newRecs.length) {
+          console.log('📋 Нові рекомендації:', newRecs.map(r => `"${r.title}" (${r.category})`));
+          syllabus.recommendations.push(...newRecs);
+          await syllabus.save();
+          console.log('💾 Рекомендації додано до силабусу');
+        }
+      } catch(ex){
+        console.warn('⚠️ Екстракція рекомендацій не вдалася (не критично):', ex.message);
+      }
+
+      console.log('=== AI ЧЕЛЕНДЖЕР ВІДПОВІДЬ ЗАВЕРШЕНО ===\n');
+      return aiResponse;
+    } catch (error) {
+      console.error('❌ ПОМИЛКА відповіді на челенджер:', error.message);
+      console.log('=== AI ЧЕЛЕНДЖЕР ВІДПОВІДЬ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
+      throw new Error('Failed to generate AI response for challenge.');
+    }
+  }
+
+  async generateDiffPdf(syllabusId) {
+    console.log('\n=== LLM DIFF PDF: ПОЧАТОК ===');
+    console.log('📄 ID силабусу:', syllabusId);
+
+    let browser;
+    try {
+      const syllabus = await Syllabus.findById(syllabusId);
+      if (!syllabus) throw new Error('Syllabus not found');
+
+      const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
+      console.log('✅ Прийнятих рекомендацій:', accepted.length);
+      if (!accepted.length) {
+        throw new Error('Немає прийнятих рекомендацій для генерації PDF');
+      }
+
+      const originalText = (syllabus.extractedText || '').trim();
+      if (!originalText) {
+        throw new Error('Відсутній вихідний текст силабусу');
+      }
+
+      // Генеруємо точкові зміни для кожної рекомендації
+      console.log('🎯 Генерація точкових змін для кожної рекомендації');
+      const edits = [];
+      
+      for (let i = 0; i < accepted.length; i++) {
+        const rec = accepted[i];
+        console.log(`📝 Обробка рекомендації ${i + 1}/${accepted.length}: ${rec.title}`);
+        
+        // Знаходимо релевантну частину тексту для цієї рекомендації
+        const contextual = this.findRelevantTextSection(originalText, rec);
+        if (!contextual.found) {
+          console.log(`⚠️ Не знайдено контекст для рекомендації: ${rec.title}`);
+          continue;
+        }
+        
+        const sectionPrompt = `
+Відредагуй ТІЛЬКИ цю частину силабусу згідно з конкретною рекомендацією. Збережи оригінальну мову тексту.
+
+РЕКОМЕНДАЦІЯ: [${rec.category}] ${rec.title} - ${rec.description}
+
+ОРИГІНАЛЬНИЙ ФРАГМЕНТ:
+${contextual.section}
+
+ІНСТРУКЦІЇ:
+- Внеси зміни ТІЛЬКИ згідно з цією рекомендацією
+- Збережи оригінальну мову та стиль
+- Поверни тільки відредагований фрагмент без коментарів
+- Якщо зміни не потрібні, поверни оригінальний текст`;
+
+        try {
+          const editResponse = await this.openai.responses.create({
+            model: this.llmModel,
+            input: [
+              { role: 'system', content: 'Ти редактор, який вносить точкові зміни в документи згідно з конкретними рекомендаціями.' },
+              { role: 'user', content: sectionPrompt }
+            ]
+          });
+          
+          const editedSection = (editResponse.output_text || this.extractResponsesText(editResponse) || '').trim();
+          
+          if (editedSection && editedSection !== contextual.section) {
+            edits.push({
+              original: contextual.section,
+              edited: editedSection,
+              recommendation: rec,
+              startIndex: contextual.startIndex,
+              endIndex: contextual.endIndex
+            });
+            console.log(`✅ Створено редагування для: ${rec.title}`);
+          } else {
+            console.log(`➡️ Без змін для: ${rec.title}`);
+          }
+        } catch (editError) {
+          console.warn(`⚠️ Помилка редагування для ${rec.title}:`, editError.message);
+        }
+      }
+      
+      console.log(`� Створено ${edits.length} редагувань з ${accepted.length} рекомендацій`);
+      
+      // Застосовуємо зміни до оригінального тексту (сортуємо по індексам у зворотному порядку)
+      let modifiedText = originalText;
+      const sortedEdits = [...edits].sort((a, b) => b.startIndex - a.startIndex);
+      
+      for (const edit of sortedEdits) {
+        modifiedText = modifiedText.slice(0, edit.startIndex) + 
+                      edit.edited + 
+                      modifiedText.slice(edit.endIndex);
+      }
+      
+      const diffs = dmp.diff_main(originalText, modifiedText);
+      dmp.diff_cleanupSemantic(diffs);
+      console.log('📊 Кількість сегментів diff після точкових змін:', diffs.length);
+
+      // Створюємо HTML з видимими поясненнями рекомендацій
+      const diffSegments = [];
+      let currentIndex = 0;
+      
+      for (const [op, data] of diffs) {
+        const safe = escapeHtml(data).replace(/\n/g, '<br>');
+        
+        if (op === 0) { // Unchanged
+          diffSegments.push(`<span class="diff-same">${safe}</span>`);
+        } else if (op === -1) { // Removed
+          // Знаходимо пов'язану рекомендацію для цього видалення
+          const relatedEdit = edits.find(edit => 
+            originalText.slice(edit.startIndex, edit.endIndex).includes(data.trim())
+          );
+          const recLabel = relatedEdit ? 
+            `<span class="rec-label">📝 ${escapeHtml(relatedEdit.recommendation.title)}</span>` : '';
+          diffSegments.push(`<span class="diff-remove">${safe}</span>${recLabel}`);
+        } else if (op === 1) { // Added
+          // Знаходимо пов'язану рекомендацію для цього додавання
+          const relatedEdit = edits.find(edit => 
+            edit.edited.includes(data.trim())
+          );
+          const recLabel = relatedEdit ? 
+            `<span class="rec-label">✅ ${escapeHtml(relatedEdit.recommendation.title)}</span>` : '';
+          diffSegments.push(`<span class="diff-add">${safe}</span>${recLabel}`);
+        }
+        
+        if (op !== -1) currentIndex += data.length;
+      }
+      
+      const diffHtml = diffSegments.join('');
+      
+      // Створюємо детальний список рекомендацій з контекстом
+      const contextualRecommendations = accepted.map((rec, index) => {
+        const relatedEdit = edits.find(e => e.recommendation.id === rec.id);
+        const hasChanges = relatedEdit ? '✅' : '➡️';
+        
+        return `
+            <li class="recommendation-item" data-rec-id="${escapeHtml(rec.id)}">
+              <div class="rec-header">
+                <span class="rec-status">${hasChanges}</span>
+                <span class="rec-cat">${escapeHtml(rec.category)}</span>
+                <span class="rec-title">${escapeHtml(rec.title || '')}</span>
+              </div>
+              <div class="rec-desc">${escapeHtml(rec.description || '')}</div>
+              ${relatedEdit ? `
+                <details class="edit-context">
+                  <summary>Контекст змін</summary>
+                  <div class="context-before">Було: "${escapeHtml(relatedEdit.original.slice(0, 120))}..."</div>
+                  <div class="context-after">Стало: "${escapeHtml(relatedEdit.edited.slice(0, 120))}..."</div>
+                </details>
+              ` : ''}
+            </li>`;
+      }).join('');
+
+      const now = new Date();
+      const header = syllabus.course?.name || syllabus.title || 'Силабус';
+      const html = `<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: 'Segoe UI', 'Inter', sans-serif; padding: 42px 48px; color: #0b0d12; background: #fafbfc; line-height: 1.6; }
+      h1 { font-size: 28px; margin-bottom: 8px; color: #1f2937; }
+      h2 { font-size: 20px; margin-top: 40px; margin-bottom: 16px; color: #374151; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; }
+      .meta { color: #6b7280; font-size: 14px; margin-bottom: 32px; }
+      .legend { 
+        margin: 32px 0; padding: 20px; background: #f8fafc; border-radius: 12px; 
+        border: 1px solid #e2e8f0; display: flex; gap: 24px; flex-wrap: wrap; 
+      }
+      .legend span { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+      .legend .add::before { content: ""; width: 16px; height: 16px; background: #10b981; border-radius: 4px; }
+      .legend .remove::before { content: ""; width: 16px; height: 16px; background: #ef4444; border-radius: 4px; }
+      .legend .same::before { content: ""; width: 16px; height: 16px; background: #6b7280; border-radius: 4px; }
+      
+      ul.recommendations { list-style: none; padding: 0; margin: 0; }
+      .recommendation-item { 
+        margin-bottom: 20px; padding: 20px; border-radius: 12px; 
+        border: 1px solid #e5e7eb; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      }
+      .rec-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+      .rec-status { font-size: 18px; }
+      .rec-cat { 
+        text-transform: uppercase; font-size: 11px; letter-spacing: 0.1em; 
+        color: #6366f1; font-weight: 700; background: #eef2ff; 
+        padding: 4px 8px; border-radius: 6px; 
+      }
+      .rec-title { font-weight: 600; font-size: 16px; color: #111827; flex: 1; }
+      .rec-desc { font-size: 14px; color: #4b5563; margin-bottom: 12px; }
+      
+      .edit-context { margin-top: 12px; }
+      .edit-context summary { 
+        cursor: pointer; font-size: 13px; color: #6366f1; 
+        font-weight: 600; padding: 8px 0; 
+      }
+      .context-before, .context-after { 
+        margin: 8px 0; padding: 12px; border-radius: 8px; font-size: 13px; 
+        border-left: 4px solid; padding-left: 16px; 
+      }
+      .context-before { background: #fef2f2; border-color: #fca5a5; color: #7f1d1d; }
+      .context-after { background: #f0fdf4; border-color: #86efac; color: #14532d; }
+      
+      .diff-wrapper { 
+        margin-top: 40px; background: #fff; border-radius: 16px; 
+        border: 1px solid #e5e7eb; padding: 32px; line-height: 1.7; 
+        font-size: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+      }
+      .diff-add { 
+        background: #dcfce7; color: #15803d; border-radius: 4px; 
+        padding: 2px 4px; margin: 0 1px; display: inline;
+      }
+      .diff-remove { 
+        background: #fee2e2; color: #dc2626; text-decoration: line-through; 
+        border-radius: 4px; padding: 2px 4px; margin: 0 1px; display: inline;
+      }
+      .diff-same { color: #111827; }
+      
+      .rec-label {
+        display: inline-block; margin-left: 8px; padding: 2px 6px;
+        background: #f3f4f6; color: #374151; border-radius: 3px;
+        font-size: 11px; font-weight: 600; vertical-align: super;
+        border: 1px solid #d1d5db;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Редагування силабусу: ${escapeHtml(header)}</h1>
+    <div class="meta">
+      📅 Дата генерації: ${escapeHtml(now.toLocaleString('uk-UA'))} <br>
+      📊 Застосовано рекомендацій: ${edits.length} з ${accepted.length}
+    </div>
+    
+    <div class="legend">
+      <span class="add">Додано</span>
+      <span class="remove">Видалено</span>
+      <span class="same">Без змін</span>
+    </div>
+    
+    <h2>📋 Прийняті рекомендації та їх реалізація</h2>
+    <ul class="recommendations">
+      ${contextualRecommendations || '<li class="recommendation-item">Прийнятих рекомендацій не знайдено</li>'}
+    </ul>
+    
+    <h2>📄 Текст силабусу з внесеними змінами</h2>
+    <div class="diff-wrapper">${diffHtml}</div>
+    
+    <div style="margin-top: 40px; padding: 20px; background: #f9fafb; border-radius: 12px; font-size: 13px; color: #6b7280;">
+      💡 <strong>Легенда:</strong> 📝 - видалена частина тексту, ✅ - додана частина тексту. Поряд із кожною зміною вказана рекомендація, що її спричинила.
+    </div>
+  </body>
+</html>`;
+
+      const uploadDir = path.join(__dirname, '../uploads/syllabi');
+      await fs.mkdir(uploadDir, { recursive: true });
+
+      const baseName = (syllabus.originalFile?.originalName || syllabus.title || 'syllabus').replace(/\.[^.]+$/, '');
+      const filename = `${baseName}-diff-${Date.now()}.pdf`;
+      const pdfPath = path.join(uploadDir, filename);
+
+      browser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '40px', bottom: '40px', left: '32px', right: '32px' } });
+      await fs.writeFile(pdfPath, pdfBuffer);
+
+      const stats = await fs.stat(pdfPath);
+
+      if (browser) {
+        await browser.close();
+        browser = null;
+      }
+
+      if (syllabus.editedPdf?.path && syllabus.editedPdf.path !== pdfPath) {
+        try {
+          await fs.unlink(syllabus.editedPdf.path);
+        } catch (cleanupErr) {
+          console.warn('⚠️ Не вдалося видалити попередній PDF:', cleanupErr.message);
+        }
+      }
+
+      syllabus.editedPdf = {
+        filename,
+        originalName: filename,
+        path: pdfPath,
+        size: stats.size,
+        generatedAt: now,
+        mimetype: 'application/pdf'
+      };
+      syllabus.editedText = modifiedText;
+      syllabus.editingStatus = 'ready';
+      syllabus.editingError = undefined;
+      await syllabus.save();
+
+      console.log('✅ PDF збережено за шляхом:', pdfPath);
+      console.log('=== LLM DIFF PDF: ЗАВЕРШЕНО УСПІШНО ===\n');
+      return syllabus.editedPdf;
+    } catch (error) {
+      console.error('❌ ПОМИЛКА генерації diff PDF:', error.message);
+      await Syllabus.findByIdAndUpdate(syllabusId, {
+        editingStatus: 'error',
+        editingError: error.message.slice(0, 280)
+      });
+      console.log('=== LLM DIFF PDF: ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
+      throw error;
+    } finally {
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (closeErr) {
+          console.warn('⚠️ Не вдалося закрити браузер Puppeteer:', closeErr.message);
+        }
+      }
+    }
+  }
+
+  // Допоміжний метод для знаходження релевантної секції тексту для рекомендації
+  findRelevantTextSection(text, recommendation) {
+    const lines = text.split('\n');
+    const category = recommendation.category;
+    const title = (recommendation.title || '').toLowerCase();
+    const description = (recommendation.description || '').toLowerCase();
+    
+    // Ключові слова для кожної категорії
+    const categoryKeywords = {
+      structure: ['objective', 'assessment', 'schedule', 'resource', 'ціл', 'оцінюв', 'розклад', 'програм'],
+      objectives: ['objective', 'goal', 'learning', 'outcome', 'ціл', 'результат', 'навчанн'],
+      assessment: ['assessment', 'exam', 'grade', 'evaluation', 'quiz', 'оцінюв', 'іспит', 'тест'],
+      cases: ['case', 'study', 'example', 'кейс', 'приклад', 'завданн'],
+      methods: ['method', 'activity', 'approach', 'technique', 'метод', 'активн', 'підхід'],
+      content: ['content', 'topic', 'module', 'chapter', 'контент', 'тем', 'модул']
+    };
+    
+    const keywords = categoryKeywords[category] || [];
+    const allKeywords = [...keywords];
+    
+    // Додаємо ключові слова з назви та опису рекомендації
+    if (title) {
+      allKeywords.push(...title.split(/\s+/).filter(w => w.length > 3));
+    }
+    
+    let bestMatch = { found: false, section: '', startIndex: 0, endIndex: 0, score: 0 };
+    const windowSize = 5; // Розмір вікна в рядках
+    
+    // Шукаємо найкращу секцію
+    for (let i = 0; i <= lines.length - windowSize; i++) {
+      const windowLines = lines.slice(i, i + windowSize);
+      const windowText = windowLines.join('\n');
+      const windowLower = windowText.toLowerCase();
+      
+      let score = 0;
+      for (const keyword of allKeywords) {
+        if (windowLower.includes(keyword.toLowerCase())) {
+          score += keyword.length > 4 ? 2 : 1; // Довші ключові слова мають більшу вагу
+        }
+      }
+      
+      if (score > bestMatch.score) {
+        const startIndex = lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
+        const endIndex = startIndex + windowText.length;
+        
+        bestMatch = {
+          found: true,
+          section: windowText,
+          startIndex,
+          endIndex,
+          score
+        };
+      }
+    }
+    
+    // Якщо не знайшли хорошого збігу, беремо початок документа
+    if (!bestMatch.found || bestMatch.score === 0) {
+      const fallbackLines = lines.slice(0, Math.min(windowSize, lines.length));
+      const fallbackText = fallbackLines.join('\n');
+      
+      bestMatch = {
+        found: true,
+        section: fallbackText,
+        startIndex: 0,
+        endIndex: fallbackText.length,
+        score: 0
+      };
+    }
+    
+    return bestMatch;
+  }
+
+  async generateInteractiveRecommendations(topic, studentClusters = [], difficulty = 'intermediate') {
+    try {
+      console.log('\n=== ГЕНЕРАЦІЯ ІНТЕРАКТИВНИХ РЕКОМЕНДАЦІЙ ===');
+      console.log('📝 Тема:', topic);
+      console.log('👥 Кластери студентів:', studentClusters);
+      console.log('📊 Рівень складності:', difficulty);
+      
+      const prompt = `
+        Generate a list of 3-5 practical and interactive teaching recommendations for an MBA course on the topic of "${topic}".
+        The recommendations should be tailored for the following student clusters: ${studentClusters.join(', ')}.
+        The desired difficulty level is ${difficulty}.
+
+        For each recommendation, provide:
+        - type: (e.g., 'Case Study', 'Simulation', 'Workshop', 'Guest Speaker', 'Project')
+        - title: A catchy title.
+        - description: A brief description of the activity.
+        - relevance: Explain why it's relevant for the specified student clusters.
+        - potential_sources: Suggest potential Ukrainian companies or public data sources where applicable.
+
+        Provide the output as a JSON object containing a single key "recommendations" which is an array of objects. For example: {"recommendations": [...]}.
+      `;
+
+      console.log('📝 Довжина промпту:', prompt.length, 'символів');
+      console.log('🤖 Модель AI:', this.llmModel);
+      console.log('⚙️ JSON режим: ТАК');
+
+      const startTime = Date.now();
+      const response = await this.openai.responses.create({
+        model: this.llmModel,
+        input: [
+          { role: 'system', content: 'You are an expert in curriculum design for MBA programs. Generate practical, interactive teaching ideas in JSON format.' },
+          { role: 'user', content: prompt }
+        ],
+        text: { format: { type: 'json_object' } }
+      });
+      const endTime = Date.now();
+
+      console.log('⏱️ Час виконання запиту до AI:', endTime - startTime, 'мс');
+
+      const raw = (response.output_text || this.extractResponsesText(response) || '').trim();
+      console.log('📥 Довжина відповіді:', raw.length, 'символів');
+      console.log('📋 Початок відповіді:', raw.substring(0, 200) + '...');
+      
+      const recommendations = this.safeParseJSON(raw) || {};
+      const finalRecommendations = recommendations.recommendations || recommendations; // Handle potential nesting
+      
+      console.log('✅ Успішно згенеровано рекомендацій:', Array.isArray(finalRecommendations) ? finalRecommendations.length : 0);
+      if (Array.isArray(finalRecommendations) && finalRecommendations.length > 0) {
+        console.log('🎯 Типи активностей:', finalRecommendations.map(r => r.type).join(', '));
+      }
+      console.log('=== ГЕНЕРАЦІЯ ІНТЕРАКТИВНИХ РЕКОМЕНДАЦІЙ ЗАВЕРШЕНО ===\n');
+      
+      return finalRecommendations;
+    } catch (error) {
+      console.error('❌ ПОМИЛКА генерації інтерактивних рекомендацій:', error.message);
+      console.log('=== ГЕНЕРАЦІЯ ІНТЕРАКТИВНИХ РЕКОМЕНДАЦІЙ ЗАВЕРШЕНО З ПОМИЛКОЮ ===\n');
+      throw new Error('Failed to generate interactive recommendations.');
+    }
+  }
+
+  async generateResponseToComment(syllabusId, recommendationId, comment) {
+    try {
+      const response = await this.openai.responses.create({
+        model: this.llmModel,
+        input: [
+          { role: 'system', content: 'Ти асистент викладача MBA програми. Відповідай на коментарі конструктивно та професійно українською мовою.' },
+          { role: 'user', content: `Викладач залишив такий коментар до рекомендації: "${comment}". Надай професійну відповідь, яка покаже розуміння його точки зору та запропонує альтернативи якщо потрібно.` }
+        ]
+      });
+
+      return (response.output_text || this.extractResponsesText(response) || '').trim();
+    } catch (error) {
+      console.error('Error generating AI response:', error);
+      return "Дякую за ваш відгук. Я врахую ваші коментарі для покращення майбутніх рекомендацій.";
+    }
+  }
+
+  // Generate anti-plagiarism recommendations referencing similar sections
+  async generateAntiPlagiarismRecommendations(currentSyllabus, normalizedAnalysis, plagiarismCheck) {
+    try {
+      const topSimilar = (plagiarismCheck?.similarSyllabi || []).slice(0, 3)
+        .map(s => `• ${s.course} (${s.year}) — викладач: ${s.instructor} — схожість: ${s.similarity}%`).join('\n');
+
+      const prompt = `
+Створи короткі, предметні рекомендації українською мовою щодо зменшення ризику плагіату в силабусі.
+
+Вхідні дані:
+- Назва курсу: ${currentSyllabus.course?.name || currentSyllabus.title}
+- Ризик плагіату: ${plagiarismCheck?.riskLevel || 'low'}
+- Схожі силабуси (топ-3):\n${topSimilar || 'немає'}
+- Структура силабусу (є/немає): ${JSON.stringify(normalizedAnalysis.structure)}
+
+Завдання:
+1) Вкажи, які розділи типово викликають збіг (цілі, методи, оцінювання, кейси, література) і як їх змінити.
+2) Дай 3–6 конкретних пропозицій: що переформулювати, що додати власного (українські приклади, авторські кейси, унікальні активності, адаптації під аудиторію), як змінити структуру.
+3) Формат виходу виключно JSON:
+{
+  "recommendations": [
+    {"category": "plagiarism", "title": "...", "description": "<=300 символів"}
+  ]
+}
+Без пояснювального тексту, тільки JSON.`;
+
+      const resp = await this.openai.responses.create({
+        model: this.llmModel,
+        input: [
+          { role: 'system', content: 'Ти академічний радник. Генеруй стислі, дієві рекомендації українською мовою у форматі JSON.' },
+          { role: 'user', content: prompt }
+        ],
+        text: { format: { type: 'json_object' } }
+      });
+
+      const raw = (resp.output_text || this.extractResponsesText(resp) || '').trim();
+      const parsed = this.safeParseJSON(raw) || {};
+      const recs = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
+      // Normalize and coerce to our schema
+      const formatted = this.formatRecommendations(
+        recs.map(r => ({
+          category: 'plagiarism',
+          title: r.title,
+          description: r.description,
+          priority: 'high'
+        }))
+      );
+      return formatted;
+    } catch (err) {
+      console.warn('generateAntiPlagiarismRecommendations error:', err.message);
+      return [];
+    }
+  }
+
+  // Integration with Google Forms (webhook handling)
+  async processSurveyResponse(formData) {
+    try {
+      // Normalize and persist Google Forms payload as Survey + SurveyResponse
+      const surveyTitle = 'Student Profiling Survey for MBA Program';
+      // Ensure the Survey exists (lazy-create)
+      let survey = await Survey.findOne({ title: surveyTitle });
+      if (!survey) {
+        const User = require('../models/User');
+        const adminUser = await User.findOne({ role: 'admin' });
+        const questions = [
+          {
+            text: "Describe ONE of the biggest challenges you're facing at work right now that you believe could be solved through MBA knowledge. Be as specific as possible.",
+            type: 'open_text',
+            required: true,
+            order: 1
+          },
+          {
+            text: 'What are 2–3 types of decisions you make most frequently in your work? What makes these decisions particularly challenging?',
+            type: 'open_text',
+            required: true,
+            order: 2
+          },
+          {
+            text: "Think of a situation from the past month when you thought: 'I should have known something from management/economics/strategy to handle this better.' What was that situation?",
+            type: 'open_text',
+            required: true,
+            order: 3
+          },
+          {
+            text: 'In which area or function do you have experience that you could share with colleagues? And conversely - what industry/function experience would be most interesting for you to learn from?',
+            type: 'open_text',
+            required: true,
+            order: 4
+          },
+          {
+            text: 'How do you typically learn most effectively - through case studies, discussions, hands-on practice, or something else? And what prevents you from applying new knowledge at work?',
+            type: 'open_text',
+            required: true,
+            order: 5
+          }
+        ];
+
+        survey = new Survey({
+          title: surveyTitle,
+          description: 'Imported from Google Forms',
+          questions,
+          createdBy: adminUser?._id,
+          isActive: true,
+          targetAudience: 'students'
+        });
+        await survey.save();
+      }
+
+      // Helper to coalesce values from multiple possible keys
+      const getVal = (...keys) => keys.map(k => formData[k]).find(v => v !== undefined && v !== null && String(v).trim() !== '');
+
+      // Coerce responses from either canonical keys or question titles
+      const payload = {
+        firstName: getVal('firstName', 'First Name') || '',
+        lastName: getVal('lastName', 'Last Name') || '',
+        challenge: getVal(
+          'challenge',
+          "Describe ONE of the biggest challenges you're facing at work right now that you believe could be solved through MBA knowledge. Be as specific as possible."
+        ) || '',
+        decisions: getVal(
+          'decisions',
+          'What are 2–3 types of decisions you make most frequently in your work? What makes these decisions particularly challenging?'
+        ) || '',
+        situation: getVal(
+          'situation',
+          "Think of a situation from the past month when you thought: 'I should have known something from management/economics/strategy to handle this better.' What was that situation?"
+        ) || '',
+        experience: getVal(
+          'experience',
+          'In which area or function do you have experience that you could share with colleagues? And conversely - what industry/function experience would be most interesting for you to learn from?'
+        ) || '',
+        learningStyle: getVal(
+          'learningStyle',
+          'How do you typically learn most effectively - through case studies, discussions, hands-on practice, or something else? And what prevents you from applying new knowledge at work?'
+        ) || ''
+      };
+
+      // Map to SurveyResponse answers
+      const qMap = new Map(survey.questions.map(q => [q.text, q._id]));
+      const answers = [];
+      const pushAnswer = (qText, value) => {
+        const qId = qMap.get(qText);
+        if (qId && value && String(value).trim() !== '') {
+          answers.push({ questionId: qId, answer: String(value), textAnswer: String(value) });
+        }
+      };
+      pushAnswer(survey.questions.find(q => q.order === 1).text, payload.challenge);
+      pushAnswer(survey.questions.find(q => q.order === 2).text, payload.decisions);
+      pushAnswer(survey.questions.find(q => q.order === 3).text, payload.situation);
+      pushAnswer(survey.questions.find(q => q.order === 4).text, payload.experience);
+      pushAnswer(survey.questions.find(q => q.order === 5).text, payload.learningStyle);
+
+      const response = new SurveyResponse({
+        survey: survey._id,
+        answers,
+        isAnonymous: true,
+        respondent: {}
+      });
+      await response.save();
+
+      const processedData = { ...payload, surveyId: String(survey._id), responseId: String(response._id) };
+      console.log('Survey response processed and stored:', processedData);
+      return processedData;
+    } catch (error) {
+      console.error('Error processing survey response:', error);
+      throw error;
+    }
+  }
+
+  // Normalize OpenAI analysis JSON to fit Syllabus model schema
+  normalizeAnalysisForModel(analysis) {
+    const normalized = { ...analysis };
+
+    // Normalize learning objectives
+    if (normalized.learningObjectivesAlignment) {
+      const loa = normalized.learningObjectivesAlignment;
+      normalized.learningObjectivesAlignment = {
+        alignedObjectives: loa.alignedObjectives || loa.coveredObjectives || [],
+        missingObjectives: loa.missingObjectives || [],
+        recommendations: loa.recommendations || []
+      };
+    } else {
+      normalized.learningObjectivesAlignment = { alignedObjectives: [], missingObjectives: [], recommendations: [] };
+    }
+
+    // Normalize template compliance
+    if (normalized.templateCompliance) {
+      const tc = normalized.templateCompliance;
+      normalized.templateCompliance = {
+        missingElements: tc.missingElements || [],
+        recommendations: tc.recommendations || []
+      };
+    } else {
+      normalized.templateCompliance = { missingElements: [], recommendations: [] };
+    }
+
+    // Normalize student cluster analysis
+    const sca = normalized.studentClusterAnalysis || {};
+    // Map clusterRelevance {cluster: score} to dominantClusters with percentages
+    const rel = sca.clusterRelevance || {};
+    const relEntries = Object.entries(rel);
+    // Coerce scores to finite, non-negative numbers and drop zeros/non-numeric
+    const sanitized = relEntries
+      .map(([cluster, value]) => {
+        const num = typeof value === 'number' ? value : Number(value);
+        const safe = Number.isFinite(num) && num >= 0 ? num : 0;
+        return [String(cluster), safe];
+      })
+      .filter(([, safe]) => safe > 0);
+
+    let dominantClusters = [];
+    if (sanitized.length > 0) {
+      const total = sanitized.reduce((sum, [, v]) => sum + v, 0);
+      if (total > 0) {
+        dominantClusters = sanitized.map(([cluster, value]) => {
+          const raw = (value / total) * 100;
+          const pct = Math.max(0, Math.min(100, Math.round(raw)));
+          return {
+            cluster,
+            percentage: pct,
+            recommendations: []
+          };
+        });
+      }
+    }
+
+    // Normalize suggested cases (merge any incoming formats)
+    const mapCase = (c) => ({
+      company: c.company || c.title || c.caseTitle || 'Case',
+      cluster: c.cluster || (Array.isArray(c.clusters) ? c.clusters.join(', ') : ''),
+      description: c.description || c.summary || '',
+      relevance: typeof c.relevance === 'number' ? c.relevance : (c.relevanceScore || 0)
+    });
+
+    const suggestedCases = [
+      ...((sca.suggestedCases || []).map(mapCase))
+    ];
+
+    // Coerce adaptationRecommendations to array of strings to match schema
+    let adaptationRecommendations = [];
+    const rawAdapt = sca.adaptationRecommendations;
+    const coerceAdaptItem = (item) => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') {
+        const cluster = item.cluster ? String(item.cluster) + ': ' : '';
+        const text = item.recommendation || item.text || item.description || '';
+        if (text) return cluster + String(text);
+        try { return JSON.stringify(item); } catch { return String(item); }
+      }
+      return String(item ?? '');
+    };
+    if (Array.isArray(rawAdapt)) {
+      adaptationRecommendations = rawAdapt.map(coerceAdaptItem).filter(s => typeof s === 'string' && s.trim().length > 0);
+    } else if (typeof rawAdapt === 'string') {
+      // Attempt to parse stringified array/object
+      const parsed = this.safeParseJSON(rawAdapt);
+      if (Array.isArray(parsed)) {
+        adaptationRecommendations = parsed.map(coerceAdaptItem).filter(s => typeof s === 'string' && s.trim().length > 0);
+      } else if (parsed && typeof parsed === 'object') {
+        adaptationRecommendations = [coerceAdaptItem(parsed)].filter(s => s.trim().length > 0);
+      } else if (rawAdapt.trim()) {
+        adaptationRecommendations = [rawAdapt.trim()];
+      }
+    }
+
+    normalized.studentClusterAnalysis = {
+      dominantClusters,
+      suggestedCases,
+      // preserve AI-provided adaptation recommendations if present, coerced to strings
+      adaptationRecommendations
+    };
+
+    // Ensure structure exists
+    normalized.structure = normalized.structure || {
+      hasObjectives: false,
+      hasAssessment: false,
+      hasSchedule: false,
+      hasResources: false,
+      missingParts: []
+    };
+
+    // Normalize recommendations
+    normalized.recommendations = this.formatRecommendations(normalized.recommendations || []);
+  // Potential extension: add implicit recommendations for plagiarism similarity or missing template parts
+  // (left minimal now to avoid reintroducing numeric scoring logic)
+
+    return normalized;
+  }
+}
+
+module.exports = new AIService();

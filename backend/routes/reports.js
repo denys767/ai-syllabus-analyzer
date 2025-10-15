@@ -46,8 +46,9 @@ router.get('/syllabus/:id', auth, async (req, res) => {
         recommendations: (syllabus.analysis?.learningObjectivesAlignment?.recommendations||[]).slice(0,10)
       },
       practicalityAndInteractivity: {
-        aiChallengeSuggestions: (syllabus.practicalChallenge?.aiSuggestions||[]).map(s=>s.suggestion).slice(0,10),
-        latestInteractiveIdeas: [] // reserved for future interactive generation link
+        // AI Challenge feature removed in v2.0.0 refactoring
+        aiChallengeSuggestions: [],
+        latestInteractiveIdeas: []
       },
       improvementProposals: buildImprovementProposals(syllabus)
     };
@@ -85,9 +86,10 @@ router.get('/manager-summary', auth, manager, async (req, res) => {
           }, 0) / syllabi.length : 0
       },
       practicalityAndInteractivity: {
-        totalChallengesCompleted: syllabi.filter(s => s.practicalChallenge?.status === 'completed').length,
-        aiSuggestionsCount: syllabi.reduce((sum, s) => sum + (s.practicalChallenge?.aiSuggestions?.length || 0), 0),
-        topSuggestions: syllabi.flatMap(s => s.practicalChallenge?.aiSuggestions || [])
+        // AI Challenge feature removed in v2.0.0 refactoring
+        totalChallengesCompleted: 0,
+        aiSuggestionsCount: 0,
+        topSuggestions: []
           .slice(0, 20) // Top 20 suggestions
       },
       improvementProposals: syllabi.flatMap(s => s.recommendations.filter(r => r.status === 'accepted'))
@@ -316,10 +318,7 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
         Rejected: syllabus.recommendations.filter(r=>r.status==='rejected').length,
         Commented: syllabus.recommendations.filter(r=>r.status==='commented').length
   }).map(([k,v]) => `${k},"${v}"`),
-  'AIChallenger:', 'InitialQuestion,Status',
-  `${JSON.stringify(syllabus.practicalChallenge?.initialQuestion || '').replace(/"/g,'"')},${syllabus.practicalChallenge?.status || 'pending'}`,
-  'Discussion:', 'When,InstructorResponse,AIResponse',
-  ...((Array.isArray(syllabus.practicalChallenge?.discussion) ? syllabus.practicalChallenge.discussion : []).map(d => `${new Date(d.respondedAt||syllabus.createdAt).toISOString()},"${(d.instructorResponse||'').replace(/"/g,'"')}","${(d.aiResponse||'').replace(/"/g,'"')}"`)),
+  'AIChallenger:', 'Feature removed in v2.0.0',
   'Timeline:', 'RecommendationID,OldStatus,NewStatus,Comment,At'];
       timeline.forEach(ev => rows.push(`${ev.recommendationId || ''},${ev.from || ''},${ev.to},"${(ev.comment||'').replace(/"/g,'"')}" ,${new Date(ev.at).toISOString()}`));
       const grouped = buildGroupedRecommendations(syllabus);
@@ -555,11 +554,30 @@ function pickRec(r){
 function buildImprovementProposals(syllabus){
   const proposals = new Set();
   const tc = syllabus.analysis?.templateCompliance;
-  if (tc?.missingElements?.length) proposals.add('Додати відсутні елементи шаблону: ' + tc.missingElements.slice(0,6).join(', '));
+  
+  // Нова структура v2.0.0: missingSections замість missingElements
+  const missingSections = tc?.missingSections || tc?.missingElements || [];
+  if (missingSections.length) {
+    proposals.add('Додати відсутні елементи шаблону: ' + missingSections.slice(0,6).join(', '));
+  }
+  
+  // Template compliance score (нове поле)
+  if (tc?.score && tc.score < 80) {
+    proposals.add(`Покращити відповідність шаблону (поточний score: ${tc.score}%)`);
+  }
+  
   const loa = syllabus.analysis?.learningObjectivesAlignment;
-  if (loa?.missingObjectives?.length) proposals.add('Закрити прогалини ILO: ' + loa.missingObjectives.slice(0,6).join(', '));
+  if (loa?.missingObjectives?.length) {
+    proposals.add('Закрити прогалини ILO: ' + loa.missingObjectives.slice(0,6).join(', '));
+  }
+  
+  // Learning objectives alignment score (нове поле)
+  if (loa?.alignmentScore && loa.alignmentScore < 70) {
+    proposals.add(`Покращити покриття Learning Objectives (поточний score: ${loa.alignmentScore}%)`);
+  }
+  
   const sca = syllabus.analysis?.studentClusterAnalysis;
-  if ((sca?.suggestedCases||[]).length < 3) proposals.add('Додати українські приклади та кейси, пов’язані з профілями студентів');
+  if ((sca?.suggestedCases||[]).length < 3) proposals.add('Додати українські приклади та кейси, пов\'язані з профілями студентів');
   if (!(syllabus.practicalChallenge?.aiSuggestions||[]).length) proposals.add('Додати інтерактивні активності (дискусії, групові завдання, peer-to-peer).');
   return Array.from(proposals);
 }
@@ -574,8 +592,21 @@ function getOverallAssessment(qualityScore) {
 
 function getKeyStrengths(syllabus) {
   const strengths = [];
-  if ((syllabus.analysis?.templateCompliance?.missingElements||[]).length === 0) strengths.push('Required sections present');
-  if ((syllabus.analysis?.learningObjectivesAlignment?.missingObjectives||[]).length === 0) strengths.push('Breadth of learning objectives addressed');
+  const tc = syllabus.analysis?.templateCompliance;
+  const loa = syllabus.analysis?.learningObjectivesAlignment;
+  
+  // Підтримка обох форматів: missingSections (v2.0) і missingElements (legacy)
+  const missingSections = tc?.missingSections || tc?.missingElements || [];
+  if (missingSections.length === 0) strengths.push('Required sections present');
+  
+  // Template compliance score
+  if (tc?.score && tc.score >= 90) strengths.push(`Excellent template compliance (${tc.score}%)`);
+  
+  if ((loa?.missingObjectives||[]).length === 0) strengths.push('Breadth of learning objectives addressed');
+  
+  // Learning objectives alignment score
+  if (loa?.alignmentScore && loa.alignmentScore >= 80) strengths.push(`Strong LO alignment (${loa.alignmentScore}%)`);
+  
   if (syllabus.recommendations.filter(r => r.status === 'accepted').length > syllabus.recommendations.length * 0.7) {
     strengths.push('High engagement with improvement recommendations');
   }

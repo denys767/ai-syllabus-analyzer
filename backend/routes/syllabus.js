@@ -167,8 +167,6 @@ router.post('/upload', auth, /* requireVerification, */ upload.single('syllabus'
     setImmediate(async () => {
       try {
         await aiService.analyzeSyllabus(syllabus._id);
-        // After analysis, start the practical challenge
-        await aiService.startPracticalChallenge(syllabus._id);
       } catch (error) {
         console.error('AI analysis error for syllabus', syllabus._id, ':', error);
         // Update status to indicate analysis failed
@@ -532,8 +530,6 @@ router.post('/:id/analyze', auth, async (req, res) => {
     setImmediate(async () => {
       try {
         await aiService.analyzeSyllabus(syllabus._id);
-        // After analysis, start the practical challenge
-        await aiService.startPracticalChallenge(syllabus._id);
       } catch (error) {
         console.error('AI analysis error for syllabus', syllabus._id, ':', error);
         await Syllabus.findByIdAndUpdate(syllabus._id, { 
@@ -820,32 +816,8 @@ router.post('/:id/generate-edited-text', auth, async (req, res) => {
   }
 });
 
-// Finalize the practical challenge: mark completed and persist concise suggestions
-router.post('/:id/challenge/finalize', auth, async (req, res) => {
-  try {
-    const syllabus = await Syllabus.findById(req.params.id);
-    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
-    if (!isOwnerOrRole(req.user, syllabus)) {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-
-    const discussion = Array.isArray(syllabus.practicalChallenge?.discussion) ? syllabus.practicalChallenge.discussion : [];
-    // Build compact summary payload (max 3 bullets) using existing data on server without extra OpenAI call
-    const lastAi = discussion.filter(d => d.aiResponse).slice(-3);
-    const aiSuggestions = lastAi.map(d => ({ suggestion: String(d.aiResponse || '').slice(0, 300), category: 'interactive-method' }));
-
-    syllabus.practicalChallenge = {
-      ...syllabus.practicalChallenge,
-      aiSuggestions: [...(syllabus.practicalChallenge?.aiSuggestions || []), ...aiSuggestions].slice(0, 6),
-      status: 'completed'
-    };
-    await syllabus.save();
-    return res.json({ message: 'Challenge finalized', status: syllabus.practicalChallenge.status, aiSuggestions: syllabus.practicalChallenge.aiSuggestions });
-  } catch (error) {
-    console.error('Finalize challenge error:', error);
-    return res.status(500).json({ message: 'Internal server error' });
-  }
-});
+// AI Challenge finalize endpoint removed during v2.0.0 refactoring
+// The AI Challenger feature has been removed to simplify the codebase
 
 // Admin: cleanup orphaned files under uploads/syllabi not referenced in DB
 router.post('/maintenance/cleanup-uploads', auth, admin, async (req, res) => {

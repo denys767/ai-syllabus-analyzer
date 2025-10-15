@@ -13,7 +13,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import api from '../../services/api';
-import AIChallenger from './AIChallenger';
+// import AIChallenger from './AIChallenger'; // Removed in v2.0.0 refactoring
 
 const StatusChip = ({ status }) => {
   const color =
@@ -49,13 +49,29 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       'Інше': []
     };
     recommendations.forEach(r => {
-      if (r.category === 'structure') groups['Відповідність до шаблону'].push(r);
-      else if (r.category === 'objectives') groups['Відповідність до learning objectives'].push(r);
-      else if (r.category === 'plagiarism') groups['Збіг з попередніми силабусами'].push(r);
-      else if (r.category === 'cases') groups['Інтеграція прикладів для кластеру студентів'].push(r);
-      else if (r.category === 'content' || r.category === 'methods' || r.category === 'assessment') groups['Інше'].push(r);
+      // Нові категорії з backend v2.0.0
+      if (r.category === 'template-compliance' || r.category === 'structure') {
+        groups['Відповідність до шаблону'].push(r);
+      } 
+      else if (r.category === 'learning-objectives' || r.category === 'objectives') {
+        groups['Відповідність до learning objectives'].push(r);
+      }
+      else if (r.category === 'plagiarism') {
+        groups['Збіг з попередніми силабусами'].push(r);
+      }
+      else if (r.category === 'student-clusters' || r.category === 'cases') {
+        groups['Інтеграція прикладів для кластеру студентів'].push(r);
+      }
+      else if (r.category === 'content-quality' || r.category === 'content' || 
+               r.category === 'methods' || r.category === 'assessment' || 
+               r.category === 'policy' || r.category === 'other') {
+        groups['Інше'].push(r);
+      }
+      else {
+        // Fallback для невідомих категорій
+        groups['Інше'].push(r);
+      }
     });
-    // Placeholder: plagiarism based recs would be inserted here if backend supplies category
     return groups;
   }, [recommendations]);
 
@@ -319,6 +335,17 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
             {rec.description && (
               <Typography variant="body2" sx={{ mt: 1 }}>{rec.description}</Typography>
             )}
+            
+            {rec.suggestedText && (
+              <Paper sx={{ mt: 1, p: 1.5, bgcolor: 'action.hover' }} variant="outlined">
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>
+                  💡 Запропонований текст:
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                  {rec.suggestedText}
+                </Typography>
+              </Paper>
+            )}
 
             {rec.instructorComment && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
@@ -396,10 +423,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
           </Paper>
         ))}
       </Stack>
-      {/* Inline AI Challenger */}
-      <Box sx={{ mt:4 }}>
-        <AIChallenger syllabus={syllabus} onChallengeUpdate={onChanged} />
-      </Box>
+      {/* AI Challenger removed in v2.0.0 refactoring */}
     </Box>
   );
 }
