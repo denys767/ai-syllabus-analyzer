@@ -216,10 +216,14 @@ class ApiService {
       this.client.get(`/policies/${id}`),
     
     create: (data) =>
-      this.client.post('/policies', data),
+      this.client.post('/policies', data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      }),
     
     update: (id, data) =>
-      this.client.put(`/policies/${id}`, data),
+      this.client.put(`/policies/${id}`, data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      }),
     
     delete: (id) =>
       this.client.delete(`/policies/${id}`),
@@ -228,7 +232,12 @@ class ApiService {
       this.client.post(`/policies/${id}/acknowledge`),
     
     getStatus: (id) =>
-      this.client.get(`/policies/${id}/status`)
+      this.client.get(`/policies/${id}/status`),
+    
+    downloadFile: (id) =>
+      this.client.get(`/policies/${id}/download`, {
+        responseType: 'blob'
+      })
   };
 
   // Admin endpoints

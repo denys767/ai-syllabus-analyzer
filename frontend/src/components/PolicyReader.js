@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Card, CardContent, Button, Chip, Alert,
   Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress,
-  Grid
+  Grid, IconButton
 } from '@mui/material';
 import {
-  CheckCircle, Warning, Description, Visibility
+  CheckCircle, Warning, Description, Visibility, Download
 } from '@mui/icons-material';
+import ReactMarkdown from 'react-markdown';
 import api from '../services/api';
 
 const PolicyReader = () => {
@@ -44,6 +45,24 @@ const PolicyReader = () => {
       console.error(err);
     } finally {
       setAcknowledging(false);
+    }
+  };
+
+  const handleDownloadFile = async (policyId) => {
+    try {
+      const response = await api.policies.downloadFile(policyId);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      const filename = response.headers['content-disposition']?.split('filename=')[1]?.replace(/"/g, '') || 'file';
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError('Не вдалося завантажити файл');
+      console.error(err);
     }
   };
 
@@ -110,6 +129,16 @@ const PolicyReader = () => {
                   {policy.content.substring(0, 200)}...
                 </Typography>
 
+                {policy.attachedFile && (
+                  <Chip
+                    icon={<Description />}
+                    label={`Файл: ${policy.attachedFile.originalName}`}
+                    size="small"
+                    sx={{ mb: 1 }}
+                    variant="outlined"
+                  />
+                )}
+
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                   {policy.isAcknowledged ? (
                     <CheckCircle color="success" />
@@ -121,17 +150,38 @@ const PolicyReader = () => {
                   </Typography>
                 </Box>
 
-                {policy.isRequired && (
-                  <Chip
-                    label="Обов'язковий"
-                    color="error"
-                    size="small"
-                    variant="outlined"
-                  />
-                )}
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  {policy.isRequired && (
+                    <Chip
+                      label="Обов'язковий"
+                      color="error"
+                      size="small"
+                      variant="outlined"
+                    />
+                  )}
+                  {policy.contentType === 'markdown' && (
+                    <Chip
+                      label="Markdown"
+                      size="small"
+                      variant="outlined"
+                    />
+                  )}
+                </Box>
               </CardContent>
 
               <Box sx={{ p: 2, pt: 0 }}>
+                {policy.attachedFile && (
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<Download />}
+                    onClick={() => handleDownloadFile(policy._id)}
+                    sx={{ mb: 1 }}
+                  >
+                    Завантажити файл
+                  </Button>
+                )}
+                
                 <Button
                   fullWidth
                   variant="outlined"
@@ -182,9 +232,49 @@ const PolicyReader = () => {
             </DialogTitle>
             <DialogContent>
               <Box sx={{ mt: 2 }}>
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-                  {selectedPolicy.content}
-                </Typography>
+                {selectedPolicy.contentType === 'markdown' ? (
+                  <Box sx={{ 
+                    '& h1': { fontSize: '2rem', mt: 2, mb: 1 },
+                    '& h2': { fontSize: '1.5rem', mt: 2, mb: 1 },
+                    '& h3': { fontSize: '1.25rem', mt: 2, mb: 1 },
+                    '& p': { lineHeight: 1.6, mb: 1 },
+                    '& ul, & ol': { pl: 3, mb: 2 },
+                    '& code': { 
+                      bgcolor: 'grey.100', 
+                      p: 0.5, 
+                      borderRadius: 1,
+                      fontFamily: 'monospace'
+                    },
+                    '& pre': { 
+                      bgcolor: 'grey.100', 
+                      p: 2, 
+                      borderRadius: 1,
+                      overflow: 'auto'
+                    }
+                  }}>
+                    <ReactMarkdown>{selectedPolicy.content}</ReactMarkdown>
+                  </Box>
+                ) : (
+                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                    {selectedPolicy.content}
+                  </Typography>
+                )}
+
+                {selectedPolicy.attachedFile && (
+                  <Box sx={{ mt: 3, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      Прикріплений файл:
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      startIcon={<Download />}
+                      onClick={() => handleDownloadFile(selectedPolicy._id)}
+                      size="small"
+                    >
+                      {selectedPolicy.attachedFile.originalName}
+                    </Button>
+                  </Box>
+                )}
               </Box>
             </DialogContent>
             <DialogActions>

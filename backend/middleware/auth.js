@@ -48,17 +48,27 @@ const auth = async (req, res, next) => {
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
+      console.log('Authorize: No user in request');
       return res.status(401).json({
         message: 'Access denied. Authentication required.'
       });
     }
 
+    console.log('Authorize check:', {
+      userRole: req.user.role,
+      requiredRoles: roles,
+      userId: req.user.userId,
+      fullUser: req.user
+    });
+
     if (!roles.includes(req.user.role)) {
+      console.log(`Access denied. Insufficient permissions. (Ваша роль: ${req.user.role}, потрібна: ${roles.join(', ')})`);
       return res.status(403).json({
-        message: 'Access denied. Insufficient permissions.'
+        message: `Access denied. Insufficient permissions. (Ваша роль: ${req.user.role}, потрібна: ${roles.join(', ')})`
       });
     }
 
+    console.log('Authorization successful');
     next();
   };
 };

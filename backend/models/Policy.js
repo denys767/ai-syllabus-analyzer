@@ -10,6 +10,22 @@ const PolicySchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  contentType: {
+    type: String,
+    enum: ['markdown', 'plain'],
+    default: 'markdown'
+  },
+  attachedFile: {
+    filename: String,
+    originalName: String,
+    mimetype: String,
+    size: Number,
+    path: String,
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
   type: {
     type: String,
     enum: ['ai-policy', 'academic-integrity', 'teaching-tips'],

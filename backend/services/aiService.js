@@ -65,11 +65,30 @@ class AIService {
         plagiarismRecommendations = await this.generateAntiPlagiarismRecommendations(syllabus, plagiarismCheck);
       }
 
+      // Convert recommendations arrays to strings for schema compatibility
+      const convertRecommendationsToStrings = (recs) => {
+        if (!Array.isArray(recs)) return [];
+        return recs.map(rec => {
+          if (typeof rec === 'string') return rec;
+          // If it's an object, convert to string description
+          return rec.description || rec.title || JSON.stringify(rec);
+        });
+      };
+
+      const loAlignment = analysis.learningObjectivesAlignment || {};
+      const tcCompliance = analysis.templateCompliance || {};
+
       await Syllabus.findByIdAndUpdate(syllabusId, {
         structure: analysis.structure,
         analysis: {
-          templateCompliance: analysis.templateCompliance,
-          learningObjectivesAlignment: analysis.learningObjectivesAlignment,
+          templateCompliance: {
+            ...tcCompliance,
+            recommendations: convertRecommendationsToStrings(tcCompliance.recommendations)
+          },
+          learningObjectivesAlignment: {
+            ...loAlignment,
+            recommendations: convertRecommendationsToStrings(loAlignment.recommendations)
+          },
           plagiarismCheck: plagiarismCheck
         },
         recommendations: [...analysis.recommendations, ...plagiarismRecommendations],
@@ -92,7 +111,7 @@ class AIService {
 ${this.syllabusTemplate}
 
 **MBA-27 LEARNING OBJECTIVES (ALL COURSES MUST ALIGN):**
-${this.learningObjectives.map((lo, idx) => `${idx + 1}. ${lo.text}`).join('\n')}
+${this.learningObjectives.map((lo, idx) => `LO${idx + 1}: ${lo.text}`).join('\n')}
 
 **SYLLABUS TO ANALYZE:**
 ${syllabusText}
@@ -100,10 +119,15 @@ ${syllabusText}
 **TASK:**
 Analyze the syllabus and provide recommendations in the following categories:
 1. **template-compliance** - Missing sections, formatting issues compared to template
-2. **learning-objectives** - Which LOs are covered/missing, how to improve alignment. IMPORTANT: When referring to Learning Objectives, use the FULL TEXT (e.g., "Leverage real-life business experiences to develop adaptive leadership...") instead of abbreviations like LO1, LO2.
+2. **learning-objectives** - Which LOs are covered/missing, how to improve alignment. Use format "LO1 (brief summary)" when referring to objectives.
 3. **content-quality** - Content depth, relevance, clarity improvements
 4. **assessment** - Grading structure, assessment methods improvements
 5. **other** - Any other improvements
+
+**IMPORTANT:** When referring to Learning Objectives in recommendations:
+- Use this format: "LO1 (adaptive leadership)", "LO3 (AI-driven tools)", etc.
+- Include a brief summary of each LO after its number
+- This helps instructors quickly understand which objective is being referenced
 
 Return JSON with this exact structure:
 {
@@ -120,8 +144,8 @@ Return JSON with this exact structure:
     "suggestions": string[]
   },
   "learningObjectivesAlignment": {
-    "alignedObjectives": string[], // Use FULL TEXT of LOs, not abbreviations
-    "missingObjectives": string[], // Use FULL TEXT of LOs, not abbreviations
+    "alignedObjectives": string[], // Use format "LO1 (brief summary)"
+    "missingObjectives": string[], // Use format "LO1 (brief summary)"
     "alignmentScore": number (0-100),
     "recommendations": string[]
   },
@@ -129,7 +153,7 @@ Return JSON with this exact structure:
     {
       "category": "template-compliance" | "learning-objectives" | "content-quality" | "assessment" | "other",
       "title": "Short title",
-      "description": "Detailed recommendation with specific examples. When mentioning Learning Objectives, use FULL TEXT instead of LO1, LO2, etc.",
+      "description": "Detailed recommendation. Reference LOs as 'LO1 (adaptive leadership)' format.",
       "priority": "critical" | "high" | "medium" | "low",
       "suggestedText": "Concrete text to add (optional)"
     }
@@ -139,7 +163,7 @@ Return JSON with this exact structure:
     const response = await this.openai.responses.create({
       model: this.llmModel,
       input: [
-        { role: 'system', content: 'You are an expert MBA syllabus analyzer for KSE Business School. Always return valid JSON.' },
+        { role: 'system', content: 'You are an expert MBA syllabus analyzer for KSE Business School. Always return valid JSON. When referencing Learning Objectives, use format "LO1 (brief summary)" for clarity.' },
         { role: 'user', content: prompt }
       ],
       text: { format: { type: 'json_object' } }
@@ -349,10 +373,13 @@ ${rec.suggestedText ? `\nSuggested text:\n${rec.suggestedText}` : ''}
 
 SECTION: ${location.sectionName}
 
-CONTEXT (MBA-27 Learning Objectives for reference):
-${this.learningObjectives.map((lo, idx) => `${idx + 1}. ${lo.text}`).join('\n')}
+CONTEXT - MBA-27 Learning Objectives Reference:
+${this.learningObjectives.map((lo, idx) => `LO${idx + 1}: ${lo.text}`).join('\n')}
 
-IMPORTANT: When mentioning Learning Objectives, use FULL TEXT (e.g., "This course develops adaptive leadership and decision-making skills...") instead of abbreviations like LO1, LO2, etc.
+IMPORTANT: 
+- When you see "LO1", "LO2", etc. in the recommendation, refer to the FULL TEXT from the list above
+- Example: If recommendation mentions "LO1 (adaptive leadership)", use the complete text: "Leverage real-life business experiences to develop adaptive leadership and decision-making skills..."
+- Be concise but include the essential meaning from the full learning objective
 
 ${location.locationType === 'new' ? `
 Generate a COMPLETE NEW section including heading and content (200-600 chars).
@@ -362,7 +389,7 @@ Generate ONLY the edited/replacement text (100-500 chars). Be concise and profes
 
 Return JSON:
 {
-  "newText": "the exact new or edited text (use full LO text, not abbreviations)",
+  "newText": "the exact new or edited text",
   "summary": "one-sentence: what changed"
 }`;
 
@@ -370,7 +397,7 @@ Return JSON:
       const editResp = await this.openai.responses.create({
         model: this.llmModel,
         input: [
-          { role: 'system', content: 'You are a professional academic editor for MBA syllabi. When referring to Learning Objectives, always use the FULL TEXT, never use abbreviations like LO1, LO2. Generate concise, high-quality text. Return only JSON.' },
+          { role: 'system', content: 'You are a professional academic editor for MBA syllabi. Generate concise, high-quality text. Return only JSON.' },
           { role: 'user', content: editPrompt }
         ],
         text: { format: { type: 'json_object' } }

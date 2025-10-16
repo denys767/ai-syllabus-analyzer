@@ -41,6 +41,12 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
   const [processingComments, setProcessingComments] = useState(new Set()); // Треки рекомендацій, що чекають на AI відповідь
 
   const grouped = useMemo(() => {
+    // Функція для визначення числового значення пріоритету (для сортування)
+    const getPriorityWeight = (priority) => {
+      const weights = { 'critical': 4, 'high': 3, 'medium': 2, 'low': 1 };
+      return weights[priority] || 0;
+    };
+
     const groups = {
       'Відповідність до шаблону': [],
       'Відповідність до learning objectives': [],
@@ -72,6 +78,12 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
         groups['Інше'].push(r);
       }
     });
+
+    // Сортуємо рекомендації в кожній групі за пріоритетом (від високого до низького)
+    Object.keys(groups).forEach(key => {
+      groups[key].sort((a, b) => getPriorityWeight(b.priority) - getPriorityWeight(a.priority));
+    });
+
     return groups;
   }, [recommendations]);
 
