@@ -311,151 +311,101 @@ Return JSON with this exact structure:
   }
 
   async applyRecommendationsWithLLM(originalText, recommendations) {
-    console.log('\n=== ЗАСТОСУВАННЯ РЕКОМЕНДАЦІЙ (ТОЧКОВИЙ ПІДХІД З LLM) ===');
+    console.log('\n=== ЗАСТОСУВАННЯ РЕКОМЕНДАЦІЙ (ОПТИМІЗОВАНИЙ ПІДХІД) ===');
     console.log('📊 Рекомендацій:', recommendations.length);
-    console.log('📄 Довжина тексту:', originalText.length);
+    console.log('📄 Довжина оригінального тексту:', originalText.length);
 
-    let modifiedText = originalText;
-    const changes = [];
+    // Групуємо рекомендації за категоріями для ефективнішої обробки
+    const groupedRecs = this.groupRecommendationsByCategory(recommendations);
+    
+    // ОДИН LLM запит для ВСІХ рекомендацій одразу
+    const prompt = `You are editing an MBA syllabus. Apply ALL recommendations below in one pass.
 
-    // Обробляємо кожну рекомендацію окремо
-    for (let i = 0; i < recommendations.length; i++) {
-      const rec = recommendations[i];
-      console.log(`\n--- Рекомендація ${i + 1}/${recommendations.length}: ${rec.title} ---`);
+ORIGINAL SYLLABUS TEXT:
+${originalText}
+___END OF TEXT___
+RECOMMENDATIONS TO APPLY (${recommendations.length} total):
+${recommendations.map((rec, idx) => `
+${idx + 1}. [${rec.category}] ${rec.title}
+   Description: ${rec.description}
+   ${rec.suggestedText ? `Suggested text: ${rec.suggestedText}` : ''}
+`).join('\n')}
 
-      // Крок 1: LLM знаходить де саме в тексті потрібні зміни
-      const locationPrompt = `Analyze this MBA syllabus and find WHERE this recommendation should be applied.
-
-SYLLABUS (${modifiedText.length} chars):
-${modifiedText.substring(0, 8000)}${modifiedText.length > 8000 ? '\n...(text truncated)...' : ''}
-
-RECOMMENDATION:
-Title: ${rec.title}
-Category: ${rec.category}
-Description: ${rec.description}
-${rec.suggestedText ? `Suggested text: ${rec.suggestedText}` : ''}
-
-Return JSON:
-{
-  "locationType": "existing" or "new",
-  "sectionName": "exact section name (e.g., Learning Outcomes, Grading)",
-  "anchorText": "unique 50-150 chars from syllabus showing WHERE to edit (or 'END' for new sections)",
-  "insertAfter": true or false
-}
-
-For NEW sections, set locationType="new" and anchorText to where it should go (e.g., "END" or text of previous section).`;
-
-      console.log('🔍 Шукаємо локацію...');
-      const locResp = await this.openai.responses.create({
-        model: this.llmModel,
-        input: [
-          { role: 'system', content: 'You analyze document structure and locate where edits should be made. Return only JSON.' },
-          { role: 'user', content: locationPrompt }
-        ],
-        text: { format: { type: 'json_object' } }
-      });
-
-      const location = this.safeParseJSON(locResp.output_text || '{}');
-      if (!location || !location.sectionName) {
-        console.warn(`⚠️ Пропускаємо "${rec.title}" - не знайдено локацію`);
-        continue;
-      }
-
-      console.log(`📍 ${location.locationType} - ${location.sectionName}`);
-
-      // Крок 2: LLM генерує ТІЛЬКИ новий/змінений текст
-      const editPrompt = `Generate the ${location.locationType === 'new' ? 'NEW section text' : 'EDITED text'} for this syllabus recommendation.
-
-RECOMMENDATION:
-${rec.title}
-${rec.description}
-${rec.suggestedText ? `\nSuggested text:\n${rec.suggestedText}` : ''}
-
-SECTION: ${location.sectionName}
-
-CONTEXT - MBA-27 Learning Objectives Reference:
+MBA-27 LEARNING OBJECTIVES REFERENCE:
 ${this.learningObjectives.map((lo, idx) => `LO${idx + 1}: ${lo.text}`).join('\n')}
 
-IMPORTANT: 
-- When you see "LO1", "LO2", etc. in the recommendation, refer to the FULL TEXT from the list above
-- Example: If recommendation mentions "LO1 (adaptive leadership)", use the complete text: "Leverage real-life business experiences to develop adaptive leadership and decision-making skills..."
-- Be concise but include the essential meaning from the full learning objective
+INSTRUCTIONS:
+1. Read the original syllabus carefully
+2. For EACH recommendation, identify the exact location in the text where changes should be made
+3. Apply changes inline:
+   - If editing existing text: REPLACE the old text with improved text
+   - If adding new content: INSERT it in the appropriate location (NOT just at the end)
+   - If adding new sections: Place them where they logically belong in the structure
+4. When referencing Learning Objectives, expand "LO1", "LO2" etc. to their full text
+5. Maintain the original structure and formatting style
+6. Make changes contextually appropriate
 
-${location.locationType === 'new' ? `
-Generate a COMPLETE NEW section including heading and content (200-600 chars).
-` : `
-Generate ONLY the edited/replacement text (100-500 chars). Be concise and professional.
-`}
-
-Return JSON:
+Return JSON with this structure:
 {
-  "newText": "the exact new or edited text",
-  "summary": "one-sentence: what changed"
-}`;
+  "editedText": "the complete edited syllabus with ALL changes applied inline",
+  "changes": [
+    {
+      "recommendation": "recommendation title",
+      "location": "where in document (e.g., 'Learning Outcomes section, line 15')",
+      "action": "what was done (e.g., 'Added LO1 alignment', 'Replaced generic text with specific example')",
+      "textAdded": "brief snippet of what was added/changed (max 100 chars)"
+    }
+  ]
+}
 
-      console.log('✏️ Генеруємо зміни...');
-      const editResp = await this.openai.responses.create({
-        model: this.llmModel,
-        input: [
-          { role: 'system', content: 'You are a professional academic editor for MBA syllabi. Generate concise, high-quality text. Return only JSON.' },
-          { role: 'user', content: editPrompt }
-        ],
-        text: { format: { type: 'json_object' } }
-      });
+IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendations in context.`;
 
-      const edit = this.safeParseJSON(editResp.output_text || '{}');
-      if (!edit || !edit.newText) {
-        console.warn(`⚠️ Пропускаємо "${rec.title}" - не згенеровано текст`);
-        continue;
-      }
+    console.log('🚀 Відправляємо ОДИН запит для всіх рекомендацій...');
+    
+    const response = await this.openai.responses.create({
+      model: this.llmModel,
+      input: [
+        { 
+          role: 'system', 
+          content: 'You are a professional academic editor for MBA syllabi. You apply multiple edits contextually and inline, maintaining document flow. Return only valid JSON.' 
+        },
+        { role: 'user', content: prompt }
+      ],
+      text: { format: { type: 'json_object' } }
+    });
 
-      console.log(`✅ ${edit.newText.length} chars: ${edit.summary}`);
-
-      // Крок 3: Застосовуємо зміни
-      if (location.locationType === 'new') {
-        // Додаємо нову секцію
-        if (location.anchorText === 'END' || !location.anchorText) {
-          modifiedText += '\n\n' + edit.newText;
-        } else {
-          const anchorIdx = modifiedText.indexOf(location.anchorText);
-          if (anchorIdx !== -1) {
-            const insertPos = anchorIdx + location.anchorText.length;
-            modifiedText = modifiedText.substring(0, insertPos) + '\n\n' + edit.newText + modifiedText.substring(insertPos);
-          } else {
-            modifiedText += '\n\n' + edit.newText; // fallback
-          }
-        }
-        console.log('📝 Додано нову секцію');
-      } else {
-        // Замінюємо існуючий текст
-        if (location.anchorText && location.anchorText !== 'END') {
-          const anchorIdx = modifiedText.indexOf(location.anchorText);
-          if (anchorIdx !== -1) {
-            const insertPos = location.insertAfter ? anchorIdx + location.anchorText.length : anchorIdx;
-            // Вставляємо новий текст після/до якоря
-            modifiedText = modifiedText.substring(0, insertPos) + '\n' + edit.newText + '\n' + modifiedText.substring(insertPos);
-            console.log('📝 Вставлено текст після якоря');
-          } else {
-            console.warn('⚠️ Якір не знайдено, додаємо в кінець');
-            modifiedText += '\n\n' + edit.newText;
-          }
-        } else {
-          modifiedText += '\n\n' + edit.newText;
-        }
-      }
-
-      changes.push({
-        recommendation: rec.title,
-        section: location.sectionName,
-        change: edit.summary
-      });
+    const result = this.safeParseJSON(response.output_text || '{}');
+    
+    if (!result || !result.editedText) {
+      console.error('❌ LLM не повернув відредагований текст');
+      throw new Error('Failed to generate edited syllabus');
     }
 
-    console.log(`\n✅ Оброблено: ${changes.length}/${recommendations.length}`);
-    console.log(`📄 Фінальна довжина: ${modifiedText.length} chars`);
+    const modifiedText = result.editedText;
+    const changes = (result.changes || []).map(c => ({
+      recommendation: c.recommendation || 'Unknown',
+      section: c.location || 'Unknown location',
+      change: c.action || 'No description',
+      preview: c.textAdded || ''
+    }));
+
+    console.log(`\n✅ Успішно застосовано зміни`);
+    console.log(`📊 Змін задокументовано: ${changes.length}`);
+    console.log(`📄 Нова довжина тексту: ${modifiedText.length} chars (було: ${originalText.length})`);
+    console.log(`📈 Зміна: ${modifiedText.length > originalText.length ? '+' : ''}${modifiedText.length - originalText.length} chars`);
     console.log('=== ЗАВЕРШЕНО ===\n');
 
     return { modifiedText, changes };
+  }
+
+  groupRecommendationsByCategory(recommendations) {
+    const grouped = {};
+    for (const rec of recommendations) {
+      const cat = rec.category || 'other';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(rec);
+    }
+    return grouped;
   }
 
   generateDiffHtml(originalText, modifiedText, changes, syllabus) {
@@ -467,14 +417,26 @@ Return JSON:
     
     // Створюємо diff HTML з мітками рекомендацій
     const diffSegments = [];
+    let charCount = { added: 0, removed: 0, same: 0 };
+    
     for (const [op, data] of diffs) {
       const safe = escapeHtml(data).replace(/\n/g, '<br>');
       
       if (op === 0) { // Без змін
-        diffSegments.push(`<span class="diff-same">${safe}</span>`);
+        charCount.same += data.length;
+        // Показуємо тільки перші/останні N символів для економії місця, якщо блок дуже великий
+        if (data.length > 500) {
+          const preview = escapeHtml(data.substring(0, 200)).replace(/\n/g, '<br>');
+          const previewEnd = escapeHtml(data.substring(data.length - 100)).replace(/\n/g, '<br>');
+          diffSegments.push(`<span class="diff-same">${preview}</span><span class="diff-ellipsis" title="Пропущено ${data.length - 300} символів без змін">... (${data.length - 300} символів без змін) ...</span><span class="diff-same">${previewEnd}</span>`);
+        } else {
+          diffSegments.push(`<span class="diff-same">${safe}</span>`);
+        }
       } else if (op === -1) { // Видалено
+        charCount.removed += data.length;
         diffSegments.push(`<span class="diff-remove">${safe}</span>`);
       } else if (op === 1) { // Додано
+        charCount.added += data.length;
         diffSegments.push(`<span class="diff-add">${safe}</span>`);
       }
     }
@@ -484,11 +446,11 @@ Return JSON:
     // Створюємо список рекомендацій з їх змінами
     const accepted = syllabus.recommendations.filter(r => r.status === 'accepted');
     const recommendationsHtml = accepted.map((rec, index) => {
-      const change = changes.find(c => c.recommendation === rec.title);
-      const hasChange = change ? '✅' : '➡️';
+      const change = changes.find(c => c.recommendation === rec.title || c.recommendation.includes(rec.title));
+      const hasChange = change ? '✅' : '⚠️';
       
       return `
-        <li class="recommendation-item">
+        <li class="recommendation-item ${change ? 'applied' : 'not-applied'}">
           <div class="rec-header">
             <span class="rec-status">${hasChange}</span>
             <span class="rec-cat">${escapeHtml(rec.category)}</span>
@@ -497,7 +459,18 @@ Return JSON:
           <div class="rec-desc">${escapeHtml(rec.description || '')}</div>
           ${change ? `
             <div class="rec-change">
-              <strong>Зміна:</strong> ${escapeHtml(change.change)}
+              <strong>📍 Локація:</strong> ${escapeHtml(change.section)}<br>
+              <strong>✏️ Дія:</strong> ${escapeHtml(change.change)}
+              ${change.preview ? `<br><strong>💬 Додано:</strong> "${escapeHtml(change.preview)}..."` : ''}
+            </div>
+          ` : `
+            <div class="rec-warning">
+              ⚠️ Зміну не було застосовано автоматично
+            </div>
+          `}
+          ${rec.instructorComment ? `
+            <div class="rec-instructor-comment">
+              <strong>💭 Коментар викладача:</strong> ${escapeHtml(rec.instructorComment)}
             </div>
           ` : ''}
           ${rec.suggestedText ? `
@@ -511,6 +484,22 @@ Return JSON:
 
     const now = new Date();
     const header = syllabus.course?.name || syllabus.title || 'Силабус';
+    const statsHtml = `
+      <div class="diff-stats">
+        <div class="stat-item stat-added">
+          <span class="stat-label">Додано</span>
+          <span class="stat-value">+${charCount.added}</span>
+        </div>
+        <div class="stat-item stat-removed">
+          <span class="stat-label">Видалено</span>
+          <span class="stat-value">-${charCount.removed}</span>
+        </div>
+        <div class="stat-item stat-total">
+          <span class="stat-label">Змін</span>
+          <span class="stat-value">${changes.length}</span>
+        </div>
+      </div>
+    `;
     
     return `<!doctype html>
 <html lang="uk">
@@ -563,6 +552,45 @@ Return JSON:
         font-weight: 600;
       }
       
+      .diff-stats {
+        display: flex;
+        gap: 24px;
+        margin: 32px 0;
+        padding: 24px;
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+      }
+      
+      .stat-item {
+        flex: 1;
+        text-align: center;
+        padding: 16px;
+        border-radius: 8px;
+      }
+      
+      .stat-item.stat-added { background: #c6f6d5; }
+      .stat-item.stat-removed { background: #fed7d7; }
+      .stat-item.stat-total { background: #bee3f8; }
+      
+      .stat-label {
+        display: block;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #2d3748;
+        margin-bottom: 8px;
+        font-weight: 600;
+      }
+      
+      .stat-value {
+        display: block;
+        font-size: 28px;
+        font-weight: 700;
+        color: #1a202c;
+      }
+      
       .legend { 
         margin: 32px 0; 
         padding: 24px; 
@@ -613,6 +641,14 @@ Return JSON:
         transition: box-shadow 0.2s;
       }
       
+      .recommendation-item.applied {
+        border-left: 4px solid #48bb78;
+      }
+      
+      .recommendation-item.not-applied {
+        border-left: 4px solid #ed8936;
+      }
+      
       .recommendation-item:hover {
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
       }
@@ -656,16 +692,46 @@ Return JSON:
       
       .rec-change {
         margin-top: 12px;
-        padding: 12px 16px;
-        background: #edf2f7;
-        border-left: 4px solid #4299e1;
+        padding: 16px;
+        background: #e6fffa;
+        border-left: 4px solid #38b2ac;
         border-radius: 6px;
         font-size: 14px;
-        color: #2d3748;
+        color: #234e52;
+        line-height: 1.6;
       }
       
       .rec-change strong {
         color: #1a202c;
+        font-weight: 600;
+        display: inline-block;
+        margin-right: 4px;
+      }
+      
+      .rec-warning {
+        margin-top: 12px;
+        padding: 16px;
+        background: #fffbeb;
+        border-left: 4px solid #f59e0b;
+        border-radius: 6px;
+        font-size: 14px;
+        color: #78350f;
+        font-weight: 500;
+      }
+      
+      .rec-instructor-comment {
+        margin-top: 12px;
+        padding: 16px;
+        background: #f0f4ff;
+        border-left: 4px solid #6366f1;
+        border-radius: 6px;
+        font-size: 14px;
+        color: #312e81;
+        line-height: 1.6;
+      }
+      
+      .rec-instructor-comment strong {
+        color: #1e1b4b;
         font-weight: 600;
       }
       
@@ -739,6 +805,18 @@ Return JSON:
         color: #2d3748;
       }
       
+      .diff-ellipsis {
+        display: inline-block;
+        margin: 0 8px;
+        padding: 4px 12px;
+        background: #edf2f7;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #718096;
+        font-style: italic;
+        cursor: help;
+      }
+      
       .footer-note {
         margin-top: 48px;
         padding: 24px;
@@ -746,7 +824,7 @@ Return JSON:
         border-radius: 12px;
         font-size: 14px;
         color: #4a5568;
-        line-height: 1.6;
+        line-height: 1.8;
       }
       
       .footer-note strong {
@@ -757,6 +835,7 @@ Return JSON:
       @media print {
         body { padding: 24px; background: white; }
         .recommendation-item { page-break-inside: avoid; }
+        .diff-ellipsis { display: none; }
       }
     </style>
   </head>
@@ -774,6 +853,8 @@ Return JSON:
         </div>
       </div>
     </div>
+    
+    ${statsHtml}
     
     <div class="legend">
       <span class="legend-item add">Додано</span>
@@ -794,7 +875,7 @@ Return JSON:
       • <span style="background:#c6f6d5;padding:2px 6px;border-radius:3px;">Зелений фон</span> — текст, який було додано згідно з рекомендаціями<br>
       • <span style="background:#fed7d7;padding:2px 6px;border-radius:3px;text-decoration:line-through;">Червоний закреслений</span> — текст, який було видалено<br>
       • Звичайний текст — залишився без змін<br>
-      • Кожна рекомендація показує конкретну зміну, яку вона внесла в документ
+      • <span style="background:#edf2f7;padding:4px 8px;border-radius:4px;font-style:italic;">Сірі блоки</span> — великі фрагменти без змін (згорнуто для зручності)<br><br>
     </div>
   </body>
 </html>`;
