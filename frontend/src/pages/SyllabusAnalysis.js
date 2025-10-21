@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import { Box, Typography, CircularProgress, Alert, Container, Paper, Grid, Stack } from '@mui/material';
 import api from '../services/api';
 import RecommendationsPanel from '../components/Syllabus/RecommendationsPanel';
+import InstructorReport from '../components/Syllabus/InstructorReport';
+import AIChallenger from '../components/Syllabus/AIChallenger';
 
 const SyllabusAnalysis = () => {
   const { id } = useParams();
@@ -128,18 +130,37 @@ const SyllabusAnalysis = () => {
 
       {/* Показуємо рекомендації тільки після завершення аналізу */}
       {syllabus.status === 'analyzed' && (
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={8}>
-            <Paper sx={{ p: 2 }}>
-              <RecommendationsPanel
-                syllabusId={syllabus._id}
-                syllabus={syllabus}
-                recommendations={syllabus.recommendations || []}
-                onChanged={() => fetchSyllabus(true)}
-              />
-            </Paper>
+        <>
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={8}>
+              <Paper sx={{ p: 2 }}>
+                <RecommendationsPanel
+                  syllabusId={syllabus._id}
+                  syllabus={syllabus}
+                  recommendations={syllabus.recommendations || []}
+                  onChanged={() => fetchSyllabus(true)}
+                />
+              </Paper>
+            </Grid>
+            
+            {/* AI Challenger Section */}
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 2 }}>
+                <AIChallenger 
+                  syllabus={syllabus}
+                  onChallengeUpdate={() => fetchSyllabus(true)}
+                  onNewRecommendations={(newRecs) => {
+                    // Refresh syllabus to get new recommendations
+                    fetchSyllabus(true);
+                  }}
+                />
+              </Paper>
+            </Grid>
           </Grid>
-        </Grid>
+          
+          {/* Instructor Report Section */}
+          <InstructorReport syllabus={syllabus} />
+        </>
       )}
       
       {/* Показуємо placeholder під час обробки */}

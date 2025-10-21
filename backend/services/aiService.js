@@ -323,7 +323,7 @@ Return JSON with this exact structure:
 
 ORIGINAL SYLLABUS TEXT:
 ${originalText}
-___END OF TEXT___
+___END OF TEXT, DON'T USE THIS LINE IN NEW TEXT___
 RECOMMENDATIONS TO APPLY (${recommendations.length} total):
 ${recommendations.map((rec, idx) => `
 ${idx + 1}. [${rec.category}] ${rec.title}
@@ -962,6 +962,203 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
       return aiResponse;
     } catch (error) {
       console.error('Comment response error:', error);
+      throw error;
+    }
+  }
+
+  // AI Challenger methods
+  async startPracticalChallenge(syllabusId) {
+    try {
+      console.log('\n=== AI CHALLENGER: START ===');
+      console.log('📄 Syllabus ID:', syllabusId);
+      
+      const syllabus = await Syllabus.findById(syllabusId).select('extractedText analysis');
+      if (!syllabus) throw new Error('Syllabus not found');
+
+      console.log('📊 Analysis available:', !!syllabus.analysis);
+      console.log('📄 Syllabus text length:', syllabus.extractedText?.length || 0, 'characters');
+
+      const prompt = `
+        Based on the following syllabus text and analysis, generate a single, thought-provoking, open-ended question for the instructor.
+        This question should challenge the instructor to think about the practical application of a key topic in their course, considering the student profile (IT, Finance, Military, Management).
+        The question should be in English.
+
+        Syllabus Analysis:
+        ${JSON.stringify(syllabus.analysis, null, 2)}
+
+        Syllabus Text:
+        ${syllabus.extractedText.substring(0, 4000)}
+
+        Generate only the question, without any introductory text.
+      `;
+
+      console.log('📝 Prompt length:', prompt.length, 'characters');
+
+      const startTime = Date.now();
+      const response = await this.openai.chat.completions.create({
+        model: this.llmModel,
+        messages: [
+          { role: 'system', content: 'You are an expert academic advisor for an MBA program. Your task is to challenge instructors to improve the practical relevance of their courses.' },
+          { role: 'user', content: prompt }
+        ]
+      });
+      const endTime = Date.now();
+
+      console.log('⏱️ Question generation time:', endTime - startTime, 'ms');
+
+      const initialQuestion = (response.choices[0]?.message?.content || '').trim();
+      console.log('❓ Generated question length:', initialQuestion.length, 'characters');
+
+      await Syllabus.findByIdAndUpdate(syllabusId, {
+        'practicalChallenge.initialQuestion': initialQuestion,
+        'practicalChallenge.status': 'pending',
+        'practicalChallenge.discussion': []
+      });
+
+      console.log('💾 Question saved to database');
+      console.log('=== AI CHALLENGER START COMPLETED ===\n');
+
+      return initialQuestion;
+    } catch (error) {
+      console.error('❌ AI Challenger start error:', error.message);
+      console.log('=== AI CHALLENGER START FAILED ===\n');
+      throw error;
+    }
+  }
+
+  async respondToChallenge(syllabusId, instructorResponse) {
+    try {
+      console.log('\n=== AI CHALLENGER: RESPOND ===');
+      console.log('📄 Syllabus ID:', syllabusId);
+      console.log('👨‍🏫 Instructor response length:', instructorResponse?.length || 0, 'characters');
+      
+      const syllabus = await Syllabus.findById(syllabusId);
+      if (!syllabus) throw new Error('Syllabus not found');
+
+      const discussion = Array.isArray(syllabus.practicalChallenge?.discussion)
+        ? syllabus.practicalChallenge.discussion
+        : [];
+
+      console.log('💬 Previous exchanges:', discussion.length);
+
+      const discussionHistory = discussion.map(d => 
+        `Instructor: ${d.instructorResponse}\nAI: ${d.aiResponse}`
+      ).join('\n\n');
+
+      const prompt = `
+        You are an expert academic advisor for an MBA program. An instructor is responding to your challenge question.
+        Your goal is to provide constructive, actionable suggestions based on their response.
+
+        Context:
+        - Student Profile: The class is composed of students from IT, Finance, Military, and Management backgrounds.
+        - Initial Question: ${syllabus.practicalChallenge.initialQuestion}
+        - Discussion History:
+        ${discussionHistory}
+        - Instructor's Latest Response: "${instructorResponse}"
+
+        Task:
+        Generate a helpful response in English that includes:
+        1. Acknowledgment of the instructor's idea.
+        2. 2-3 concrete suggestions for practical exercises, case studies (especially with Ukrainian examples), or interactive methods.
+        3. A follow-up question to encourage deeper thinking.
+
+        Keep the response concise and professional.
+      `;
+
+      console.log('📝 Prompt length:', prompt.length, 'characters');
+
+      const startTime = Date.now();
+      const response = await this.openai.chat.completions.create({
+        model: this.llmModel,
+        messages: [
+          { role: 'system', content: 'You are an expert academic advisor for an MBA program. Your task is to provide helpful, actionable feedback to instructors.' },
+          { role: 'user', content: prompt }
+        ]
+      });
+      const endTime = Date.now();
+
+      console.log('⏱️ AI response time:', endTime - startTime, 'ms');
+
+      const aiResponse = (response.choices[0]?.message?.content || '').trim();
+      console.log('📥 AI response length:', aiResponse.length, 'characters');
+
+      // Add to discussion history
+      if (!Array.isArray(syllabus.practicalChallenge.discussion)) {
+        syllabus.practicalChallenge.discussion = [];
+      }
+      syllabus.practicalChallenge.discussion.push({
+        instructorResponse,
+        aiResponse,
+        respondedAt: new Date()
+      });
+
+      // Generate Practicality recommendations after 2-3 exchanges
+      let newRecommendations = [];
+      if (discussion.length >= 1) { // After 2nd or 3rd response
+        console.log('\n--- GENERATING PRACTICALITY RECOMMENDATIONS ---');
+        try {
+          const recPrompt = `Based on the following AI-Instructor discussion about practical teaching methods, extract 1-3 actionable recommendations for improving the syllabus in JSON format:
+{"recommendations":[{"category":"practicality","priority":"medium","title":"Short title","description":"Concise description <=160 chars","suggestedText":"Optional concrete text to add"}]}
+
+Discussion:
+${discussionHistory}
+Latest exchange:
+Instructor: ${instructorResponse}
+AI: ${aiResponse}
+
+Return only valid JSON.`;
+
+          const recResp = await this.openai.chat.completions.create({
+            model: this.llmModel,
+            messages: [
+              { role: 'system', content: 'You are an assistant that extracts actionable recommendations from discussions.' },
+              { role: 'user', content: recPrompt }
+            ],
+            response_format: { type: 'json_object' }
+          });
+          
+          const rawRec = (recResp.choices[0]?.message?.content || '').trim();
+          console.log('📥 Raw recommendation extraction:', rawRec.substring(0, 200));
+          
+          const parsed = JSON.parse(rawRec);
+          if (parsed.recommendations && Array.isArray(parsed.recommendations)) {
+            newRecommendations = parsed.recommendations.map(rec => ({
+              category: 'practicality',
+              priority: rec.priority || 'medium',
+              title: rec.title || 'Practical improvement',
+              description: rec.description || '',
+              suggestedText: rec.suggestedText || '',
+              status: 'pending',
+              source: 'ai-challenger'
+            }));
+            
+            // Add to syllabus recommendations
+            if (!Array.isArray(syllabus.recommendations)) {
+              syllabus.recommendations = [];
+            }
+            syllabus.recommendations.push(...newRecommendations);
+            
+            console.log('✅ Generated', newRecommendations.length, 'practicality recommendations');
+          }
+        } catch (recError) {
+          console.error('⚠️ Recommendation extraction error:', recError.message);
+        }
+      }
+
+      await syllabus.save();
+      
+      console.log('💾 Discussion saved to database');
+      console.log('💬 Total exchanges:', syllabus.practicalChallenge.discussion.length);
+      console.log('=== AI CHALLENGER RESPOND COMPLETED ===\n');
+
+      return {
+        aiResponse,
+        newRecommendations,
+        updatedChallenge: syllabus.practicalChallenge
+      };
+    } catch (error) {
+      console.error('❌ AI Challenger respond error:', error.message);
+      console.log('=== AI CHALLENGER RESPOND FAILED ===\n');
       throw error;
     }
   }

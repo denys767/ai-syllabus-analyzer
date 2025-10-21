@@ -25,11 +25,11 @@ const ManagerReports = () => {
   const loadReports = async () => {
     try {
       setLoading(true);
-      // Завантажуємо всі проаналізовані силабуси через catalog endpoint
+      // Load all analyzed syllabi through catalog endpoint
       const response = await api.syllabus.getAll();
       const catalogItems = response.data.items || [];
       
-      // Для кожного силабусу завантажуємо повні дані
+      // Load full data for each syllabus
       const detailedSyllabi = await Promise.all(
         catalogItems.map(async (item) => {
           try {
@@ -43,10 +43,10 @@ const ManagerReports = () => {
         })
       );
       
-      // Фільтруємо null значення
+      // Filter null values
       setSyllabi(detailedSyllabi.filter(Boolean));
     } catch (err) {
-      setError('Не вдалося завантажити звіти');
+      setError('Failed to load reports');
       console.error('Load reports error:', err);
     } finally {
       setLoading(false);
@@ -61,7 +61,7 @@ const ManagerReports = () => {
     try {
       await api.syllabus.downloadEditedPdf(syllabusId);
     } catch (err) {
-      console.error('Помилка завантаження PDF:', err);
+      console.error('PDF download error:', err);
     }
   };
 
@@ -80,20 +80,20 @@ const ManagerReports = () => {
   if (syllabi.length === 0) {
     return (
       <Box sx={{ p: 3 }}>
-        <Typography variant="h5" gutterBottom>Звіти силабусів</Typography>
-        <Alert severity="info">Немає проаналізованих силабусів для відображення</Alert>
+        <Typography variant="h5" gutterBottom>Syllabus Reports</Typography>
+        <Alert severity="info">No analyzed syllabi to display</Alert>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
-        Звіти силабусів
+    <Box sx={{ p: { xs: 2, sm: 3 } }}>
+      <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 4 }, fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
+        Syllabus Reports
       </Typography>
 
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Аналітичні звіти по кожному силабусу після завершення процесу онбордингу
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3, fontSize: { xs: '0.875rem', sm: '0.875rem' } }}>
+        Analytical reports for each syllabus after completing the onboarding process
       </Typography>
 
       {syllabi.map((syllabus) => {
@@ -120,21 +120,21 @@ const ManagerReports = () => {
             sx={{ mb: 2 }}
           >
             <AccordionSummary expandIcon={<ExpandMore />}>
-              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: { xs: 1, sm: 2 }, flexWrap: 'wrap' }}>
                 <Description color="primary" />
-                <Box sx={{ flexGrow: 1 }}>
-                  <Typography variant="h6">
-                    {syllabus.title || syllabus.course?.name || 'Без назви'}
+                <Box sx={{ flexGrow: 1, minWidth: { xs: '150px', sm: 'auto' } }}>
+                  <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                    {syllabus.title || syllabus.course?.name || 'Untitled'}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    <Person sx={{ fontSize: 14, verticalAlign: 'middle', mr: 0.5 }} />
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                    <Person sx={{ fontSize: { xs: 12, sm: 14 }, verticalAlign: 'middle', mr: 0.5 }} />
                     {syllabus.instructor?.firstName} {syllabus.instructor?.lastName}
-                    <CalendarToday sx={{ fontSize: 14, verticalAlign: 'middle', ml: 2, mr: 0.5 }} />
-                    {new Date(syllabus.createdAt).toLocaleDateString('uk-UA')}
+                    <CalendarToday sx={{ fontSize: { xs: 12, sm: 14 }, verticalAlign: 'middle', ml: { xs: 1, sm: 2 }, mr: 0.5 }} />
+                    {new Date(syllabus.createdAt).toLocaleDateString('en-US')}
                   </Typography>
                 </Box>
                 <Chip 
-                  label={`${accepted.length} прийнято`} 
+                  label={`${accepted.length} accepted`} 
                   color="success" 
                   size="small" 
                 />
@@ -142,53 +142,53 @@ const ManagerReports = () => {
             </AccordionSummary>
 
             <AccordionDetails>
-              <Grid container spacing={3}>
-                {/* 1. Загальне самарі змін */}
+              <Grid container spacing={{ xs: 2, sm: 3 }}>
+                {/* 1. Overall Changes Summary */}
                 <Grid item xs={12}>
                   <Card variant="outlined">
                     <CardContent>
-                      <Typography variant="h6" gutterBottom>
-                        📊 Загальне самарі змін
+                      <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                        📊 Overall Changes Summary
                       </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        Зміни, які були зроблені при редагуванні силабусу по прийнятим рекомендаціям
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                        Changes made during syllabus editing based on accepted recommendations
                       </Typography>
                       
                       <Grid container spacing={2}>
                         <Grid item xs={6} sm={3}>
                           <Box sx={{ textAlign: 'center' }}>
-                            <CheckCircle color="success" sx={{ fontSize: 32 }} />
-                            <Typography variant="h5" color="success.main">
+                            <CheckCircle color="success" sx={{ fontSize: { xs: 24, sm: 32 } }} />
+                            <Typography variant="h5" color="success.main" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
                               {accepted.length}
                             </Typography>
-                            <Typography variant="body2">Прийнято</Typography>
+                            <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>Accepted</Typography>
                           </Box>
                         </Grid>
                         <Grid item xs={6} sm={3}>
                           <Box sx={{ textAlign: 'center' }}>
-                            <Cancel color="error" sx={{ fontSize: 32 }} />
-                            <Typography variant="h5" color="error.main">
+                            <Cancel color="error" sx={{ fontSize: { xs: 24, sm: 32 } }} />
+                            <Typography variant="h5" color="error.main" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
                               {rejected.length}
                             </Typography>
-                            <Typography variant="body2">Відхилено</Typography>
+                            <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>Rejected</Typography>
                           </Box>
                         </Grid>
                         <Grid item xs={6} sm={3}>
                           <Box sx={{ textAlign: 'center' }}>
-                            <Pending color="warning" sx={{ fontSize: 32 }} />
-                            <Typography variant="h5" color="warning.main">
+                            <Pending color="warning" sx={{ fontSize: { xs: 24, sm: 32 } }} />
+                            <Typography variant="h5" color="warning.main" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
                               {pending.length}
                             </Typography>
-                            <Typography variant="body2">Очікує</Typography>
+                            <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>Pending</Typography>
                           </Box>
                         </Grid>
                         <Grid item xs={6} sm={3}>
                           <Box sx={{ textAlign: 'center' }}>
-                            <Comment color="info" sx={{ fontSize: 32 }} />
-                            <Typography variant="h5" color="info.main">
+                            <Comment color="info" sx={{ fontSize: { xs: 24, sm: 32 } }} />
+                            <Typography variant="h5" color="info.main" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
                               {commented.length}
                             </Typography>
-                            <Typography variant="body2">Прокоментовано</Typography>
+                            <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>Commented</Typography>
                           </Box>
                         </Grid>
                       </Grid>
@@ -199,8 +199,11 @@ const ManagerReports = () => {
                             variant="contained"
                             startIcon={<Download />}
                             onClick={() => downloadPdf(syllabus._id)}
+                            fullWidth={false}
+                            size="medium"
+                            sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}
                           >
-                            Завантажити PDF з внесеними змінами
+                            Download PDF with Changes
                           </Button>
                         </Box>
                       )}
@@ -213,7 +216,7 @@ const ManagerReports = () => {
                   <Card variant="outlined">
                     <CardContent>
                       <Typography variant="h6" gutterBottom>
-                        🎯 Відповідність outcomes MBA
+                        🎯 MBA Outcomes Alignment
                       </Typography>
                       
                       <Box sx={{ mb: 2 }}>
@@ -221,12 +224,12 @@ const ManagerReports = () => {
                           {coverageScore}%
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          покриття навчальних цілей
+                          learning objectives coverage
                         </Typography>
                       </Box>
 
                       <Typography variant="subtitle2" gutterBottom>
-                        Покриті цілі ({coveredObjectives.length}):
+                        Covered Objectives ({coveredObjectives.length}):
                       </Typography>
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
                         {coveredObjectives.slice(0, 5).map((objective, index) => (
@@ -243,7 +246,7 @@ const ManagerReports = () => {
                       </Box>
 
                       <Typography variant="subtitle2" gutterBottom>
-                        Прогалини ({gaps.length}):
+                        Gaps ({gaps.length}):
                       </Typography>
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                         {gaps.slice(0, 5).map((gap, index) => (
@@ -267,32 +270,32 @@ const ManagerReports = () => {
                   <Card variant="outlined">
                     <CardContent>
                       <Typography variant="h6" gutterBottom>
-                        💡 Практичність та інтерактивність
+                        💡 Practicality and Interactivity
                       </Typography>
 
                       <Box sx={{ mb: 2 }}>
                         <Typography variant="body1" gutterBottom>
-                          AI-челенджер: {challengeCompleted ? 
-                            <Chip label="Завершено" color="success" size="small" /> : 
-                            <Chip label="Не завершено" color="default" size="small" />
+                          AI Challenger: {challengeCompleted ? 
+                            <Chip label="Completed" color="success" size="small" /> : 
+                            <Chip label="Not Completed" color="default" size="small" />
                           }
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          Кількість AI пропозицій: {aiSuggestions.length}
+                          Number of AI suggestions: {aiSuggestions.length}
                         </Typography>
                       </Box>
 
                       {aiSuggestions.length > 0 && (
                         <>
                           <Typography variant="subtitle2" gutterBottom>
-                            Топ пропозицій AI:
+                            Top AI Suggestions:
                           </Typography>
                           <List dense>
                             {aiSuggestions.slice(0, 3).map((suggestion, index) => (
                               <ListItem key={index} sx={{ px: 0 }}>
                                 <ListItemText
                                   primary={suggestion.suggestion?.substring(0, 80) + '...'}
-                                  secondary={suggestion.category || 'Без категорії'}
+                                  secondary={suggestion.category || 'No category'}
                                   primaryTypographyProps={{ variant: 'body2' }}
                                   secondaryTypographyProps={{ variant: 'caption' }}
                                 />
@@ -310,7 +313,7 @@ const ManagerReports = () => {
                   <Card variant="outlined">
                     <CardContent>
                       <Typography variant="h6" gutterBottom>
-                        📝 Пропозиції щодо покращень
+                        📝 Improvement Suggestions
                       </Typography>
                       
                       {accepted.length > 0 ? (
@@ -336,7 +339,7 @@ const ManagerReports = () => {
                               <ListItemText
                                 primary={
                                   <Typography variant="body2" color="text.secondary">
-                                    ... та ще {accepted.length - 5} рекомендацій
+                                    ... and {accepted.length - 5} more recommendations
                                   </Typography>
                                 }
                               />
@@ -345,7 +348,7 @@ const ManagerReports = () => {
                         </List>
                       ) : (
                         <Typography variant="body2" color="text.secondary">
-                          Немає прийнятих рекомендацій
+                          No accepted recommendations
                         </Typography>
                       )}
                     </CardContent>

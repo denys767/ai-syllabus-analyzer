@@ -48,34 +48,38 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
     };
 
     const groups = {
-      'Відповідність до шаблону': [],
-      'Відповідність до learning objectives': [],
-      'Збіг з попередніми силабусами': [],
-      'Інтеграція прикладів для кластеру студентів': [],
-      'Інше': []
+      'Template Compliance': [],
+      'Learning Objectives Alignment': [],
+      'Plagiarism Check': [],
+      'Student Clusters Integration': [],
+      'Practicality': [],
+      'Other': []
     };
     recommendations.forEach(r => {
-      // Нові категорії з backend v2.0.0
+      // New categories from backend v2.0.0
       if (r.category === 'template-compliance' || r.category === 'structure') {
-        groups['Відповідність до шаблону'].push(r);
+        groups['Template Compliance'].push(r);
       } 
       else if (r.category === 'learning-objectives' || r.category === 'objectives') {
-        groups['Відповідність до learning objectives'].push(r);
+        groups['Learning Objectives Alignment'].push(r);
       }
       else if (r.category === 'plagiarism') {
-        groups['Збіг з попередніми силабусами'].push(r);
+        groups['Plagiarism Check'].push(r);
       }
       else if (r.category === 'student-clusters' || r.category === 'cases') {
-        groups['Інтеграція прикладів для кластеру студентів'].push(r);
+        groups['Student Clusters Integration'].push(r);
+      }
+      else if (r.category === 'practicality') {
+        groups['Practicality'].push(r);
       }
       else if (r.category === 'content-quality' || r.category === 'content' || 
                r.category === 'methods' || r.category === 'assessment' || 
                r.category === 'policy' || r.category === 'other') {
-        groups['Інше'].push(r);
+        groups['Other'].push(r);
       }
       else {
-        // Fallback для невідомих категорій
-        groups['Інше'].push(r);
+        // Fallback for unknown categories
+        groups['Other'].push(r);
       }
     });
 
@@ -110,7 +114,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
         onChanged?.();
       }
     } catch (e) {
-      setError(e.response?.data?.message || 'Не вдалося оновити рекомендацію');
+      setError(e.response?.data?.message || 'Failed to update recommendation');
       setProcessingComments(prev => {
         const next = new Set(prev);
         next.delete(rec._id || rec.id);
@@ -121,10 +125,10 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
     }
   };
 
-  // Polling для отримання AI відповіді на коментар
+  // Polling to get AI response to comment
   const pollForAIResponse = (recId) => {
     let attempts = 0;
-    const maxAttempts = 20; // максимум 60 секунд (20 * 3 сек)
+    const maxAttempts = 20; // maximum 60 seconds (20 * 3 sec)
     
     const interval = setInterval(async () => {
       attempts++;
@@ -134,7 +138,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
         const updatedRec = response.data.recommendations?.find(r => (r._id || r.id) === recId);
         
         if (updatedRec?.aiResponse) {
-          // AI відповідь отримано!
+          // AI response received!
           setProcessingComments(prev => {
             const next = new Set(prev);
             next.delete(recId);
@@ -143,14 +147,14 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
           clearInterval(interval);
           onChanged?.();
         } else if (attempts >= maxAttempts) {
-          // Таймаут - припиняємо спроби
+          // Timeout - stop trying
           setProcessingComments(prev => {
             const next = new Set(prev);
             next.delete(recId);
             return next;
           });
           clearInterval(interval);
-          setError('AI відповідь затримується. Спробуйте оновити сторінку пізніше.');
+          setError('AI response is delayed. Try refreshing the page later.');
         }
       } catch (err) {
         console.error('Polling AI response error:', err);
@@ -187,22 +191,22 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
           setGenerating(false);
           
           // Показуємо повідомлення про успіх
-          setError(''); // Очищуємо попередні помилки
+          setError('');
           onChanged?.();
         }
         
         if (data.status === 'error') {
-          setError(data.error || 'LLM не зміг згенерувати зміни. Спробуйте ще раз.');
+          setError(data.error || 'LLM could not generate changes. Please try again.');
           setPolling(false);
           setGenerating(false);
         }
       } catch (err) {
         console.error('Polling editing status error:', err);
-        setError('Не вдалося оновити статус редагування. Перевірте з\'єднання.');
+        setError('Failed to update editing status. Check your connection.');
         setPolling(false);
         setGenerating(false);
       }
-    }, 3000); // Перевірка кожні 3 секунди
+    }, 3000); // Check every 3 seconds
     return () => clearInterval(interval);
   }, [polling, syllabus?._id, onChanged]);
 
@@ -215,7 +219,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       setPdfReady(false);
       setPolling(true);
     } catch (err) {
-      const msg = err.response?.data?.message || 'Не вдалося запустити генерацію PDF';
+      const msg = err.response?.data?.message || 'Failed to start PDF generation';
       setError(msg);
     } finally {
       setGenerating(false);
@@ -239,7 +243,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError('Не вдалося завантажити PDF зі змінами');
+      setError('Failed to download PDF with changes');
     } finally {
       setGenerating(false);
     }
@@ -250,10 +254,10 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       '& .rec-card': { width: '100%' }
     }}>
       <Typography variant="h6" gutterBottom>
-        Рекомендації AI
+        AI Recommendations
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Приймайте або відхиляйте пропозиції змін до силабусу. Після завершення буде згенеровано оновлений файл.
+        Accept or reject proposed syllabus changes. After completion, an updated file will be generated.
       </Typography>
       <Tabs value={tab} onChange={(e,v)=> setTab(v)} sx={{ mb:2 }} variant="scrollable" scrollButtons allowScrollButtonsMobile>
         {tabs.map(label => <Tab key={label} label={`${label} (${grouped[label].length})`} />)}
@@ -265,7 +269,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
           disabled={!allAccepted || editingStatus === 'processing'}
           onClick={() => setEditing(v => !v)}
         >
-          Редагувати силабус з AI
+          Edit Syllabus with AI
         </Button>
         {editing && (
           <Button
@@ -276,7 +280,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
             disabled={generating}
             startIcon={generating ? <CircularProgress size={14} /> : null}
           >
-            {generating ? 'Надсилаємо...' : 'Відправити на обробку' }
+            {generating ? 'Sending...' : 'Submit for Processing' }
           </Button>
         )}
         {!editing && pdfReady && (
@@ -288,13 +292,13 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
             disabled={generating}
             startIcon={generating ? <CircularProgress size={14} /> : null}
           >
-            {generating ? 'Готуємо файл...' : 'Завантажити PDF зі змінами'}
+            {generating ? 'Preparing file...' : 'Download PDF with Changes'}
           </Button>
         )}
         {editingStatus === 'processing' && (
           <Chip 
             color="info" 
-            label="LLM обробляє... (може зайняти до 2 хв)" 
+            label="LLM processing... (may take up to 2 min)" 
             size="small"
             icon={<CircularProgress size={14} />}
           />
@@ -302,20 +306,20 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
         {editingStatus === 'ready' && pdfReady && (
           <Chip 
             color="success" 
-            label="✓ PDF готовий!" 
+            label="✓ PDF ready!" 
             size="small"
           />
         )}
         {editingStatus === 'error' && (
           <Chip 
             color="error" 
-            label="Помилка обробки" 
+            label="Processing error" 
             size="small"
             variant="outlined"
           />
         )}
         {pdfMeta && pdfReady && (
-          <Chip color="default" size="small" label={`Оновлено: ${new Date(pdfMeta.generatedAt).toLocaleString('uk-UA')}`} />
+          <Chip color="default" size="small" label={`Updated: ${new Date(pdfMeta.generatedAt).toLocaleString('en-US')}`} />
         )}
       </Stack>
       {error && (
@@ -325,7 +329,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       )}
 
       {(!recommendations || recommendations.length === 0) && (
-        <Typography variant="body2" color="text.secondary">Рекомендацій поки немає.</Typography>
+        <Typography variant="body2" color="text.secondary">No recommendations yet.</Typography>
       )}
 
       <Stack spacing={2} sx={{
@@ -335,14 +339,36 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
         }
       }}>
         {(grouped[tabs[tab]]||[]).map((rec, idx) => (
-          <Paper key={rec._id || rec.id || idx} className="rec-card" sx={{ p: 2 }} variant="outlined">
-            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Chip label={rec.category || 'content'} size="small" />
+          <Paper 
+            key={rec._id || rec.id || idx} 
+            className="rec-card" 
+            sx={{ 
+              p: 2,
+              border: '1px solid',
+              borderColor: rec.priority === 'critical' ? 'error.main' : 
+                           rec.priority === 'high' ? 'warning.main' : 
+                           rec.priority === 'medium' ? 'info.main' : 'divider',
+              borderLeft: '4px solid',
+              borderLeftColor: rec.priority === 'critical' ? 'error.main' : 
+                               rec.priority === 'high' ? 'warning.main' : 
+                               rec.priority === 'medium' ? 'info.main' : 'primary.main'
+            }} 
+            variant="outlined"
+          >
+            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap">
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                <Chip 
+                  label={rec.category || 'content'} 
+                  size="small"
+                  color={rec.category === 'practicality' ? 'secondary' : 'default'}
+                  variant={rec.category === 'practicality' ? 'filled' : 'outlined'}
+                />
                 <PriorityChip priority={rec.priority} />
                 <StatusChip status={rec.status} />
               </Stack>
-              <Typography variant="subtitle1">{rec.title || 'Рекомендація'}</Typography>
+              <Typography variant="subtitle1" sx={{ flexGrow: 1, textAlign: { xs: 'left', sm: 'right' } }}>
+                {rec.title || 'Recommendation'}
+              </Typography>
             </Stack>
             {rec.description && (
               <Typography variant="body2" sx={{ mt: 1 }}>{rec.description}</Typography>
@@ -361,23 +387,23 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
 
             {rec.instructorComment && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                Ваш коментар: {rec.instructorComment}
+                Your comment: {rec.instructorComment}
               </Typography>
             )}
             
-            {/* Індикатор очікування AI відповіді */}
+            {/* AI response waiting indicator */}
             {processingComments.has(rec._id || rec.id) && !rec.aiResponse && (
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
                 <CircularProgress size={16} />
                 <Typography variant="caption" color="info.main">
-                  AI готує відповідь на ваш коментар...
+                  AI is preparing a response to your comment...
                 </Typography>
               </Stack>
             )}
             
             {rec.aiResponse && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                Відповідь AI: {rec.aiResponse}
+                AI Response: {rec.aiResponse}
               </Typography>
             )}
 
@@ -388,7 +414,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
                 <TextField
                   fullWidth
                   size="small"
-                  label="Коментар"
+                  label="Comment"
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
                 />
@@ -398,10 +424,10 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
                   disabled={workingId === (rec._id || rec.id) || !commentText.trim()}
                   onClick={() => update(rec, { status: 'commented', comment: commentText.trim() })}
                 >
-                  Зберегти коментар
+                  Save Comment
                 </Button>
                 <Button variant="text" onClick={() => { setCommentingId(null); setCommentText(''); }}>
-                  Скасувати
+                  Cancel
                 </Button>
               </Stack>
             ) : (
@@ -412,7 +438,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
                   disabled={workingId === (rec._id || rec.id) || rec.status === 'accepted'}
                   onClick={() => update(rec, { status: 'accepted' })}
                 >
-                  Прийняти
+                  Accept
                 </Button>
                 <Button
                   variant="outlined"
@@ -420,7 +446,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
                   disabled={workingId === (rec._id || rec.id) || rec.status === 'rejected'}
                   onClick={() => update(rec, { status: 'rejected' })}
                 >
-                  Відхилити
+                  Reject
                 </Button>
                 <Button
                   variant="text"
@@ -428,7 +454,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
                   disabled={workingId === (rec._id || rec.id)}
                   onClick={() => { setCommentingId(rec._id || rec.id); setCommentText(rec.instructorComment || ''); }}
                 >
-                  Прокоментувати
+                  Comment
                 </Button>
               </Stack>
             )}

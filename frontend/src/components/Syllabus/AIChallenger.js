@@ -29,11 +29,11 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
         onNewRecommendations(res.data.newRecommendations);
       }
       if (discussionCount + 1 >= maxRounds) {
-        try { await api.post(`/syllabus/${syllabus._id}/challenge/finalize`); } catch(e){ /* non-critical */ }
+        try { await api.post(`/ai/challenge/finalize`, { syllabusId: syllabus._id }); } catch(e){ /* non-critical */ }
       }
       if (onChallengeUpdate) onChallengeUpdate();
     } catch (err) {
-      setError(err.response?.data?.message || 'Помилка запиту');
+      setError(err.response?.data?.message || 'Request error');
       console.error(err);
     } finally { setLoading(false); }
   };
@@ -43,8 +43,8 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
   if (!challenge || !challenge.initialQuestion) {
     return (
       <Box mt={4}>
-        <Typography variant="h6" gutterBottom>AI Челенджер</Typography>
-        <Typography color="text.secondary">AI-челенджер для цього силабусу ще не запущено.</Typography>
+        <Typography variant="h6" gutterBottom>AI Challenger</Typography>
+        <Typography color="text.secondary">The AI challenger for this syllabus has not been started yet.</Typography>
       </Box>
     );
   }
@@ -52,9 +52,9 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
   return (
     <Box mt={2}>
       <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-  <Psychology sx={{ mr: 1, color: 'primary.main' }} /> AI Челенджер ({Math.min(discussionCount, maxRounds)}/{maxRounds})
+        <Psychology sx={{ mr: 1, color: 'primary.main' }} /> AI Challenger ({Math.min(discussionCount, maxRounds)}/{maxRounds})
       </Typography>
-  <Paper elevation={2} sx={{ p: 2, maxHeight: '400px', overflowY: 'auto' }}>
+      <Paper elevation={2} sx={{ p: 2, maxHeight: '400px', overflowY: 'auto' }}>
         {/* Initial Question */}
         <Grid container wrap="nowrap" spacing={2} sx={{ mb: 2 }}>
           <Grid item>
@@ -65,7 +65,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
               <Typography variant="body2">{challenge.initialQuestion}</Typography>
             </Paper>
           </Grid>
-  </Grid>
+        </Grid>
 
         {/* Discussion History */}
         {challenge.discussion && challenge.discussion.map((entry, index) => (
@@ -103,7 +103,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
           multiline
           rows={3}
           variant="outlined"
-          placeholder="Ваша відповідь..."
+          placeholder="Your response..."
           value={response}
           onChange={(e) => setResponse(e.target.value)}
           disabled={loading || isCompleted}
@@ -115,11 +115,11 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
           sx={{ mt: 1 }}
           disabled={loading || !response.trim() || isCompleted}
         >
-          {loading ? <CircularProgress size={24} /> : isCompleted ? 'Завершено' : 'Надіслати відповідь'}
+          {loading ? <CircularProgress size={24} /> : isCompleted ? 'Completed' : 'Send Response'}
         </Button>
         {isCompleted && (
           <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
-            Дискусію завершено. Нові ідеї додано до списку.
+            Discussion completed. New ideas added to the list.
           </Typography>
         )}
       </Box>
