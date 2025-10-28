@@ -65,29 +65,15 @@ class AIService {
         plagiarismRecommendations = await this.generateAntiPlagiarismRecommendations(syllabus, plagiarismCheck);
       }
 
-      // Convert recommendations arrays to strings for schema compatibility
-      const convertRecommendationsToStrings = (recs) => {
-        if (!Array.isArray(recs)) return [];
-        return recs.map(rec => {
-          if (typeof rec === 'string') return rec;
-          // If it's an object, convert to string description
-          return rec.description || rec.title || JSON.stringify(rec);
-        });
-      };
-
-      const loAlignment = analysis.learningObjectivesAlignment || {};
-      const tcCompliance = analysis.templateCompliance || {};
-
       await Syllabus.findByIdAndUpdate(syllabusId, {
-        structure: analysis.structure,
+        structure: analysis.structure || {},
         analysis: {
           templateCompliance: {
-            ...tcCompliance,
-            recommendations: convertRecommendationsToStrings(tcCompliance.recommendations)
+            missingElements: analysis.templateCompliance?.missingElements || []
           },
           learningObjectivesAlignment: {
-            ...loAlignment,
-            recommendations: convertRecommendationsToStrings(loAlignment.recommendations)
+            alignedObjectives: analysis.learningObjectivesAlignment?.alignedObjectives || [],
+            missingObjectives: analysis.learningObjectivesAlignment?.missingObjectives || []
           },
           plagiarismCheck: plagiarismCheck
         },
@@ -119,41 +105,32 @@ ${syllabusText}
 **TASK:**
 Analyze the syllabus and provide recommendations in the following categories:
 1. **template-compliance** - Missing sections, formatting issues compared to template
-2. **learning-objectives** - Which LOs are covered/missing, how to improve alignment. Use format "LO1 (brief summary)" when referring to objectives.
+2. **learning-objectives** - Which LOs are covered/missing, how to improve alignment. Specify which LO is covered by this recommendation
 3. **content-quality** - Content depth, relevance, clarity improvements
 4. **assessment** - Grading structure, assessment methods improvements
 5. **other** - Any other improvements
 
-**IMPORTANT:** When referring to Learning Objectives in recommendations:
-- Use this format: "LO1 (adaptive leadership)", "LO3 (AI-driven tools)", etc.
-- Include a brief summary of each LO after its number
-- This helps instructors quickly understand which objective is being referenced
-
 Return JSON with this exact structure:
 {
   "structure": {
-    "hasSummary": boolean,
+    "hasObjectives": boolean,
+    "hasAssessment": boolean,
     "hasSchedule": boolean,
-    "hasGrading": boolean,
-    "hasMaterials": boolean,
-    "hasPolicies": boolean
+    "hasResources": boolean,
+    "missingParts": string[]
   },
   "templateCompliance": {
-    "score": number (0-100),
-    "missingSections": string[],
-    "suggestions": string[]
+    "missingElements": string[]
   },
   "learningObjectivesAlignment": {
-    "alignedObjectives": string[], // Use format "LO1 (brief summary)"
-    "missingObjectives": string[], // Use format "LO1 (brief summary)"
-    "alignmentScore": number (0-100),
-    "recommendations": string[]
+    "alignedObjectives": string[],
+    "missingObjectives": string[]
   },
   "recommendations": [
     {
       "category": "template-compliance" | "learning-objectives" | "content-quality" | "assessment" | "other",
       "title": "Short title",
-      "description": "Detailed recommendation. Reference LOs as 'LO1 (adaptive leadership)' format.",
+      "description": "Detailed recommendation.",
       "priority": "critical" | "high" | "medium" | "low",
       "suggestedText": "Concrete text to add (optional)"
     }
@@ -163,7 +140,7 @@ Return JSON with this exact structure:
     const response = await this.openai.responses.create({
       model: this.llmModel,
       input: [
-        { role: 'system', content: 'You are an expert MBA syllabus analyzer for KSE Business School. Always return valid JSON. When referencing Learning Objectives, use format "LO1 (brief summary)" for clarity.' },
+        { role: 'system', content: 'You are an expert MBA syllabus analyzer for KSE Business School. Always return valid JSON.' },
         { role: 'user', content: prompt }
       ],
       text: { format: { type: 'json_object' } }
@@ -341,7 +318,6 @@ INSTRUCTIONS:
    - If editing existing text: REPLACE the old text with improved text
    - If adding new content: INSERT it in the appropriate location (NOT just at the end)
    - If adding new sections: Place them where they logically belong in the structure
-4. When referencing Learning Objectives, expand "LO1", "LO2" etc. to their full text
 5. Maintain the original structure and formatting style
 6. Make changes contextually appropriate
 
@@ -352,7 +328,7 @@ Return JSON with this structure:
     {
       "recommendation": "recommendation title",
       "location": "where in document (e.g., 'Learning Outcomes section, line 15')",
-      "action": "what was done (e.g., 'Added LO1 alignment', 'Replaced generic text with specific example')",
+      "action": "what was done (e.g., 'Replaced generic text with specific example')",
       "textAdded": "brief snippet of what was added/changed (max 100 chars)"
     }
   ]
@@ -841,7 +817,7 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
   </head>
   <body>
     <div class="header">
-      <h1>📄 Редагування силабусу: ${escapeHtml(header)}</h1>
+      <h1>Syllabus redacting: ${escapeHtml(header)}</h1>
       <div class="meta">
         <div class="meta-item">
           <span>📅</span>
@@ -849,7 +825,7 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
         </div>
         <div class="meta-item">
           <span>📊</span>
-          <span>Застосовано змін: ${changes.length} з ${accepted.length}</span>
+          <span>Implemented changes: ${changes.length} з ${accepted.length}</span>
         </div>
       </div>
     </div>
@@ -862,21 +838,13 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
       <span class="legend-item same">Без змін</span>
     </div>
     
-    <h2>✅ Прийняті рекомендації та їх реалізація</h2>
+    <h2>Accepted recommendations and their realisation:</h2>
     <ul class="recommendations">
       ${recommendationsHtml || '<li class="recommendation-item"><div class="rec-desc">Прийнятих рекомендацій не знайдено</div></li>'}
     </ul>
     
-    <h2>📝 Текст силабусу з внесеними змінами</h2>
+    <h2>Text with changes: </h2>
     <div class="diff-wrapper">${diffHtml}</div>
-    
-    <div class="footer-note">
-      <strong>💡 Як читати цей документ:</strong><br>
-      • <span style="background:#c6f6d5;padding:2px 6px;border-radius:3px;">Зелений фон</span> — текст, який було додано згідно з рекомендаціями<br>
-      • <span style="background:#fed7d7;padding:2px 6px;border-radius:3px;text-decoration:line-through;">Червоний закреслений</span> — текст, який було видалено<br>
-      • Звичайний текст — залишився без змін<br>
-      • <span style="background:#edf2f7;padding:4px 8px;border-radius:4px;font-style:italic;">Сірі блоки</span> — великі фрагменти без змін (згорнуто для зручності)<br><br>
-    </div>
   </body>
 </html>`;
   }
