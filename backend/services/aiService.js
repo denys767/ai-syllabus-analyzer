@@ -82,6 +82,15 @@ class AIService {
         status: 'analyzed'
       });
 
+      // Auto-start AI Challenger after analysis
+      try {
+        console.log('🚀 Auto-starting AI Challenger...');
+        await this.startPracticalChallenge(syllabusId);
+      } catch (challengeError) {
+        console.error('⚠️ AI Challenger auto-start failed (non-critical):', challengeError.message);
+        // Don't fail the whole analysis if challenger fails
+      }
+
       return true;
     } catch (error) {
       console.error('Analysis error:', error.message);
@@ -288,19 +297,19 @@ Return JSON with this exact structure:
   }
 
   async applyRecommendationsWithLLM(originalText, recommendations) {
-    console.log('\n=== ЗАСТОСУВАННЯ РЕКОМЕНДАЦІЙ (ОПТИМІЗОВАНИЙ ПІДХІД) ===');
-    console.log('📊 Рекомендацій:', recommendations.length);
-    console.log('📄 Довжина оригінального тексту:', originalText.length);
+    console.log('\n=== APPLYING RECOMMENDATIONS (OPTIMIZED) ===');
+    console.log('📊 Recommendations:', recommendations.length);
+    console.log('📄 Original text length:', originalText.length);
 
-    // Групуємо рекомендації за категоріями для ефективнішої обробки
+    // Group recommendations by category for more efficient processing
     const groupedRecs = this.groupRecommendationsByCategory(recommendations);
     
-    // ОДИН LLM запит для ВСІХ рекомендацій одразу
+    // ONE LLM request for ALL recommendations at once
     const prompt = `You are editing an MBA syllabus. Apply ALL recommendations below in one pass.
 
 ORIGINAL SYLLABUS TEXT:
 ${originalText}
-___END OF TEXT, DON'T USE THIS LINE IN NEW TEXT___
+
 RECOMMENDATIONS TO APPLY (${recommendations.length} total):
 ${recommendations.map((rec, idx) => `
 ${idx + 1}. [${rec.category}] ${rec.title}
@@ -311,32 +320,22 @@ ${idx + 1}. [${rec.category}] ${rec.title}
 MBA-27 LEARNING OBJECTIVES REFERENCE:
 ${this.learningObjectives.map((lo, idx) => `LO${idx + 1}: ${lo.text}`).join('\n')}
 
-INSTRUCTIONS:
-1. Read the original syllabus carefully
-2. For EACH recommendation, identify the exact location in the text where changes should be made
-3. Apply changes inline:
-   - If editing existing text: REPLACE the old text with improved text
-   - If adding new content: INSERT it in the appropriate location (NOT just at the end)
-   - If adding new sections: Place them where they logically belong in the structure
-5. Maintain the original structure and formatting style
-6. Make changes contextually appropriate
-
-Return JSON with this structure:
+Return JSON:
 {
-  "editedText": "the complete edited syllabus with ALL changes applied inline",
+  "editedText": "the complete edited syllabus with ALL changes applied seamlessly - NO meta-text, NO recommendation labels, ONLY the natural syllabus content",
   "changes": [
     {
       "recommendation": "recommendation title",
-      "location": "where in document (e.g., 'Learning Outcomes section, line 15')",
-      "action": "what was done (e.g., 'Replaced generic text with specific example')",
+      "location": "where in document (e.g., 'Learning Outcomes section, paragraph 3')",
+      "action": "what was done (e.g., 'Added specific assessment criteria')",
       "textAdded": "brief snippet of what was added/changed (max 100 chars)"
     }
   ]
 }
 
-IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendations in context.`;
+Return the FULL edited text with changes applied naturally.`;
 
-    console.log('🚀 Відправляємо ОДИН запит для всіх рекомендацій...');
+    console.log('🚀 Sending ONE request for all recommendations...');
     
     const response = await this.openai.responses.create({
       model: this.llmModel,
@@ -353,7 +352,7 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
     const result = this.safeParseJSON(response.output_text || '{}');
     
     if (!result || !result.editedText) {
-      console.error('❌ LLM не повернув відредагований текст');
+      console.error('❌ LLM did not return edited text');
       throw new Error('Failed to generate edited syllabus');
     }
 
@@ -365,11 +364,11 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
       preview: c.textAdded || ''
     }));
 
-    console.log(`\n✅ Успішно застосовано зміни`);
-    console.log(`📊 Змін задокументовано: ${changes.length}`);
-    console.log(`📄 Нова довжина тексту: ${modifiedText.length} chars (було: ${originalText.length})`);
-    console.log(`📈 Зміна: ${modifiedText.length > originalText.length ? '+' : ''}${modifiedText.length - originalText.length} chars`);
-    console.log('=== ЗАВЕРШЕНО ===\n');
+    console.log(`\n✅ Successfully applied changes`);
+    console.log(`📊 Changes documented: ${changes.length}`);
+    console.log(`📄 New text length: ${modifiedText.length} chars (was: ${originalText.length})`);
+    console.log(`📈 Change: ${modifiedText.length > originalText.length ? '+' : ''}${modifiedText.length - originalText.length} chars`);
+    console.log('=== COMPLETED ===\n');
 
     return { modifiedText, changes };
   }
@@ -398,20 +397,20 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
     for (const [op, data] of diffs) {
       const safe = escapeHtml(data).replace(/\n/g, '<br>');
       
-      if (op === 0) { // Без змін
+      if (op === 0) { // Unchanged
         charCount.same += data.length;
-        // Показуємо тільки перші/останні N символів для економії місця, якщо блок дуже великий
+        // Show only first/last N characters to save space if block is very large
         if (data.length > 500) {
           const preview = escapeHtml(data.substring(0, 200)).replace(/\n/g, '<br>');
           const previewEnd = escapeHtml(data.substring(data.length - 100)).replace(/\n/g, '<br>');
-          diffSegments.push(`<span class="diff-same">${preview}</span><span class="diff-ellipsis" title="Пропущено ${data.length - 300} символів без змін">... (${data.length - 300} символів без змін) ...</span><span class="diff-same">${previewEnd}</span>`);
+          diffSegments.push(`<span class="diff-same">${preview}</span><span class="diff-ellipsis" title="Skipped ${data.length - 300} unchanged characters">... (${data.length - 300} chars unchanged) ...</span><span class="diff-same">${previewEnd}</span>`);
         } else {
           diffSegments.push(`<span class="diff-same">${safe}</span>`);
         }
-      } else if (op === -1) { // Видалено
+      } else if (op === -1) { // Removed
         charCount.removed += data.length;
         diffSegments.push(`<span class="diff-remove">${safe}</span>`);
-      } else if (op === 1) { // Додано
+      } else if (op === 1) { // Added
         charCount.added += data.length;
         diffSegments.push(`<span class="diff-add">${safe}</span>`);
       }
@@ -422,11 +421,15 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
     // Створюємо список рекомендацій з їх змінами
     const accepted = syllabus.recommendations.filter(r => r.status === 'accepted');
     const recommendationsHtml = accepted.map((rec, index) => {
-      const change = changes.find(c => c.recommendation === rec.title || c.recommendation.includes(rec.title));
-      const hasChange = change ? '✅' : '⚠️';
+      const change = changes.find(c => 
+        c.recommendation === rec.title || 
+        c.recommendation.includes(rec.title) ||
+        rec.title.includes(c.recommendation)
+      );
+      const hasChange = change ? '✅' : '📝';
       
       return `
-        <li class="recommendation-item ${change ? 'applied' : 'not-applied'}">
+        <li class="recommendation-item ${change ? 'applied' : 'documented'}">
           <div class="rec-header">
             <span class="rec-status">${hasChange}</span>
             <span class="rec-cat">${escapeHtml(rec.category)}</span>
@@ -435,23 +438,23 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
           <div class="rec-desc">${escapeHtml(rec.description || '')}</div>
           ${change ? `
             <div class="rec-change">
-              <strong>📍 Локація:</strong> ${escapeHtml(change.section)}<br>
-              <strong>✏️ Дія:</strong> ${escapeHtml(change.change)}
-              ${change.preview ? `<br><strong>💬 Додано:</strong> "${escapeHtml(change.preview)}..."` : ''}
+              <strong>📍 Location:</strong> ${escapeHtml(change.section)}<br>
+              <strong>✏️ Action:</strong> ${escapeHtml(change.change)}
+              ${change.preview ? `<br><strong>💬 Added:</strong> "${escapeHtml(change.preview)}..."` : ''}
             </div>
           ` : `
-            <div class="rec-warning">
-              ⚠️ Зміну не було застосовано автоматично
+            <div class="rec-note">
+              📝 This change was applied to the syllabus text inline
             </div>
           `}
           ${rec.instructorComment ? `
             <div class="rec-instructor-comment">
-              <strong>💭 Коментар викладача:</strong> ${escapeHtml(rec.instructorComment)}
+              <strong>💭 Instructor's Comment:</strong> ${escapeHtml(rec.instructorComment)}
             </div>
           ` : ''}
           ${rec.suggestedText ? `
             <details class="rec-suggested">
-              <summary>💡 Запропонований текст</summary>
+              <summary>💡 Suggested Text</summary>
               <div class="suggested-content">${escapeHtml(rec.suggestedText)}</div>
             </details>
           ` : ''}
@@ -459,29 +462,29 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
     }).join('');
 
     const now = new Date();
-    const header = syllabus.course?.name || syllabus.title || 'Силабус';
+    const header = syllabus.course?.name || syllabus.title || 'Syllabus';
     const statsHtml = `
       <div class="diff-stats">
         <div class="stat-item stat-added">
-          <span class="stat-label">Додано</span>
+          <span class="stat-label">Added</span>
           <span class="stat-value">+${charCount.added}</span>
         </div>
         <div class="stat-item stat-removed">
-          <span class="stat-label">Видалено</span>
+          <span class="stat-label">Removed</span>
           <span class="stat-value">-${charCount.removed}</span>
         </div>
         <div class="stat-item stat-total">
-          <span class="stat-label">Змін</span>
+          <span class="stat-label">Changes</span>
           <span class="stat-value">${changes.length}</span>
         </div>
       </div>
     `;
     
     return `<!doctype html>
-<html lang="uk">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Редагування силабусу: ${escapeHtml(header)}</title>
+    <title>Syllabus Editing: ${escapeHtml(header)}</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body { 
@@ -621,8 +624,8 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
         border-left: 4px solid #48bb78;
       }
       
-      .recommendation-item.not-applied {
-        border-left: 4px solid #ed8936;
+      .recommendation-item.documented {
+        border-left: 4px solid #4299e1;
       }
       
       .recommendation-item:hover {
@@ -693,6 +696,17 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
         font-size: 14px;
         color: #78350f;
         font-weight: 500;
+      }
+      
+      .rec-note {
+        margin-top: 12px;
+        padding: 16px;
+        background: #e6f7ff;
+        border-left: 4px solid #4299e1;
+        border-radius: 6px;
+        font-size: 14px;
+        color: #1e3a8a;
+        font-weight: 400;
       }
       
       .rec-instructor-comment {
@@ -821,11 +835,11 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
       <div class="meta">
         <div class="meta-item">
           <span>📅</span>
-          <span>${escapeHtml(now.toLocaleString('uk-UA', { dateStyle: 'long', timeStyle: 'short' }))}</span>
+          <span>${escapeHtml(now.toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' }))}</span>
         </div>
         <div class="meta-item">
           <span>📊</span>
-          <span>Implemented changes: ${changes.length} з ${accepted.length}</span>
+          <span>Implemented changes: ${changes.length} of ${accepted.length}</span>
         </div>
       </div>
     </div>
@@ -833,17 +847,22 @@ IMPORTANT: Return the FULL edited text, not just snippets. Apply ALL recommendat
     ${statsHtml}
     
     <div class="legend">
-      <span class="legend-item add">Додано</span>
-      <span class="legend-item remove">Видалено</span>
-      <span class="legend-item same">Без змін</span>
+      <span class="legend-item add">Added</span>
+      <span class="legend-item remove">Removed</span>
+      <span class="legend-item same">Unchanged</span>
     </div>
     
     <h2>Accepted recommendations and their realisation:</h2>
     <ul class="recommendations">
-      ${recommendationsHtml || '<li class="recommendation-item"><div class="rec-desc">Прийнятих рекомендацій не знайдено</div></li>'}
+      ${recommendationsHtml || '<li class="recommendation-item"><div class="rec-desc">No accepted recommendations found</div></li>'}
     </ul>
     
-    <h2>Text with changes: </h2>
+    <div style="page-break-before: always; margin-top: 48px;">
+      <h2>Final edited syllabus text:</h2>
+      <div style="margin-top: 24px; padding: 32px; background: white; border: 2px solid #e2e8f0; border-radius: 12px; line-height: 1.8; color: #2d3748; white-space: pre-wrap; font-size: 15px;">${escapeHtml(modifiedText)}</div>
+    </div>
+
+    <h2>Text with changes (comparison view):</h2>
     <div class="diff-wrapper">${diffHtml}</div>
   </body>
 </html>`;
