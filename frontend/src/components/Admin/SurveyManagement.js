@@ -123,7 +123,7 @@ const SurveyManagement = () => {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" gutterBottom>
-          Управління опитуваннями
+          Survey Management
         </Typography>
         <Button
           variant="contained"
@@ -132,7 +132,7 @@ const SurveyManagement = () => {
           onClick={() => setDeleteAllDialog(true)}
           disabled={surveys.length === 0}
         >
-          Очистити всі відповіді
+          Clear All Responses
         </Button>
       </Box>
 
@@ -140,7 +140,7 @@ const SurveyManagement = () => {
       {insights && !insightsLoading && (
         <Box sx={{ mb: 4 }}>
           <Typography variant="h5" gutterBottom>
-            Аналітика опитувань
+            Survey Analytics
           </Typography>
           
           {/* Summary Cards */}
@@ -152,7 +152,7 @@ const SurveyManagement = () => {
                     <Poll sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
                     <Box>
                       <Typography color="textSecondary" gutterBottom>
-                        Всього відповідей
+                        Total Responses
                       </Typography>
                       <Typography variant="h4">
                         {insights.totalResponses}
@@ -170,7 +170,7 @@ const SurveyManagement = () => {
                     <TrendingUp sx={{ fontSize: 40, color: 'success.main', mr: 2 }} />
                     <Box>
                       <Typography color="textSecondary" gutterBottom>
-                        Популярних тем
+                        Popular Topics
                       </Typography>
                       <Typography variant="h4">
                         {insights.commonChallenges.length}
@@ -188,7 +188,7 @@ const SurveyManagement = () => {
                     <People sx={{ fontSize: 40, color: 'secondary.main', mr: 2 }} />
                     <Box>
                       <Typography color="textSecondary" gutterBottom>
-                        Стилів навчання
+                        Learning Styles
                       </Typography>
                       <Typography variant="h4">
                         {insights.learningPreferences.length}
@@ -206,12 +206,12 @@ const SurveyManagement = () => {
                     <DateRange sx={{ fontSize: 40, color: 'warning.main', mr: 2 }} />
                     <Box>
                       <Typography color="textSecondary" gutterBottom>
-                        Остання відповідь
+                        Last Response
                       </Typography>
                       <Typography variant="h6">
                         {insights.lastUpdated ? 
-                          new Date(insights.lastUpdated).toLocaleDateString('uk-UA') : 
-                          'Немає'
+                          new Date(insights.lastUpdated).toLocaleDateString('en-US') : 
+                          'None'
                         }
                       </Typography>
                     </Box>
@@ -226,7 +226,7 @@ const SurveyManagement = () => {
             <Grid item xs={12} md={6}>
               <Paper sx={{ p: 3 }}>
                 <Typography variant="h6" gutterBottom>
-                  Найпоширеніші виклики
+                  Most Common Challenges
                 </Typography>
                 {formatInsightsData(insights).length > 0 ? (
                   <BarChart width={400} height={300} data={formatInsightsData(insights)}>
@@ -237,7 +237,7 @@ const SurveyManagement = () => {
                     <Bar dataKey="frequency" fill="#8884d8" />
                   </BarChart>
                 ) : (
-                  <Typography>Немає даних для відображення</Typography>
+                  <Typography>No data to display</Typography>
                 )}
               </Paper>
             </Grid>
@@ -245,7 +245,7 @@ const SurveyManagement = () => {
             <Grid item xs={12} md={6}>
               <Paper sx={{ p: 3 }}>
                 <Typography variant="h6" gutterBottom>
-                  Відповіді за місяцями
+                  Responses by Month
                 </Typography>
                 {formatResponsesByMonth(insights).length > 0 ? (
                   <LineChart width={400} height={300} data={formatResponsesByMonth(insights)}>
@@ -257,7 +257,7 @@ const SurveyManagement = () => {
                     <Line type="monotone" dataKey="responses" stroke="#8884d8" />
                   </LineChart>
                 ) : (
-                  <Typography>Немає даних для відображення</Typography>
+                  <Typography>No data to display</Typography>
                 )}
               </Paper>
             </Grid>
@@ -266,12 +266,12 @@ const SurveyManagement = () => {
           {/* Detailed Insights */}
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
-              Детальна аналітика
+              Detailed Analytics
             </Typography>
             
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
-                <Typography>Найпоширеніші виклики</Typography>
+                <Typography>Most Common Challenges</Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -289,7 +289,7 @@ const SurveyManagement = () => {
 
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
-                <Typography>Типи рішень</Typography>
+                <Typography>Decision Types</Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -308,7 +308,7 @@ const SurveyManagement = () => {
 
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMore />}>
-                <Typography>Переваги в навчанні</Typography>
+                <Typography>Learning Preferences</Typography>
               </AccordionSummary>
               <AccordionDetails>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -331,7 +331,7 @@ const SurveyManagement = () => {
       {/* Survey Responses Table */}
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom>
-          Відповіді на опитування
+          Survey Responses
         </Typography>
         
         {loading ? (
@@ -344,11 +344,11 @@ const SurveyManagement = () => {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Ім'я</TableCell>
-                    <TableCell>Прізвище</TableCell>
-                    <TableCell>Виклик</TableCell>
-                    <TableCell>Дата відповіді</TableCell>
-                    <TableCell>Дії</TableCell>
+                    <TableCell>First Name</TableCell>
+                    <TableCell>Last Name</TableCell>
+                    <TableCell>Challenge</TableCell>
+                    <TableCell>Response Date</TableCell>
+                    <TableCell>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -359,11 +359,11 @@ const SurveyManagement = () => {
                       <TableCell>
                         {survey.challenge ? 
                           `${survey.challenge.substring(0, 50)}...` : 
-                          'Не вказано'
+                          'Not specified'
                         }
                       </TableCell>
                       <TableCell>
-                        {new Date(survey.createdAt).toLocaleDateString('uk-UA')}
+                        {new Date(survey.createdAt).toLocaleDateString('en-US')}
                       </TableCell>
                       <TableCell>
                         <Button
@@ -371,7 +371,7 @@ const SurveyManagement = () => {
                           startIcon={<Visibility />}
                           onClick={() => handleViewDetails(survey)}
                         >
-                          Деталі
+                          Details
                         </Button>
                         <Button
                           size="small"
@@ -379,7 +379,7 @@ const SurveyManagement = () => {
                           startIcon={<Delete />}
                           onClick={() => handleDeleteSurvey(survey._id)}
                         >
-                          Видалити
+                          Delete
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -406,17 +406,16 @@ const SurveyManagement = () => {
 
       {/* Delete All Confirmation Dialog */}
       <Dialog open={deleteAllDialog} onClose={() => setDeleteAllDialog(false)}>
-        <DialogTitle>Підтвердження видалення</DialogTitle>
+  <DialogTitle>Delete Confirmation</DialogTitle>
         <DialogContent>
           <Typography>
-            Ви впевнені, що хочете видалити всі відповіді на опитування? 
-            Цю дію не можна скасувати.
+            Are you sure you want to delete all survey responses? This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteAllDialog(false)}>Скасувати</Button>
+          <Button onClick={() => setDeleteAllDialog(false)}>Cancel</Button>
           <Button onClick={handleDeleteAllSurveys} color="error" variant="contained">
-            Видалити всі
+            Delete All
           </Button>
         </DialogActions>
       </Dialog>
@@ -428,56 +427,56 @@ const SurveyManagement = () => {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>Деталі відповіді</DialogTitle>
+  <DialogTitle>Response Details</DialogTitle>
         <DialogContent>
           {detailDialog.survey && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
               <Grid container spacing={2}>
                 <Grid item xs={6}>
-                  <Typography variant="subtitle2">Ім'я:</Typography>
+                  <Typography variant="subtitle2">First Name:</Typography>
                   <Typography>{detailDialog.survey.firstName}</Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="subtitle2">Прізвище:</Typography>
+                  <Typography variant="subtitle2">Last Name:</Typography>
                   <Typography>{detailDialog.survey.lastName}</Typography>
                 </Grid>
               </Grid>
               
               <Box>
-                <Typography variant="subtitle2">Найбільший виклик:</Typography>
-                <Typography>{detailDialog.survey.challenge || 'Не вказано'}</Typography>
+                <Typography variant="subtitle2">Primary Challenge:</Typography>
+                <Typography>{detailDialog.survey.challenge || 'Not specified'}</Typography>
               </Box>
               
               <Box>
-                <Typography variant="subtitle2">Типи рішень:</Typography>
-                <Typography>{detailDialog.survey.decisions || 'Не вказано'}</Typography>
+                <Typography variant="subtitle2">Decision Types:</Typography>
+                <Typography>{detailDialog.survey.decisions || 'Not specified'}</Typography>
               </Box>
               
               <Box>
-                <Typography variant="subtitle2">Ситуація з минулого місяця:</Typography>
-                <Typography>{detailDialog.survey.situation || 'Не вказано'}</Typography>
+                <Typography variant="subtitle2">Last Month Situation:</Typography>
+                <Typography>{detailDialog.survey.situation || 'Not specified'}</Typography>
               </Box>
               
               <Box>
-                <Typography variant="subtitle2">Досвід:</Typography>
-                <Typography>{detailDialog.survey.experience || 'Не вказано'}</Typography>
+                <Typography variant="subtitle2">Experience:</Typography>
+                <Typography>{detailDialog.survey.experience || 'Not specified'}</Typography>
               </Box>
               
               <Box>
-                <Typography variant="subtitle2">Стиль навчання:</Typography>
-                <Typography>{detailDialog.survey.learningStyle || 'Не вказано'}</Typography>
+                <Typography variant="subtitle2">Learning Style:</Typography>
+                <Typography>{detailDialog.survey.learningStyle || 'Not specified'}</Typography>
               </Box>
               
               <Box>
-                <Typography variant="subtitle2">Дата відповіді:</Typography>
-                <Typography>{new Date(detailDialog.survey.createdAt).toLocaleString('uk-UA')}</Typography>
+                <Typography variant="subtitle2">Response Date:</Typography>
+                <Typography>{new Date(detailDialog.survey.createdAt).toLocaleString('en-US')}</Typography>
               </Box>
             </Box>
           )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDetailDialog({ open: false, survey: null })}>
-            Закрити
+            Close
           </Button>
         </DialogActions>
       </Dialog>

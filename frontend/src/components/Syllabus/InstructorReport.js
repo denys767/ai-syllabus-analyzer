@@ -90,17 +90,7 @@ const InstructorReport = ({ syllabus }) => {
                 </Grid>
               </Grid>
 
-              {accepted.length > 0 && syllabus.editingStatus === 'ready' && syllabus.editedPdf && (
-                <Box sx={{ mt: 2, textAlign: 'center' }}>
-                  <Button
-                    variant="contained"
-                    startIcon={<Download />}
-                    onClick={downloadPdf}
-                  >
-                    Download PDF with Changes
-                  </Button>
-                </Box>
-              )}
+              {/* Removed duplicate download button (kept single source in RecommendationsPanel) */}
             </CardContent>
           </Card>
         </Grid>
@@ -126,7 +116,7 @@ const InstructorReport = ({ syllabus }) => {
                 Covered Objectives ({coveredObjectives.length}):
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                {coveredObjectives.slice(0, 5).map((objective, index) => (
+                {coveredObjectives.map((objective, index) => (
                   <Chip 
                     key={index} 
                     label={objective.substring(0, 25) + '...'} 
@@ -134,16 +124,13 @@ const InstructorReport = ({ syllabus }) => {
                     color="success" 
                   />
                 ))}
-                {coveredObjectives.length > 5 && (
-                  <Chip label={`+${coveredObjectives.length - 5}`} size="small" />
-                )}
               </Box>
 
               <Typography variant="subtitle2" gutterBottom>
                 Gaps ({gaps.length}):
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {gaps.slice(0, 5).map((gap, index) => (
+                {gaps.map((gap, index) => (
                   <Chip 
                     key={index} 
                     label={gap.substring(0, 25) + '...'} 
@@ -151,9 +138,6 @@ const InstructorReport = ({ syllabus }) => {
                     color="warning" 
                   />
                 ))}
-                {gaps.length > 5 && (
-                  <Chip label={`+${gaps.length - 5}`} size="small" />
-                )}
               </Box>
             </CardContent>
           </Card>
@@ -212,7 +196,7 @@ const InstructorReport = ({ syllabus }) => {
               
               {accepted.length > 0 ? (
                 <List>
-                  {accepted.slice(0, 5).map((rec, index) => (
+                  {accepted.map((rec, index) => (
                     <React.Fragment key={rec.id || index}>
                       <ListItem sx={{ px: 0 }}>
                         <ListItemText
@@ -225,20 +209,9 @@ const InstructorReport = ({ syllabus }) => {
                           secondary={rec.description}
                         />
                       </ListItem>
-                      {index < Math.min(accepted.length, 5) - 1 && <Divider />}
+                      {index < accepted.length - 1 && <Divider />}
                     </React.Fragment>
                   ))}
-                  {accepted.length > 5 && (
-                    <ListItem sx={{ px: 0 }}>
-                      <ListItemText
-                        primary={
-                          <Typography variant="body2" color="text.secondary">
-                            ... and {accepted.length - 5} more recommendations
-                          </Typography>
-                        }
-                      />
-                    </ListItem>
-                  )}
                 </List>
               ) : (
                 <Typography variant="body2" color="text.secondary">

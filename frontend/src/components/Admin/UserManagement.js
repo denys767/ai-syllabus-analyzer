@@ -5,7 +5,7 @@ import {
   FormControl, InputLabel, CircularProgress, Alert, Button, Dialog,
   DialogTitle, DialogContent, DialogActions, Grid
 } from '@mui/material';
-import { Edit, Delete, Refresh, Search, PersonAdd } from '@mui/icons-material';
+import { Edit, Delete, PersonAdd } from '@mui/icons-material';
 import api from '../../services/api';
 
 const UserManagement = () => {
@@ -42,7 +42,7 @@ const UserManagement = () => {
       const response = await api.get(`/admin/users?${params}`);
       setUsers(response.data.users || []);
     } catch (err) {
-      setError(err.response?.data?.message || 'Помилка завантаження користувачів');
+  setError(err.response?.data?.message || 'Failed to load users');
     } finally {
       setLoading(false);
     }
@@ -114,15 +114,15 @@ const UserManagement = () => {
     const errors = {};
     
     if (!formData.firstName.trim()) {
-      errors.firstName = "Ім'я є обов'язковим";
+  errors.firstName = 'First name is required';
     }
     if (!formData.lastName.trim()) {
-      errors.lastName = "Прізвище є обов'язковим";
+  errors.lastName = 'Last name is required';
     }
     if (!formData.email.trim()) {
-      errors.email = 'Email є обов\'язковим';
+  errors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      errors.email = 'Email має неправильний формат';
+  errors.email = 'Invalid email format';
     }
   // Пароль більше не вводиться адміністратором — користувач встановлює сам
 
@@ -151,28 +151,28 @@ const UserManagement = () => {
       handleCloseDialog();
       fetchUsers(); // Refresh the list
     } catch (err) {
-      setError(err.response?.data?.message || `Помилка ${dialogMode === 'create' ? 'створення' : 'редагування'} користувача`);
+  setError(err.response?.data?.message || `Error ${dialogMode === 'create' ? 'creating' : 'updating'} user`);
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDeleteUser = async (userId) => {
-    if (window.confirm('Ви впевнені, що хочете видалити цього користувача?')) {
+  if (window.confirm('Are you sure you want to delete this user?')) {
       try {
         await api.delete(`/admin/users/${userId}`);
         fetchUsers(); // Refresh list
       } catch (err) {
-        setError(err.response?.data?.message || 'Помилка видалення користувача');
+  setError(err.response?.data?.message || 'Error deleting user');
       }
     }
   };
 
   const getRoleLabel = (role) => {
     switch (role) {
-      case 'instructor': return 'Викладач';
-      case 'admin': return 'Адміністратор';
-      case 'manager': return 'Менеджер';
+  case 'instructor': return 'Instructor';
+  case 'admin': return 'Administrator';
+  case 'manager': return 'Manager';
       default: return role;
     }
   };
@@ -197,14 +197,14 @@ const UserManagement = () => {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5">
-          Керування користувачами
+          User Management
         </Typography>
         <Button
           variant="contained"
           startIcon={<PersonAdd />}
           onClick={handleCreateUser}
         >
-          Створити користувача
+          Create User
         </Button>
       </Box>
       
@@ -212,7 +212,7 @@ const UserManagement = () => {
       <Paper sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField
-            label="Пошук"
+            label="Search"
             name="search"
             value={filters.search}
             onChange={handleFilterChange}
@@ -221,17 +221,17 @@ const UserManagement = () => {
             sx={{ minWidth: 200 }}
           />
           <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>Роль</InputLabel>
+            <InputLabel>Role</InputLabel>
             <Select 
               name="role" 
               value={filters.role} 
               onChange={handleFilterChange} 
               label="Роль"
             >
-              <MenuItem value=""><em>Всі</em></MenuItem>
-              <MenuItem value="instructor">Викладач</MenuItem>
-              <MenuItem value="manager">Менеджер</MenuItem>
-              <MenuItem value="admin">Адміністратор</MenuItem>
+              <MenuItem value=""><em>All</em></MenuItem>
+              <MenuItem value="instructor">Instructor</MenuItem>
+              <MenuItem value="manager">Manager</MenuItem>
+              <MenuItem value="admin">Administrator</MenuItem>
             </Select>
           </FormControl>
         </Box>
@@ -242,11 +242,11 @@ const UserManagement = () => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Ім'я</TableCell>
+              <TableCell>Name</TableCell>
               <TableCell>Email</TableCell>
-              <TableCell>Роль</TableCell>
-              <TableCell>Верифіковано</TableCell>
-              <TableCell>Дії</TableCell>
+              <TableCell>Role</TableCell>
+              <TableCell>Verified</TableCell>
+              <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -261,7 +261,7 @@ const UserManagement = () => {
                   {user.verified ? '✓' : '—'}
                 </TableCell>
                 <TableCell>
-                  <Tooltip title="Редагувати">
+                  <Tooltip title="Edit">
                     <IconButton 
                       onClick={() => handleEditUser(user)}
                       size="small"
@@ -269,7 +269,7 @@ const UserManagement = () => {
                       <Edit />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Видалити">
+                  <Tooltip title="Delete">
                     <IconButton 
                       onClick={() => handleDeleteUser(user._id)}
                       size="small"
@@ -288,7 +288,7 @@ const UserManagement = () => {
       {users.length === 0 && (
         <Box sx={{ textAlign: 'center', py: 4 }}>
           <Typography color="textSecondary">
-            Користувачі не знайдені
+            No users found
           </Typography>
         </Box>
       )}
@@ -301,14 +301,14 @@ const UserManagement = () => {
         fullWidth
       >
         <DialogTitle>
-          {dialogMode === 'create' ? 'Створити нового користувача' : 'Редагувати користувача'}
+          {dialogMode === 'create' ? 'Create New User' : 'Edit User'}
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Ім'я"
+                label="First Name"
                 name="firstName"
                 value={formData.firstName}
                 onChange={handleFormChange}
@@ -320,7 +320,7 @@ const UserManagement = () => {
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Прізвище"
+                label="Last Name"
                 name="lastName"
                 value={formData.lastName}
                 onChange={handleFormChange}
@@ -346,23 +346,23 @@ const UserManagement = () => {
             {/* Поле пароля вилучено: користувач сам встановлює пароль через email */}
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
-                <InputLabel>Роль</InputLabel>
+                <InputLabel>Role</InputLabel>
                 <Select
                   name="role"
                   value={formData.role}
                   onChange={handleFormChange}
-                  label="Роль"
+                  label="Role"
                 >
-                  <MenuItem value="instructor">Викладач</MenuItem>
-                  <MenuItem value="manager">Менеджер</MenuItem>
-                  <MenuItem value="admin">Адміністратор</MenuItem>
+                  <MenuItem value="instructor">Instructor</MenuItem>
+                  <MenuItem value="manager">Manager</MenuItem>
+                  <MenuItem value="admin">Administrator</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12}>
               <TextField
                 fullWidth
-                label="Кафедра/Департамент"
+                label="Department"
                 name="department"
                 value={formData.department}
                 onChange={handleFormChange}
@@ -373,7 +373,7 @@ const UserManagement = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>
-            Скасувати
+            Cancel
           </Button>
           <Button 
             onClick={handleSubmit}
@@ -383,7 +383,7 @@ const UserManagement = () => {
             {submitting ? (
               <CircularProgress size={20} />
             ) : (
-              dialogMode === 'create' ? 'Створити' : 'Зберегти'
+              dialogMode === 'create' ? 'Create' : 'Save'
             )}
           </Button>
         </DialogActions>

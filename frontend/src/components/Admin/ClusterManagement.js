@@ -31,11 +31,6 @@ const ClusterManagement = () => {
   const [formErrors, setFormErrors] = useState({ quarter: '', percentages: '' });
   // removed unused touched state
 
-  useEffect(() => {
-    fetchClusters();
-    fetchCurrentCluster();
-  }, []);
-
   const fetchClusters = async () => {
     try {
       // FIX: backend route is /api/clusters (router root '/'), previous '/clusters/clusters' caused 404
@@ -44,7 +39,7 @@ const ClusterManagement = () => {
     } catch (error) {
       setSnackbar({ 
         open: true, 
-        message: 'Помилка завантаження кластерів', 
+        message: 'Failed to load clusters', 
         severity: 'error' 
       });
     } finally {
@@ -61,6 +56,12 @@ const ClusterManagement = () => {
       console.error('Error fetching current cluster:', error);
     }
   };
+
+  useEffect(() => {
+    fetchClusters();
+    fetchCurrentCluster();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCreateCluster = () => {
     const currentQuarter = getCurrentQuarter();
@@ -99,8 +100,8 @@ const ClusterManagement = () => {
     const quarterError = !/^Q[1-4] \d{4}$/.test(formData.quarter.trim());
     setClusterErrors(newClusterErrors);
     setFormErrors({
-      quarter: quarterError ? 'Формат кварталу: Q1 2025' : '',
-      percentages: percentError ? 'Сума відсотків повинна бути ~100% (допуск ±5%)' : ''
+      quarter: quarterError ? 'Quarter format: Q1 2025' : '',
+      percentages: percentError ? 'Total percentages should be ~100% (tolerance ±5%)' : ''
     });
     const invalid = newClusterErrors.some(e => e.name || e.percentage || e.description) || percentError || quarterError;
     return !invalid;
@@ -109,7 +110,7 @@ const ClusterManagement = () => {
   const handleSaveCluster = async () => {
     try {
       if (!validate()) {
-        setSnackbar({ open: true, message: 'Перевірте помилки у формі', severity: 'error' });
+  setSnackbar({ open: true, message: 'Please fix form errors', severity: 'error' });
         return;
       }
 
@@ -117,7 +118,7 @@ const ClusterManagement = () => {
   await api.post('/clusters', formData);
       setSnackbar({ 
         open: true, 
-        message: 'Конфігурацію кластерів створено успішно', 
+        message: 'Cluster configuration created successfully', 
         severity: 'success' 
       });
       setDialogOpen(false);
@@ -126,7 +127,7 @@ const ClusterManagement = () => {
     } catch (error) {
       setSnackbar({ 
         open: true, 
-        message: error.response?.data?.message || 'Помилка збереження', 
+        message: error.response?.data?.message || 'Save error', 
         severity: 'error' 
       });
     }
@@ -142,13 +143,13 @@ const ClusterManagement = () => {
       }
       setSnackbar({
         open: true,
-        message: 'Конфігурацію кластерів активовано',
+        message: 'Cluster configuration activated',
         severity: 'success'
       });
       await Promise.all([fetchClusters(), fetchCurrentCluster()]);
     } catch (error) {
       console.error('Activate cluster error:', error);
-      const msg = error.response?.data?.message || error.message || 'Помилка активації';
+  const msg = error.response?.data?.message || error.message || 'Activation error';
       setSnackbar({
         open: true,
         message: msg,
@@ -158,13 +159,13 @@ const ClusterManagement = () => {
   };
 
   const handleDeleteCluster = async (clusterId) => {
-    if (window.confirm('Ви впевнені, що хочете видалити цю конфігурацію кластерів?')) {
+  if (window.confirm('Are you sure you want to delete this cluster configuration?')) {
       try {
   // FIX: delete cluster config -> DELETE /clusters/:id
   await api.delete(`/clusters/${clusterId}`);
         setSnackbar({ 
           open: true, 
-          message: 'Конфігурацію видалено', 
+          message: 'Configuration deleted', 
           severity: 'success' 
         });
         fetchClusters();
@@ -172,7 +173,7 @@ const ClusterManagement = () => {
       } catch (error) {
         setSnackbar({ 
           open: true, 
-          message: error.response?.data?.message || 'Помилка видалення', 
+          message: error.response?.data?.message || 'Delete error', 
           severity: 'error' 
         });
       }
@@ -228,22 +229,22 @@ const ClusterManagement = () => {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" gutterBottom>
-          Управління кластерами студентів
+          Student Cluster Management
         </Typography>
         <Button
           variant="contained"
           startIcon={<Add />}
           onClick={handleCreateCluster}
         >
-          Створити конфігурацію
+          Create Configuration
         </Button>
       </Box>
 
       {/* Current Active Configuration */}
       {currentCluster && (
-        <Paper sx={{ p: 3, mb: 3, backgroundColor: '#f8f9fa' }}>
+        <Paper sx={{ p: 3, mb: 3, backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'background.default' : 'background.paper' }}>
           <Typography variant="h6" gutterBottom color="primary">
-            Поточна активна конфігурація: {currentCluster.quarter}
+            Current Active Configuration: {currentCluster.quarter}
           </Typography>
           <Grid container spacing={2}>
             {currentCluster.clusters && currentCluster.clusters.map((cluster) => (
@@ -270,18 +271,18 @@ const ClusterManagement = () => {
       {/* Historical Configurations */}
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom>
-          Історія конфігурацій
+          Configuration History
         </Typography>
         <TableContainer>
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Квартал</TableCell>
-                <TableCell>Загальна кількість студентів</TableCell>
-                <TableCell>Статус</TableCell>
-                <TableCell>Завантажив</TableCell>
-                <TableCell>Дата створення</TableCell>
-                <TableCell>Дії</TableCell>
+                <TableCell>Quarter</TableCell>
+                <TableCell>Total Students</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Uploaded By</TableCell>
+                <TableCell>Created At</TableCell>
+                <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -291,7 +292,7 @@ const ClusterManagement = () => {
                   <TableCell>{cluster.totalStudents || '-'}</TableCell>
                   <TableCell>
                     <Chip 
-                      label={cluster.isActive ? 'Активна' : 'Неактивна'}
+                      label={cluster.isActive ? 'Active' : 'Inactive'}
                       color={cluster.isActive ? 'success' : 'default'}
                       size="small"
                     />
@@ -299,11 +300,11 @@ const ClusterManagement = () => {
                   <TableCell>
                     {cluster.uploadedBy ? 
                       `${cluster.uploadedBy.firstName} ${cluster.uploadedBy.lastName}` : 
-                      'Невідомо'
+                      'Unknown'
                     }
                   </TableCell>
                   <TableCell>
-                    {new Date(cluster.createdAt).toLocaleDateString('uk-UA')}
+                    {new Date(cluster.createdAt).toLocaleDateString('en-US')}
                   </TableCell>
                   <TableCell>
                     {!cluster.isActive && (
@@ -311,7 +312,7 @@ const ClusterManagement = () => {
                         onClick={() => handleActivateCluster(cluster._id)}
                         color="success"
                         size="small"
-                        title="Активувати"
+                        title="Activate"
                       >
                         <CheckCircle />
                       </IconButton>
@@ -320,7 +321,7 @@ const ClusterManagement = () => {
                       onClick={() => handleDeleteCluster(cluster._id)}
                       color="error"
                       size="small"
-                      title="Видалити"
+                      title="Delete"
                     >
                       <Delete />
                     </IconButton>
@@ -334,13 +335,13 @@ const ClusterManagement = () => {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="lg" fullWidth>
-        <DialogTitle>Створити конфігурацію кластерів</DialogTitle>
+  <DialogTitle>Create Cluster Configuration</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 2 }}>
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
                 <TextField
-                  label="Квартал"
+                  label="Quarter"
                   value={formData.quarter}
                   onChange={(e) => setFormData({ ...formData, quarter: e.target.value })}
                   fullWidth
@@ -349,7 +350,7 @@ const ClusterManagement = () => {
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField
-                  label="Загальна кількість студентів"
+                  label="Total Students"
                   type="number"
                   value={formData.totalStudents}
                   onChange={(e) => setFormData({ ...formData, totalStudents: parseInt(e.target.value) || 0 })}
@@ -359,7 +360,7 @@ const ClusterManagement = () => {
             </Grid>
 
             <TextField
-              label="Примітки"
+              label="Notes"
               multiline
               rows={2}
               value={formData.notes}
@@ -367,7 +368,7 @@ const ClusterManagement = () => {
               fullWidth
             />
 
-            <Typography variant="h6">Конфігурація кластерів</Typography>
+            <Typography variant="h6">Cluster Configuration</Typography>
             
             {formData.clusters.map((cluster, index) => (
               <Paper key={cluster.id} sx={{ p: 2, border: '1px solid #e0e0e0', position: 'relative' }}>
@@ -384,18 +385,18 @@ const ClusterManagement = () => {
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
                     <TextField
-                      label="Назва кластера"
+                      label="Cluster Name"
                       value={cluster.name}
                       onChange={(e) => updateClusterData(index, 'name', e.target.value)}
                       required
                       error={isClusterFieldError(index, 'name')}
-                      helperText={isClusterFieldError(index, 'name') && 'Обов\'язкове поле'}
+                      helperText={isClusterFieldError(index, 'name') && 'Required field'}
                       fullWidth
                     />
                   </Grid>
                   <Grid item xs={12} md={3}>
                     <TextField
-                      label="Відсоток (%)"
+                      label="Percentage (%)"
                       type="number"
                       value={cluster.percentage}
                       onChange={(e) => updateClusterData(index, 'percentage', parseInt(e.target.value) || 0)}
@@ -408,18 +409,18 @@ const ClusterManagement = () => {
                   </Grid>
                   <Grid item xs={12}>
                     <TextField
-                      label="Опис"
+                      label="Description"
                       value={cluster.description}
                       onChange={(e) => updateClusterData(index, 'description', e.target.value)}
                       fullWidth
                       required
                       error={isClusterFieldError(index, 'description')}
-                      helperText={isClusterFieldError(index, 'description') && 'Обов\'язкове поле'}
+                      helperText={isClusterFieldError(index, 'description') && 'Required field'}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField
-                      label="Характеристики (через кому)"
+                      label="Characteristics (comma separated)"
                       value={cluster.characteristics.join(', ')}
                       onChange={(e) => updateClusterArray(index, 'characteristics', e.target.value)}
                       fullWidth
@@ -429,7 +430,7 @@ const ClusterManagement = () => {
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField
-                      label="Бізнес-виклики (через кому)"
+                      label="Business Challenges (comma separated)"
                       value={cluster.businessChallenges.join(', ')}
                       onChange={(e) => updateClusterArray(index, 'businessChallenges', e.target.value)}
                       fullWidth
@@ -443,21 +444,21 @@ const ClusterManagement = () => {
 
             <Box>
               <Button variant="outlined" startIcon={<Add />} onClick={addCluster} sx={{ mt: 1 }}>
-                Додати кластер
+                Add Cluster
               </Button>
             </Box>
 
             <Alert severity={formErrors.percentages ? 'error' : 'info'} sx={{ mt: 2 }}>
               {formErrors.percentages || (
-                <>Переконайтеся, що загальна сума відсотків близька до 100%. Поточна сума: {formData.clusters.reduce((sum, cluster) => sum + (Number(cluster.percentage) || 0), 0)}%</>
+                <>Make sure the total percentage is close to 100%. Current sum: {formData.clusters.reduce((sum, cluster) => sum + (Number(cluster.percentage) || 0), 0)}%</>
               )}
             </Alert>
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Скасувати</Button>
+          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleSaveCluster} variant="contained">
-            Зберегти
+            Save
           </Button>
         </DialogActions>
       </Dialog>

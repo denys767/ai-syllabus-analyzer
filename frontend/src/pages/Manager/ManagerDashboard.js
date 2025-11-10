@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box, Typography, Grid, Paper, Card, CardContent, CardHeader,
+  Box, Typography, Grid, Paper,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Chip, CircularProgress, Alert, Avatar, IconButton, Tooltip,
-  LinearProgress, List, ListItem, ListItemText, ListItemAvatar
+  List, ListItem, ListItemText, ListItemAvatar
 } from '@mui/material';
 import {
-  People, School, Analytics, TrendingUp, Visibility,
-  Description, CheckCircle, Warning, Error, Schedule
+  Visibility,
+  CheckCircle, Warning, Error, Schedule
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -51,7 +51,7 @@ const ManagerDashboard = () => {
       setRecentSyllabi(recentResponse.data.syllabi || []);
 
     } catch (err) {
-      setError('Помилка завантаження даних дешборду');
+  setError('Failed to load dashboard data');
       console.error('Dashboard error:', err);
     } finally {
       setLoading(false);
@@ -69,10 +69,10 @@ const ManagerDashboard = () => {
 
   const getStatusText = (status) => {
     switch (status) {
-      case 'analyzed': return 'Проаналізовано';
-      case 'processing': return 'Обробляється';
-      case 'error': return 'Помилка';
-      default: return 'Очікує';
+      case 'analyzed': return 'Analyzed';
+      case 'processing': return 'Processing';
+      case 'error': return 'Error';
+      default: return 'Pending';
     }
   };
 
@@ -91,108 +91,27 @@ const ManagerDashboard = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
-        Панель менеджера
+        Manager Dashboard
       </Typography>
 
-      {/* Statistics Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
-                  <People />
-                </Avatar>
-                <Box>
-                  <Typography color="textSecondary" gutterBottom>
-                    Викладачі
-                  </Typography>
-                  <Typography variant="h4">
-                    {stats.totalInstructors || 0}
-                  </Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Avatar sx={{ bgcolor: 'secondary.main', mr: 2 }}>
-                  <School />
-                </Avatar>
-                <Box>
-                  <Typography color="textSecondary" gutterBottom>
-                    Силабуси
-                  </Typography>
-                  <Typography variant="h4">
-                    {stats.totalSyllabi || 0}
-                  </Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Avatar sx={{ bgcolor: 'success.main', mr: 2 }}>
-                  <Analytics />
-                </Avatar>
-                <Box>
-                  <Typography color="textSecondary" gutterBottom>
-                    Середня оцінка
-                  </Typography>
-                  <Typography variant="h4">
-                    {stats.averageQualityScore || 0}%
-                  </Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <Avatar sx={{ bgcolor: 'warning.main', mr: 2 }}>
-                  <TrendingUp />
-                </Avatar>
-                <Box>
-                  <Typography color="textSecondary" gutterBottom>
-                    Активність
-                  </Typography>
-                  <Typography variant="h4">
-                    {stats.recentActivity?.length || 0}
-                  </Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+      {/* Removed 4 statistic boxes per request */}
 
       <Grid container spacing={3}>
         {/* Recent Syllabi */}
         <Grid item xs={12} md={8}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
-              Останні силабуси
+              Recent Syllabi
             </Typography>
             <TableContainer>
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Назва курсу</TableCell>
-                    <TableCell>Викладач</TableCell>
-                    <TableCell>Статус</TableCell>
-                    <TableCell>Дата</TableCell>
-                    <TableCell>Дії</TableCell>
+                    <TableCell>Course Title</TableCell>
+                    <TableCell>Instructor</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Date</TableCell>
+                    <TableCell>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -201,7 +120,7 @@ const ManagerDashboard = () => {
                       <TableCell>
                         <Box>
                           <Typography variant="body2" fontWeight="600">
-                            {syllabus.title || syllabus.course?.name || 'Без назви'}
+                            {syllabus.title || syllabus.course?.name || 'Untitled'}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             {syllabus.course?.code}
@@ -221,10 +140,10 @@ const ManagerDashboard = () => {
                         />
                       </TableCell>
                       <TableCell>
-                        {new Date(syllabus.createdAt).toLocaleDateString('uk-UA')}
+                        {new Date(syllabus.createdAt).toLocaleDateString('en-US')}
                       </TableCell>
                       <TableCell>
-                        <Tooltip title="Переглянути">
+                        <Tooltip title="View">
                           <IconButton 
                             size="small"
                             onClick={() => navigate(`/syllabi/${syllabus._id}`)}
@@ -246,7 +165,7 @@ const ManagerDashboard = () => {
         <Grid item xs={12} md={4}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
-              Викладачі
+              Instructors
             </Typography>
             <List>
               {topInstructors.slice(0, 8).map((instructor) => (
@@ -264,7 +183,7 @@ const ManagerDashboard = () => {
                           {instructor.email}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Силабусів: {instructor.syllabusCount || 0}
+                          Syllabi: {instructor.syllabusCount || 0}
                         </Typography>
                       </Box>
                     }

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Box, Typography, TextField, Button, CircularProgress, Paper, Avatar, Grid } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { Psychology, School } from '@mui/icons-material';
 import api from '../../services/api';
 
@@ -7,6 +8,8 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
   const challenge = syllabus.practicalChallenge;
   const discussionCount = useMemo(() => (challenge?.discussion?.length || 0), [challenge]);
   const maxRounds = 3; // configurable number of follow-ups
@@ -54,14 +57,23 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
       <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
         <Psychology sx={{ mr: 1, color: 'primary.main' }} /> AI Challenger ({Math.min(discussionCount, maxRounds)}/{maxRounds})
       </Typography>
-      <Paper elevation={2} sx={{ p: 2, maxHeight: '400px', overflowY: 'auto' }}>
+      <Paper elevation={2} sx={{ 
+        p: 2, 
+        maxHeight: '400px', 
+        overflowY: 'auto', 
+        bgcolor: isDark ? 'background.default' : 'background.paper',
+        border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)',
+        '&::-webkit-scrollbar': { width: 8 },
+        '&::-webkit-scrollbar-track': { background: isDark ? '#111' : '#f1f1f1' },
+        '&::-webkit-scrollbar-thumb': { background: isDark ? '#333' : '#ccc', borderRadius: 4 }
+      }}>
         {/* Initial Question */}
         <Grid container wrap="nowrap" spacing={2} sx={{ mb: 2 }}>
           <Grid item>
             <Avatar sx={{ bgcolor: 'primary.main' }}><Psychology /></Avatar>
           </Grid>
           <Grid item xs>
-            <Paper sx={{ p: 1.5, bgcolor: 'grey.100' }}>
+            <Paper sx={{ p: 1.5, bgcolor: isDark ? 'grey.800' : 'grey.100', color: 'text.primary' }}>
               <Typography variant="body2">{challenge.initialQuestion}</Typography>
             </Paper>
           </Grid>
@@ -73,7 +85,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
             {/* Instructor Response */}
             <Grid container wrap="nowrap" spacing={2} sx={{ mb: 2, justifyContent: 'flex-end' }}>
               <Grid item xs>
-                <Paper sx={{ p: 1.5, bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
+                <Paper sx={{ p: 1.5, bgcolor: isDark ? 'secondary.dark' : 'secondary.light', color: isDark ? 'grey.100' : 'secondary.contrastText' }}>
                   <Typography variant="body2">{entry.instructorResponse}</Typography>
                 </Paper>
               </Grid>
@@ -87,7 +99,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
                 <Avatar sx={{ bgcolor: 'primary.main' }}><Psychology /></Avatar>
               </Grid>
               <Grid item xs>
-                <Paper sx={{ p: 1.5, bgcolor: 'grey.100' }}>
+                <Paper sx={{ p: 1.5, bgcolor: isDark ? 'grey.800' : 'grey.100', color: isDark ? 'grey.100' : 'text.primary' }}>
                   <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{entry.aiResponse}</Typography>
                 </Paper>
               </Grid>

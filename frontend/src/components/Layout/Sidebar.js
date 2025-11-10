@@ -16,7 +16,6 @@ import {
   Description,
   AdminPanelSettings,
   People,
-  BarChart,
   School,
   Upload,
   Assessment,
@@ -55,66 +54,67 @@ const Sidebar = ({ onItemClick }) => {
 
   const instructorItems = [
     {
-      text: 'Дашборд',
+      text: 'Dashboard',
       icon: <Dashboard />,
       path: '/dashboard',
       roles: ['instructor', 'admin'],
     },
     {
-      text: 'Мої силабуси',
+      text: 'My Syllabi',
       icon: <Description />,
       path: '/syllabi',
       roles: ['instructor', 'admin'],
     },
     {
-      text: 'Завантажити силабус',
+      text: 'Upload Syllabus',
       icon: <Upload />,
       path: '/syllabi/upload',
       roles: ['instructor', 'admin'],
     },
     {
-      text: 'Документи',
+      text: 'Documents',
       icon: <Policy />,
       path: '/policies',
       roles: ['instructor', 'admin', 'manager'],
     },
-  // AI Challenger доступний у панелі окремого силабусу; глобального маршруту немає
+  // AI Challenger available inside individual syllabus view; no global route
   ];
 
   const managerItems = [
     {
-      text: 'Менеджер дашборд',
+      text: 'Manager Dashboard',
       icon: <Dashboard />,
       path: '/manager',
       roles: ['manager', 'admin'],
     },
     {
-      text: 'Звіти',
+      text: 'Reports',
       icon: <Assessment />,
       path: '/manager/reports',
+      roles: ['manager','admin'],
+    },
+    {
+      text: 'Documents',
+      icon: <Policy />,
+      path: '/policies',
       roles: ['manager','admin'],
     },
   ];
 
   const adminItems = [
     {
-      text: 'Адмін-панель',
+      text: 'Admin Panel',
       icon: <AdminPanelSettings />,
       path: '/admin',
       roles: ['admin'],
     },
     {
-      text: 'Керування користувачами',
+      text: 'User Management',
       icon: <People />,
       path: '/admin/users',
       roles: ['admin'],
     },
-    {
-      text: 'Системна аналітика',
-      icon: <BarChart />,
-      path: '/admin/analytics',
-      roles: ['admin'],
-    },
+    // Removed deprecated analytics route (/admin/analytics)
   ];
 
   const getRoleBasedMenuItems = () => {
@@ -157,9 +157,9 @@ const Sidebar = ({ onItemClick }) => {
     };
 
     const roleLabels = {
-      'admin': 'Адмін',
-      'manager': 'Менеджер',
-      'instructor': 'Викладач',
+      'admin': 'Admin',
+      'manager': 'Manager',
+      'instructor': 'Instructor',
     };
 
     return (

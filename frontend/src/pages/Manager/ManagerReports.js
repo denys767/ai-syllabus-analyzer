@@ -232,7 +232,7 @@ const ManagerReports = () => {
                         Covered Objectives ({coveredObjectives.length}):
                       </Typography>
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                        {coveredObjectives.slice(0, 5).map((objective, index) => (
+                        {coveredObjectives.map((objective, index) => (
                           <Chip 
                             key={index} 
                             label={objective.substring(0, 25) + '...'} 
@@ -240,16 +240,13 @@ const ManagerReports = () => {
                             color="success" 
                           />
                         ))}
-                        {coveredObjectives.length > 5 && (
-                          <Chip label={`+${coveredObjectives.length - 5}`} size="small" />
-                        )}
                       </Box>
 
                       <Typography variant="subtitle2" gutterBottom>
                         Gaps ({gaps.length}):
                       </Typography>
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                        {gaps.slice(0, 5).map((gap, index) => (
+                        {gaps.map((gap, index) => (
                           <Chip 
                             key={index} 
                             label={gap.substring(0, 25) + '...'} 
@@ -257,9 +254,6 @@ const ManagerReports = () => {
                             color="warning" 
                           />
                         ))}
-                        {gaps.length > 5 && (
-                          <Chip label={`+${gaps.length - 5}`} size="small" />
-                        )}
                       </Box>
                     </CardContent>
                   </Card>
@@ -318,7 +312,7 @@ const ManagerReports = () => {
                       
                       {accepted.length > 0 ? (
                         <List>
-                          {accepted.slice(0, 5).map((rec, index) => (
+                          {accepted.map((rec, index) => (
                             <React.Fragment key={rec.id || index}>
                               <ListItem sx={{ px: 0 }}>
                                 <ListItemText
@@ -331,20 +325,9 @@ const ManagerReports = () => {
                                   secondary={rec.description}
                                 />
                               </ListItem>
-                              {index < Math.min(accepted.length, 5) - 1 && <Divider />}
+                              {index < accepted.length - 1 && <Divider />}
                             </React.Fragment>
                           ))}
-                          {accepted.length > 5 && (
-                            <ListItem sx={{ px: 0 }}>
-                              <ListItemText
-                                primary={
-                                  <Typography variant="body2" color="text.secondary">
-                                    ... and {accepted.length - 5} more recommendations
-                                  </Typography>
-                                }
-                              />
-                            </ListItem>
-                          )}
                         </List>
                       ) : (
                         <Typography variant="body2" color="text.secondary">

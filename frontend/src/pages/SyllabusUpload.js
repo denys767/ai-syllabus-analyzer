@@ -48,7 +48,7 @@ const SyllabusUpload = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [error, setError] = useState('');
 
-  const steps = ['Вибір файлів', 'Метадані', 'Завантаження'];
+  const steps = ['Select Files', 'Metadata', 'Upload'];
 
   const maxSize = 10 * 1024 * 1024; // 10MB
   const acceptedFormats = {
@@ -64,7 +64,7 @@ const SyllabusUpload = () => {
       const reasons = rejectedFiles.map(file => 
         file.errors.map(err => err.message).join(', ')
       );
-      setError(`Деякі файли були відхилені: ${reasons.join('; ')}`);
+      setError(`Some files were rejected: ${reasons.join('; ')}`);
     }
 
     const newFiles = acceptedFiles.map(file => ({
@@ -99,7 +99,7 @@ const SyllabusUpload = () => {
   const validateFiles = () => {
     const invalidFiles = files.filter(f => !f.courseName.trim());
     if (invalidFiles.length > 0) {
-      setError('Будь ласка, введіть назву курсу для всіх файлів');
+      setError('Please enter a course name for all files');
       return false;
     }
     return true;
@@ -144,7 +144,7 @@ const SyllabusUpload = () => {
         }]);
 
       } catch (err) {
-        const errorMessage = err.response?.data?.message || err.message || 'Помилка завантаження';
+        const errorMessage = err.response?.data?.message || err.message || 'Upload error';
         setUploadResults(prev => [...prev, {
           ...fileData,
           success: false,
@@ -158,7 +158,7 @@ const SyllabusUpload = () => {
 
   const handleNext = () => {
     if (currentStep === 0 && files.length === 0) {
-      setError('Будь ласка, виберіть файли для завантаження');
+      setError('Please select files to upload');
       return;
     }
     if (currentStep === 1 && !validateFiles()) {
@@ -211,22 +211,22 @@ const SyllabusUpload = () => {
               <CloudUpload sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
               <Typography variant="h6" gutterBottom>
                 {isDragActive ? 
-                  'Відпустіть файли тут...' : 
-                  'Перетягніть файли сюди або натисніть для вибору'
+                  'Drop files here...' : 
+                  'Drag and drop files here or click to select'
                 }
               </Typography>
               <Typography variant="body2" color="text.secondary" paragraph>
-                Підтримувані формати: PDF, DOC, DOCX (максимум 10MB)
+                Supported formats: PDF, DOC, DOCX (max 10MB)
               </Typography>
               <Button variant="outlined" sx={{ mt: 2 }}>
-                Вибрати файли
+                Select Files
               </Button>
             </Paper>
 
             {files.length > 0 && (
               <Box sx={{ mt: 3 }}>
                 <Typography variant="h6" gutterBottom>
-                  Вибрані файли ({files.length})
+                  Selected Files ({files.length})
                 </Typography>
                 <List>
                   {files.map((fileData) => (
@@ -255,10 +255,10 @@ const SyllabusUpload = () => {
         return (
           <Box>
             <Typography variant="h6" gutterBottom>
-              Метадані курсів
+              Course Metadata
             </Typography>
             <Typography variant="body2" color="text.secondary" paragraph>
-              Введіть інформацію про кожен курс для кращого аналізу
+              Enter information about each course for better analysis
             </Typography>
             
             {files.map((fileData, index) => (
@@ -275,30 +275,30 @@ const SyllabusUpload = () => {
                     <Grid item xs={12} md={6}>
                       <TextField
                         fullWidth
-                        label="Назва курсу *"
+                        label="Course Name *"
                         value={fileData.courseName}
                         onChange={(e) => updateFileMetadata(fileData.id, 'courseName', e.target.value)}
-                        placeholder="Наприклад: Мікроекономіка"
+                        placeholder="e.g., Microeconomics"
                       />
                     </Grid>
                     <Grid item xs={12} md={6}>
                       <TextField
                         fullWidth
-                        label="Код курсу"
+                        label="Course Code"
                         value={fileData.courseCode}
                         onChange={(e) => updateFileMetadata(fileData.id, 'courseCode', e.target.value)}
-                        placeholder="Наприклад: ECON101"
+                        placeholder="e.g., ECON101"
                       />
                     </Grid>
                     <Grid item xs={12}>
                       <TextField
                         fullWidth
-                        label="Опис курсу"
+                        label="Course Description"
                         value={fileData.description}
                         onChange={(e) => updateFileMetadata(fileData.id, 'description', e.target.value)}
                         multiline
                         rows={2}
-                        placeholder="Короткий опис курсу..."
+                        placeholder="Brief course description..."
                       />
                     </Grid>
                   </Grid>
@@ -312,13 +312,13 @@ const SyllabusUpload = () => {
         return (
           <Box>
             <Typography variant="h6" gutterBottom>
-              Результати завантаження
+              Upload Results
             </Typography>
             
             {uploading && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Typography>Завантаження файлів...</Typography>
+                  <Typography>Uploading files...</Typography>
                 </Box>
               </Alert>
             )}
@@ -346,13 +346,13 @@ const SyllabusUpload = () => {
                   
                   {result.success ? (
                     <Box>
-                      <Chip label="Успішно завантажено" color="success" size="small" />
+                      <Chip label="Successfully Uploaded" color="success" size="small" />
                       <Button
                         size="small"
                         onClick={() => navigate(`/syllabi/${result.syllabusId}`)}
                         sx={{ ml: 1 }}
                       >
-                        Переглянути
+                        View
                       </Button>
                     </Box>
                   ) : result.error && (
@@ -371,7 +371,7 @@ const SyllabusUpload = () => {
                   onClick={() => navigate('/syllabi')}
                   sx={{ mr: 2 }}
                 >
-                  Переглянути всі силабуси
+                  View All Syllabi
                 </Button>
                 <Button
                   variant="outlined"
@@ -381,7 +381,7 @@ const SyllabusUpload = () => {
                     setCurrentStep(0);
                   }}
                 >
-                  Завантажити ще
+                  Upload More
                 </Button>
               </Box>
             )}
@@ -399,10 +399,10 @@ const SyllabusUpload = () => {
       <Box sx={{ textAlign: 'center', mb: 4 }}>
         <School sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
         <Typography variant="h4" fontWeight="bold" gutterBottom>
-          Завантаження силабуса
+          Syllabus Upload
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Завантажте ваші силабуси для аналізу за допомогою AI
+          Upload your syllabi for AI analysis
         </Typography>
       </Box>
 
@@ -434,7 +434,7 @@ const SyllabusUpload = () => {
           onClick={handleBack}
           disabled={currentStep === 0 || uploading}
         >
-          Назад
+          Back
         </Button>
         
         <Box>
@@ -445,7 +445,7 @@ const SyllabusUpload = () => {
               disabled={uploading}
               startIcon={currentStep === 1 ? <Psychology /> : undefined}
             >
-              {currentStep === 1 ? 'Завантажити та аналізувати' : 'Далі'}
+              {currentStep === 1 ? 'Upload and Analyze' : 'Next'}
             </Button>
           )}
         </Box>
@@ -454,8 +454,8 @@ const SyllabusUpload = () => {
       {/* Info */}
       <Alert severity="info" sx={{ mt: 3 }}>
         <Typography variant="body2">
-          <strong>Поради:</strong> Для кращого аналізу переконайтеся, що ваш силабус містить:
-          цілі курсу, структуру занять, методи оцінювання та рекомендовану літературу.
+          <strong>Tips:</strong> For better analysis, make sure your syllabus contains:
+          course objectives, lesson structure, assessment methods, and recommended literature.
         </Typography>
       </Alert>
     </Box>

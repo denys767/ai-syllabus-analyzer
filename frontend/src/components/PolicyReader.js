@@ -27,7 +27,7 @@ const PolicyReader = () => {
       const response = await api.policies.getAll();
       setPolicies(response.data.policies);
     } catch (err) {
-      setError('Не вдалося завантажити документи');
+      setError('Failed to load documents');
       console.error(err);
     } finally {
       setLoading(false);
@@ -41,7 +41,7 @@ const PolicyReader = () => {
       // Refresh policies to update acknowledgment status
       await loadPolicies();
     } catch (err) {
-      setError('Не вдалося підтвердити ознайомлення');
+      setError('Failed to confirm acknowledgment');
       console.error(err);
     } finally {
       setAcknowledging(false);
@@ -61,16 +61,16 @@ const PolicyReader = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError('Не вдалося завантажити файл');
+      setError('Failed to download file');
       console.error(err);
     }
   };
 
   const getTypeLabel = (type) => {
     switch (type) {
-      case 'ai-policy': return 'Політика AI';
-      case 'academic-integrity': return 'Академічна доброчесність';
-      case 'teaching-tips': return 'Поради викладання';
+      case 'ai-policy': return 'AI Policy';
+      case 'academic-integrity': return 'Academic Integrity';
+      case 'teaching-tips': return 'Teaching Tips';
       default: return type;
     }
   };
@@ -95,7 +95,7 @@ const PolicyReader = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
-        Документи для ознайомлення
+        Documents for Review
       </Typography>
 
       {error && (
@@ -132,7 +132,7 @@ const PolicyReader = () => {
                 {policy.attachedFile && (
                   <Chip
                     icon={<Description />}
-                    label={`Файл: ${policy.attachedFile.originalName}`}
+                    label={`File: ${policy.attachedFile.originalName}`}
                     size="small"
                     sx={{ mb: 1 }}
                     variant="outlined"
@@ -146,14 +146,14 @@ const PolicyReader = () => {
                     <Warning color="warning" />
                   )}
                   <Typography variant="body2">
-                    {policy.isAcknowledged ? 'Ознайомлено' : 'Не ознайомлено'}
+                    {policy.isAcknowledged ? 'Acknowledged' : 'Not Acknowledged'}
                   </Typography>
                 </Box>
 
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   {policy.isRequired && (
                     <Chip
-                      label="Обов'язковий"
+                      label="Required"
                       color="error"
                       size="small"
                       variant="outlined"
@@ -178,7 +178,7 @@ const PolicyReader = () => {
                     onClick={() => handleDownloadFile(policy._id)}
                     sx={{ mb: 1 }}
                   >
-                    Завантажити файл
+                    Download File
                   </Button>
                 )}
                 
@@ -189,7 +189,7 @@ const PolicyReader = () => {
                   onClick={() => setSelectedPolicy(policy)}
                   sx={{ mb: 1 }}
                 >
-                  Переглянути
+                  View
                 </Button>
 
                 {!policy.isAcknowledged && (
@@ -200,7 +200,7 @@ const PolicyReader = () => {
                     onClick={() => handleAcknowledge(policy._id)}
                     disabled={acknowledging}
                   >
-                    {acknowledging ? 'Підтвердження...' : 'Підтвердити ознайомлення'}
+                    {acknowledging ? 'Confirming...' : 'Confirm Acknowledgment'}
                   </Button>
                 )}
               </Box>
@@ -263,7 +263,7 @@ const PolicyReader = () => {
                 {selectedPolicy.attachedFile && (
                   <Box sx={{ mt: 3, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
                     <Typography variant="subtitle2" gutterBottom>
-                      Прикріплений файл:
+                      Attached File:
                     </Typography>
                     <Button
                       variant="outlined"
@@ -278,7 +278,7 @@ const PolicyReader = () => {
               </Box>
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => setSelectedPolicy(null)}>Закрити</Button>
+              <Button onClick={() => setSelectedPolicy(null)}>Close</Button>
               {!selectedPolicy.isAcknowledged && (
                 <Button
                   variant="contained"
@@ -289,7 +289,7 @@ const PolicyReader = () => {
                   }}
                   disabled={acknowledging}
                 >
-                  Підтвердити ознайомлення
+                  Confirm Acknowledgment
                 </Button>
               )}
             </DialogActions>

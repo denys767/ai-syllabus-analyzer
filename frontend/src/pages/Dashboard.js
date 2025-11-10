@@ -85,13 +85,13 @@ const Dashboard = () => {
   const getStatusText = (status) => {
     switch (status) {
       case 'analyzed':
-        return 'Проаналізовано';
+        return 'Analyzed';
       case 'processing':
-        return 'Обробляється';
+        return 'Processing';
       case 'error':
-        return 'Помилка';
+        return 'Error';
       default:
-        return 'Очікує';
+        return 'Pending';
     }
   };
 
@@ -108,34 +108,7 @@ const Dashboard = () => {
     }
   };
 
-  const quickActions = [
-    {
-      title: 'Завантажити силабус',
-      description: 'Додати новий силабус для аналізу',
-      icon: <Upload />,
-      color: 'primary',
-      path: '/syllabi/upload',
-      roles: ['instructor'],
-    },
-    {
-      title: 'Переглянути силабуси',
-      description: 'Керувати завантаженими силабусами',
-      icon: <Description />,
-      color: 'secondary',
-      path: '/syllabi',
-      roles: ['instructor', 'admin', 'manager'],
-    },
-    // Опитування: немає окремої сторінки у фронтенді, приховано для всіх ролей
-    // AI Challenger moved into per-syllabus view, no global entry
-    {
-      title: 'Звіти силабусів',
-      description: 'Аналітичні звіти по кожному силабусу',
-      icon: <Analytics />,
-      color: 'warning',
-      path: '/manager/reports',
-      roles: ['manager', 'admin'],
-    },
-  ];
+  // Quick actions section removed per request
 
   const hasRole = (roles) => {
     return roles.includes(user?.role);
@@ -146,7 +119,7 @@ const Dashboard = () => {
       <Box sx={{ p: 3 }}>
         <LinearProgress />
         <Typography variant="h6" sx={{ mt: 2 }}>
-          Завантаження дашборда...
+          Loading dashboard...
         </Typography>
       </Box>
     );
@@ -159,10 +132,10 @@ const Dashboard = () => {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
           <Box>
             <Typography variant="h4" fontWeight="bold" gutterBottom>
-              Привіт, {user?.firstName}! 👋
+              Hello, {user?.firstName}
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              Ласкаво просимо в AI Syllabus Analyzer. Переглядайте ваші силабуси та отримуйте рекомендації від AI.
+              Welcome to AI Syllabus Analyzer. Review your syllabi and get AI recommendations.
             </Typography>
           </Box>
           
@@ -190,7 +163,7 @@ const Dashboard = () => {
                     {stats.totalSyllabi || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Силабуси
+                    Syllabi
                   </Typography>
                 </Box>
               </Box>
@@ -210,7 +183,7 @@ const Dashboard = () => {
                     {stats.analyzedSyllabi || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Проаналізовано
+                    Analyzed
                   </Typography>
                 </Box>
               </Box>
@@ -233,7 +206,7 @@ const Dashboard = () => {
                     {pendingTotal}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Рекомендації в очікуванні
+                    Pending Recommendations
                   </Typography>
                 </Box>
               </Box>
@@ -242,59 +215,21 @@ const Dashboard = () => {
         </Grid>
       </Grid>
 
-      {/* Quick Actions */}
-      <Typography variant="h5" fontWeight="bold" gutterBottom>
-        Швидкі дії
-      </Typography>
-      <Grid container spacing={2} sx={{ mb: 4 }}>
-        {quickActions
-          .filter(action => hasRole(action.roles))
-          .map((action, index) => (
-            <Grid item xs={12} sm={6} md={4} key={index}>
-              <Card 
-                sx={{ 
-                  cursor: 'pointer',
-                  transition: 'transform 0.2s',
-                  '&:hover': {
-                    transform: 'translateY(-2px)',
-                    boxShadow: 4,
-                  },
-                }}
-                onClick={() => navigate(action.path)}
-              >
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <Avatar sx={{ bgcolor: `${action.color}.main`, mr: 2 }}>
-                      {action.icon}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h6" fontWeight="600">
-                        {action.title}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {action.description}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-      </Grid>
+      {/* Quick Actions removed */}
 
       {/* Recent Syllabi */}
       <Typography variant="h5" fontWeight="bold" gutterBottom>
-        Останні силабуси
+  Recent Syllabi
       </Typography>
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Назва</TableCell>
-              <TableCell>Курс</TableCell>
-              <TableCell>Статус</TableCell>
-              <TableCell>Дата</TableCell>
-              <TableCell align="right">Дії</TableCell>
+              <TableCell>Title</TableCell>
+              <TableCell>Course</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Date</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -305,11 +240,11 @@ const Dashboard = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
                       {getStatusIcon(syllabus.status)}
                       <Typography variant="body2" sx={{ ml: 1 }}>
-                        {syllabus.originalName || syllabus.originalFile?.originalName || syllabus.title || 'Без назви'}
+                        {syllabus.originalName || syllabus.originalFile?.originalName || syllabus.title || 'Untitled'}
                       </Typography>
                     </Box>
                   </TableCell>
-                  <TableCell>{syllabus.courseName || syllabus.course?.name || syllabus.title || 'Не вказано'}</TableCell>
+                  <TableCell>{syllabus.courseName || syllabus.course?.name || syllabus.title || 'N/A'}</TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                       <Chip
@@ -320,13 +255,13 @@ const Dashboard = () => {
                       {Array.isArray(syllabus.recommendations) && syllabus.recommendations.length > 0 && (() => {
                         const pending = syllabus.recommendations.filter(r => r.status === 'pending').length;
                         return pending > 0 ? (
-                          <Chip label={`Очікує: ${pending}`} color="warning" size="small" />
+                          <Chip label={`Pending: ${pending}`} color="warning" size="small" />
                         ) : null;
                       })()}
                     </Box>
                   </TableCell>
                   <TableCell>
-                    {new Date(syllabus.createdAt).toLocaleDateString('uk-UA')}
+                    {new Date(syllabus.createdAt).toLocaleDateString('en-US')}
                   </TableCell>
                   <TableCell align="right">
                     <IconButton size="small" onClick={() => navigate(`/syllabi/${syllabus._id}`)}>
@@ -348,13 +283,13 @@ const Dashboard = () => {
               <TableRow>
                 <TableCell colSpan={5} align="center">
                   <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
-                    Силабуси не знайдено. {' '}
+                    No syllabi found. {' '}
                     {hasRole(['instructor']) && (
                       <Button
                         variant="text"
                         onClick={() => navigate('/syllabi/upload')}
                       >
-                        Завантажити перший силабус
+                        Upload first syllabus
                       </Button>
                     )}
                   </Typography>

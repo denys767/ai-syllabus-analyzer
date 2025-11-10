@@ -75,7 +75,7 @@ const SyllabiList = () => {
   const response = await api.syllabus.getMySyllabi();
       setSyllabi(response.data.syllabi || []);
     } catch (err) {
-      setError('Помилка завантаження силабусів');
+      setError('Failed to load syllabi');
       console.error('Load syllabi error:', err);
     } finally {
       setLoading(false);
@@ -88,7 +88,7 @@ const SyllabiList = () => {
       setSyllabi(syllabi.filter(s => s._id !== deleteDialog.syllabus._id));
       setDeleteDialog({ open: false, syllabus: null });
     } catch (err) {
-      setError('Помилка видалення силабуса');
+      setError('Failed to delete syllabus');
     }
   };
 
@@ -100,7 +100,7 @@ const SyllabiList = () => {
       ));
       setEditDialog({ open: false, syllabus: null });
     } catch (err) {
-      setError('Помилка оновлення силабуса');
+      setError('Failed to update syllabus');
     }
   };
 
@@ -109,7 +109,7 @@ const SyllabiList = () => {
   await api.post(`/syllabus/${syllabusId}/analyze`);
       loadSyllabi(); // Reload to update status
     } catch (err) {
-      setError('Помилка запуску аналізу');
+      setError('Failed to start analysis');
     }
   };
 
@@ -128,7 +128,7 @@ const SyllabiList = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError('Помилка завантаження файлу');
+      setError('Failed to download file');
     }
   };
 
@@ -148,13 +148,13 @@ const SyllabiList = () => {
   const getStatusText = (status) => {
     switch (status) {
       case 'analyzed':
-        return 'Проаналізовано';
+        return 'Analyzed';
       case 'processing':
-        return 'Обробляється';
+        return 'Processing';
       case 'error':
-        return 'Помилка';
+        return 'Error';
       default:
-        return 'Очікує';
+        return 'Pending';
     }
   };
 
@@ -203,7 +203,7 @@ const SyllabiList = () => {
       <Box sx={{ p: 3 }}>
         <LinearProgress />
         <Typography variant="h6" sx={{ mt: 2 }}>
-          Завантаження силабусів...
+          Loading syllabi...
         </Typography>
       </Box>
     );
@@ -214,7 +214,7 @@ const SyllabiList = () => {
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" fontWeight="bold">
-          Силабуси
+          Syllabi
         </Typography>
         <Button
           variant="contained"
@@ -222,7 +222,7 @@ const SyllabiList = () => {
           onClick={() => navigate('/syllabi/upload')}
           sx={{ borderRadius: 2 }}
         >
-          Завантажити новий
+          Upload new
         </Button>
       </Box>
 
@@ -239,7 +239,7 @@ const SyllabiList = () => {
             <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
-                placeholder="Пошук силабусів..."
+                placeholder="Search syllabi..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 InputProps={{
@@ -249,38 +249,38 @@ const SyllabiList = () => {
             </Grid>
             <Grid item xs={12} md={3}>
               <FormControl fullWidth>
-                <InputLabel>Статус</InputLabel>
+                <InputLabel>Status</InputLabel>
                 <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  label="Статус"
+                  label="Status"
                 >
-                  <MenuItem value="">Всі</MenuItem>
+                  <MenuItem value="">All</MenuItem>
                   {/* Removed 'pending' as backend uses 'processing' */}
-                  <MenuItem value="processing">Обробляється</MenuItem>
-                  <MenuItem value="analyzed">Проаналізовано</MenuItem>
-                  <MenuItem value="error">Помилка</MenuItem>
+                  <MenuItem value="processing">Processing</MenuItem>
+                  <MenuItem value="analyzed">Analyzed</MenuItem>
+                  <MenuItem value="error">Error</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12} md={3}>
               <FormControl fullWidth>
-                <InputLabel>Сортування</InputLabel>
+                <InputLabel>Sort by</InputLabel>
                 <Select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  label="Сортування"
+                  label="Sort by"
                 >
-                  <MenuItem value="createdAt">Дата створення</MenuItem>
-                  <MenuItem value="name">Назва файлу</MenuItem>
-                  <MenuItem value="course">Назва курсу</MenuItem>
-                  <MenuItem value="status">Статус</MenuItem>
+                  <MenuItem value="createdAt">Creation date</MenuItem>
+                  <MenuItem value="name">File name</MenuItem>
+                  <MenuItem value="course">Course name</MenuItem>
+                  <MenuItem value="status">Status</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12} md={2}>
               <Typography variant="body2" color="text.secondary">
-                Знайдено: {filteredSyllabi.length}
+                Found: {filteredSyllabi.length}
               </Typography>
             </Grid>
           </Grid>
@@ -292,12 +292,12 @@ const SyllabiList = () => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Файл</TableCell>
-              <TableCell>Курс</TableCell>
-              <TableCell>Статус</TableCell>
-              <TableCell>Рекомендації</TableCell>
-              <TableCell>Дата завантаження</TableCell>
-              <TableCell align="right">Дії</TableCell>
+              <TableCell>File</TableCell>
+              <TableCell>Course</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Recommendations</TableCell>
+              <TableCell>Upload date</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -311,12 +311,12 @@ const SyllabiList = () => {
                       </Avatar>
                       <Box>
                         <Typography variant="body2" fontWeight="600">
-                          {syllabus.originalName || syllabus.originalFile?.originalName || syllabus.title || 'Без назви'}
+                          {syllabus.originalName || syllabus.originalFile?.originalName || syllabus.title || 'Untitled'}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           {syllabus.originalFile?.size ? 
                             `${(syllabus.originalFile.size / 1024 / 1024).toFixed(2)} MB` : 
-                            'Розмір невідомий'
+                            'Unknown size'
                           }
                         </Typography>
                       </Box>
@@ -324,7 +324,7 @@ const SyllabiList = () => {
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">
-                      {syllabus.courseName || syllabus.course?.name || syllabus.title || 'Не вказано'}
+                      {syllabus.courseName || syllabus.course?.name || syllabus.title || 'N/A'}
                     </Typography>
                     {(syllabus.courseCode || syllabus.course?.code) && (
                       <Typography variant="caption" color="text.secondary">
@@ -346,9 +346,9 @@ const SyllabiList = () => {
                         const pending = syllabus.recommendations.filter(r => r.status === 'pending').length;
                         const total = syllabus.recommendations.length;
                         return pending > 0 ? (
-                          <Chip label={`Очікує: ${pending}`} color="warning" size="small" />
+                          <Chip label={`Pending: ${pending}`} color="warning" size="small" />
                         ) : (
-                          <Chip label={`Опрацьовано (${total})`} color="success" size="small" />
+                          <Chip label={`Processed (${total})`} color="success" size="small" />
                         );
                       })()
                     ) : (
@@ -357,16 +357,16 @@ const SyllabiList = () => {
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">
-                      {new Date(syllabus.createdAt).toLocaleDateString('uk-UA')}
+                      {new Date(syllabus.createdAt).toLocaleDateString('en-US')}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {new Date(syllabus.createdAt).toLocaleTimeString('uk-UA')}
+                      {new Date(syllabus.createdAt).toLocaleTimeString('en-US')}
                     </Typography>
                   </TableCell>
                   {/* AI оцінка прибрана */}
                   <TableCell align="right">
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      <Tooltip title="Переглянути аналіз">
+                      <Tooltip title="View analysis">
                         <IconButton
                           size="small"
                           onClick={() => navigate(`/syllabi/${syllabus._id}`)}
@@ -388,7 +388,7 @@ const SyllabiList = () => {
                       </Tooltip>
                       
                       {syllabus.status === 'pending' && (
-                        <Tooltip title="Аналізувати">
+                        <Tooltip title="Analyze">
                           <IconButton
                             size="small"
                             onClick={() => handleAnalyze(syllabus._id)}
@@ -398,7 +398,7 @@ const SyllabiList = () => {
                         </Tooltip>
                       )}
 
-                      <Tooltip title="Більше дій">
+                      <Tooltip title="More actions">
                         <IconButton
                           size="small"
                           onClick={(e) => setMenuAnchor({ element: e.currentTarget, syllabus })}
@@ -412,16 +412,16 @@ const SyllabiList = () => {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={6} align="center">
                   <Box sx={{ py: 4 }}>
                     <Description sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
                     <Typography variant="h6" color="text.secondary" gutterBottom>
-                      Силабуси не знайдено
+                      No syllabi found
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       {searchTerm || statusFilter ? 
-                        'Спробуйте змінити критерії пошуку' : 
-                        'Завантажте ваш перший силабус для початку роботи'
+                        'Try adjusting your search criteria' : 
+                        'Upload your first syllabus to get started'
                       }
                     </Typography>
                   </Box>
@@ -443,7 +443,7 @@ const SyllabiList = () => {
           setMenuAnchor({ element: null, syllabus: null });
         }}>
           <ListItemIcon><Edit /></ListItemIcon>
-          <ListItemText>Редагувати</ListItemText>
+          <ListItemText>Edit</ListItemText>
         </MenuItem>
         
         <MenuItem onClick={() => {
@@ -455,7 +455,7 @@ const SyllabiList = () => {
           setMenuAnchor({ element: null, syllabus: null });
         }}>
           <ListItemIcon><Download /></ListItemIcon>
-          <ListItemText>Завантажити</ListItemText>
+          <ListItemText>Download</ListItemText>
         </MenuItem>
         
         <MenuItem onClick={() => {
@@ -464,7 +464,7 @@ const SyllabiList = () => {
           setMenuAnchor({ element: null, syllabus: null });
         }}>
           <ListItemIcon><Analytics /></ListItemIcon>
-          <ListItemText>Звіти</ListItemText>
+          <ListItemText>Reports</ListItemText>
         </MenuItem>
         
         <MenuItem 
@@ -475,7 +475,7 @@ const SyllabiList = () => {
           sx={{ color: 'error.main' }}
         >
           <ListItemIcon><Delete color="error" /></ListItemIcon>
-          <ListItemText>Видалити</ListItemText>
+          <ListItemText>Delete</ListItemText>
         </MenuItem>
       </Menu>
 
@@ -484,19 +484,19 @@ const SyllabiList = () => {
         open={deleteDialog.open}
         onClose={() => setDeleteDialog({ open: false, syllabus: null })}
       >
-        <DialogTitle>Підтвердити видалення</DialogTitle>
+        <DialogTitle>Confirm deletion</DialogTitle>
         <DialogContent>
           <Typography>
-            Ви впевнені, що хочете видалити силабус "{deleteDialog.syllabus?.originalName}"?
-            Ця дія незворотна.
+            Are you sure you want to delete syllabus "{deleteDialog.syllabus?.originalName}"?
+            This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialog({ open: false, syllabus: null })}>
-            Скасувати
+            Cancel
           </Button>
           <Button onClick={handleDelete} color="error" variant="contained">
-            Видалити
+            Delete
           </Button>
         </DialogActions>
       </Dialog>
@@ -536,25 +536,25 @@ const EditSyllabusDialog = ({ open, syllabus, onClose, onSave }) => {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Редагувати силабус</DialogTitle>
+      <DialogTitle>Edit syllabus</DialogTitle>
       <DialogContent>
         <TextField
           fullWidth
-          label="Назва курсу"
+          label="Course name"
           value={formData.courseName}
           onChange={(e) => setFormData({ ...formData, courseName: e.target.value })}
           margin="normal"
         />
         <TextField
           fullWidth
-          label="Код курсу"
+          label="Course code"
           value={formData.courseCode}
           onChange={(e) => setFormData({ ...formData, courseCode: e.target.value })}
           margin="normal"
         />
         <TextField
           fullWidth
-          label="Опис"
+          label="Description"
           value={formData.description}
           onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           margin="normal"
@@ -563,8 +563,8 @@ const EditSyllabusDialog = ({ open, syllabus, onClose, onSave }) => {
         />
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Скасувати</Button>
-        <Button onClick={handleSubmit} variant="contained">Зберегти</Button>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={handleSubmit} variant="contained">Save</Button>
       </DialogActions>
     </Dialog>
   );

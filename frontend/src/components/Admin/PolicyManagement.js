@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box, Typography, Button, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Paper, Chip, IconButton, Dialog, DialogTitle,
+  Box, Typography, Button, Paper, Chip, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, FormControl, InputLabel,
   Select, MenuItem, Alert, Snackbar, Switch, FormControlLabel,
-  Card, CardContent, CardActions, Grid, Fab, Radio, RadioGroup, FormLabel,
+  Card, CardContent, CardActions, Grid, Radio, RadioGroup, FormLabel,
   Stack
 } from '@mui/material';
 import {
-  Add, Edit, Delete, Visibility, CheckCircle, Warning, AttachFile, Download
+  Add, Edit, Delete, CheckCircle, Warning, AttachFile, Download
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import api from '../../services/api';
@@ -30,22 +29,23 @@ const PolicyManagement = () => {
   const [previewMode, setPreviewMode] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  useEffect(() => {
-    loadPolicies();
-  }, []);
-
   const loadPolicies = async () => {
     try {
       setLoading(true);
       const response = await api.policies.getAll();
       setPolicies(response.data.policies);
     } catch (err) {
-      setError('Не вдалося завантажити документи');
+      setError('Failed to load documents');
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadPolicies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCreate = () => {
     setEditingPolicy(null);
@@ -76,14 +76,14 @@ const PolicyManagement = () => {
   };
 
   const handleDelete = async (policyId) => {
-    if (!window.confirm('Ви впевнені, що хочете видалити цей документ?')) return;
+  if (!window.confirm('Are you sure you want to delete this document?')) return;
 
     try {
       await api.policies.delete(policyId);
-      setSnackbar({ open: true, message: 'Документ видалено успішно', severity: 'success' });
+  setSnackbar({ open: true, message: 'Document deleted successfully', severity: 'success' });
       loadPolicies();
     } catch (err) {
-      setSnackbar({ open: true, message: 'Помилка при видаленні документа', severity: 'error' });
+  setSnackbar({ open: true, message: 'Error deleting document', severity: 'error' });
       console.error(err);
     }
   };
@@ -103,16 +103,16 @@ const PolicyManagement = () => {
 
       if (editingPolicy) {
         await api.policies.update(editingPolicy._id, formDataToSend);
-        setSnackbar({ open: true, message: 'Документ оновлено успішно', severity: 'success' });
+  setSnackbar({ open: true, message: 'Document updated successfully', severity: 'success' });
       } else {
         await api.policies.create(formDataToSend);
-        setSnackbar({ open: true, message: 'Документ створено успішно', severity: 'success' });
+  setSnackbar({ open: true, message: 'Document created successfully', severity: 'success' });
       }
       setDialogOpen(false);
       setSelectedFile(null);
       loadPolicies();
     } catch (err) {
-      setSnackbar({ open: true, message: 'Помилка при збереженні документа', severity: 'error' });
+  setSnackbar({ open: true, message: 'Error saving document', severity: 'error' });
       console.error(err);
     }
   };
@@ -135,16 +135,16 @@ const PolicyManagement = () => {
       link.click();
       link.remove();
     } catch (err) {
-      setSnackbar({ open: true, message: 'Помилка при завантаженні файлу', severity: 'error' });
+  setSnackbar({ open: true, message: 'Error downloading file', severity: 'error' });
       console.error(err);
     }
   };
 
   const getTypeLabel = (type) => {
     switch (type) {
-      case 'ai-policy': return 'Політика AI';
-      case 'academic-integrity': return 'Академічна доброчесність';
-      case 'teaching-tips': return 'Поради викладання';
+  case 'ai-policy': return 'AI Policy';
+  case 'academic-integrity': return 'Academic Integrity';
+  case 'teaching-tips': return 'Teaching Tips';
       default: return type;
     }
   };
@@ -161,7 +161,7 @@ const PolicyManagement = () => {
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-        <Typography>Завантаження...</Typography>
+  <Typography>Loading...</Typography>
       </Box>
     );
   }
@@ -169,13 +169,13 @@ const PolicyManagement = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5">Управління документами</Typography>
+  <Typography variant="h5">Document Management</Typography>
         <Button
           variant="contained"
           startIcon={<Add />}
           onClick={handleCreate}
         >
-          Додати документ
+          Add Document
         </Button>
       </Box>
 
@@ -208,7 +208,7 @@ const PolicyManagement = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                   <CheckCircle color="success" fontSize="small" />
                   <Typography variant="body2">
-                    Підтверджено: {policy.acknowledgmentCount}
+                    Acknowledged: {policy.acknowledgmentCount}
                   </Typography>
                 </Box>
 
@@ -216,7 +216,7 @@ const PolicyManagement = () => {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                     <AttachFile fontSize="small" />
                     <Typography variant="body2">
-                      Файл: {policy.attachedFile.originalName}
+                      File: {policy.attachedFile.originalName}
                     </Typography>
                   </Box>
                 )}
@@ -228,12 +228,12 @@ const PolicyManagement = () => {
                     <Warning color="warning" fontSize="small" />
                   )}
                   <Typography variant="body2">
-                    {policy.isRequired ? 'Обов\'язковий' : 'Необов\'язковий'}
+                    {policy.isRequired ? 'Required' : 'Optional'}
                   </Typography>
                 </Box>
 
                 <Chip 
-                  label={policy.contentType === 'markdown' ? 'Markdown' : 'Текст'} 
+                  label={policy.contentType === 'markdown' ? 'Markdown' : 'Text'} 
                   size="small" 
                   variant="outlined"
                   sx={{ mt: 1 }}
@@ -261,33 +261,33 @@ const PolicyManagement = () => {
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          {editingPolicy ? 'Редагувати документ' : 'Створити документ'}
+          {editingPolicy ? 'Edit Document' : 'Create Document'}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField
               fullWidth
-              label="Назва документа"
+              label="Document Title"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               required
             />
 
             <FormControl fullWidth>
-              <InputLabel>Тип документа</InputLabel>
+              <InputLabel>Document Type</InputLabel>
               <Select
                 value={formData.type}
-                label="Тип документа"
+                label="Document Type"
                 onChange={(e) => setFormData({ ...formData, type: e.target.value })}
               >
-                <MenuItem value="ai-policy">Політика AI</MenuItem>
-                <MenuItem value="academic-integrity">Академічна доброчесність</MenuItem>
-                <MenuItem value="teaching-tips">Поради викладання</MenuItem>
+                <MenuItem value="ai-policy">AI Policy</MenuItem>
+                <MenuItem value="academic-integrity">Academic Integrity</MenuItem>
+                <MenuItem value="teaching-tips">Teaching Tips</MenuItem>
               </Select>
             </FormControl>
 
             <FormControl component="fieldset">
-              <FormLabel component="legend">Формат контенту</FormLabel>
+              <FormLabel component="legend">Content Format</FormLabel>
               <RadioGroup
                 row
                 value={formData.contentType}
@@ -305,7 +305,7 @@ const PolicyManagement = () => {
                   variant={!previewMode ? 'contained' : 'outlined'}
                   onClick={() => setPreviewMode(false)}
                 >
-                  Редагувати
+                  Edit
                 </Button>
                 <Button
                   size="small"
@@ -313,7 +313,7 @@ const PolicyManagement = () => {
                   onClick={() => setPreviewMode(true)}
                   disabled={formData.contentType !== 'markdown'}
                 >
-                  Попередній перегляд
+                  Preview
                 </Button>
               </Stack>
 
@@ -322,11 +322,11 @@ const PolicyManagement = () => {
                   fullWidth
                   multiline
                   rows={10}
-                  label="Зміст документа"
+                  label="Document Content"
                   value={formData.content}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                   required
-                  helperText={formData.contentType === 'markdown' ? 'Підтримується Markdown форматування' : ''}
+                  helperText={formData.contentType === 'markdown' ? 'Markdown formatting supported' : ''}
                 />
               ) : (
                 <Paper sx={{ p: 2, maxHeight: 400, overflow: 'auto', bgcolor: 'background.default' }}>
@@ -337,7 +337,7 @@ const PolicyManagement = () => {
 
             <Box>
               <Typography variant="body2" gutterBottom>
-                Прикріпити файл (необов'язково)
+                Attach File (optional)
               </Typography>
               <Button
                 variant="outlined"
@@ -345,7 +345,7 @@ const PolicyManagement = () => {
                 startIcon={<AttachFile />}
                 fullWidth
               >
-                {selectedFile ? selectedFile.name : 'Вибрати файл (PDF, DOC, DOCX, TXT, MD)'}
+                {selectedFile ? selectedFile.name : 'Choose file (PDF, DOC, DOCX, TXT, MD)'}
                 <input
                   type="file"
                   hidden
@@ -355,7 +355,7 @@ const PolicyManagement = () => {
               </Button>
               {editingPolicy?.attachedFile && !selectedFile && (
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                  Поточний файл: {editingPolicy.attachedFile.originalName}
+                  Current file: {editingPolicy.attachedFile.originalName}
                 </Typography>
               )}
             </Box>
@@ -367,14 +367,14 @@ const PolicyManagement = () => {
                   onChange={(e) => setFormData({ ...formData, isRequired: e.target.checked })}
                 />
               }
-              label="Обов'язковий для ознайомлення"
+              label="Required for acknowledgment"
             />
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Скасувати</Button>
+          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleSubmit} variant="contained">
-            {editingPolicy ? 'Оновити' : 'Створити'}
+            {editingPolicy ? 'Update' : 'Create'}
           </Button>
         </DialogActions>
       </Dialog>

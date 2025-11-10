@@ -5,7 +5,7 @@ import {
   Snackbar, Alert, Tabs, Tab, Chip, CircularProgress
 } from '@mui/material';
 import {
-  People, School, Analytics, Groups, Poll, Dashboard, Description
+  People, School, Groups, Poll, Dashboard, Description
 } from '@mui/icons-material';
 import api from '../../services/api';
 import UserManagement from '../../components/Admin/UserManagement';
@@ -31,7 +31,7 @@ const AdminDashboard = () => {
       const response = await api.get('/admin/dashboard-stats');
       setStats(response.data.stats);
     } catch (err) {
-      setError(err.response?.data?.message || 'Не вдалося завантажити статистику');
+  setError(err.response?.data?.message || 'Failed to load statistics');
     } finally {
       setLoading(false);
     }
@@ -56,7 +56,7 @@ const AdminDashboard = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>
-        Панель адміністратора
+        Admin Panel
       </Typography>
 
       {/* Tab Navigation */}
@@ -69,31 +69,11 @@ const AdminDashboard = () => {
           variant="scrollable"
           scrollButtons="auto"
         >
-          <Tab 
-            icon={<Dashboard />} 
-            label="Огляд" 
-            iconPosition="start"
-          />
-          <Tab 
-            icon={<People />} 
-            label="Користувачі" 
-            iconPosition="start"
-          />
-          <Tab 
-            icon={<Groups />} 
-            label="Кластери студентів" 
-            iconPosition="start"
-          />
-          <Tab 
-            icon={<Poll />} 
-            label="Опитування" 
-            iconPosition="start"
-          />
-          <Tab 
-            icon={<Description />} 
-            label="Документи" 
-            iconPosition="start"
-          />
+          <Tab icon={<Dashboard />} label="Overview" iconPosition="start" />
+          <Tab icon={<People />} label="Users" iconPosition="start" />
+          <Tab icon={<Groups />} label="Student Clusters" iconPosition="start" />
+          <Tab icon={<Poll />} label="Surveys" iconPosition="start" />
+          <Tab icon={<Description />} label="Documents" iconPosition="start" />
         </Tabs>
       </Paper>
 
@@ -104,89 +84,47 @@ const AdminDashboard = () => {
           {stats && (
             <>
               <Grid container spacing={3} sx={{ mb: 4 }}>
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                   <Card>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center' }}>
                         <People sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
                         <Box>
                           <Typography color="textSecondary" gutterBottom>
-                            Всього користувачів
+                            Total Users
                           </Typography>
                           <Typography variant="h4">
                             {stats.users?.total || 0}
                           </Typography>
                           <Typography variant="body2" color="success.main">
-                            Активних: {stats.users?.active || 0}
+                            Active: {stats.users?.active || 0}
                           </Typography>
                         </Box>
                       </Box>
                     </CardContent>
                   </Card>
                 </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                   <Card>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center' }}>
                         <School sx={{ fontSize: 40, color: 'secondary.main', mr: 2 }} />
                         <Box>
                           <Typography color="textSecondary" gutterBottom>
-                            Силабуси
+                            Syllabi
                           </Typography>
                           <Typography variant="h4">
                             {stats.syllabi?.total || 0}
                           </Typography>
                           <Typography variant="body2" color="info.main">
-                            Проаналізовано: {stats.syllabi?.analyzed || 0}
+                            Analyzed: {stats.syllabi?.analyzed || 0}
                           </Typography>
                         </Box>
                       </Box>
                     </CardContent>
                   </Card>
                 </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <Card>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Analytics sx={{ fontSize: 40, color: 'success.main', mr: 2 }} />
-                        <Box>
-                          <Typography color="textSecondary" gutterBottom>
-                            Середня якість
-                          </Typography>
-                          <Typography variant="h4">
-                            {stats.syllabi?.averageQuality || 0}%
-                          </Typography>
-                          <Typography variant="body2" color="textSecondary">
-                            З проаналізованих
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <Card>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Poll sx={{ fontSize: 40, color: 'warning.main', mr: 2 }} />
-                        <Box>
-                          <Typography color="textSecondary" gutterBottom>
-                            Відповіді опитувань
-                          </Typography>
-                          <Typography variant="h4">
-                            {stats.surveys?.total || 0}
-                          </Typography>
-                          <Typography variant="body2" color="textSecondary">
-                            За останній місяць: {stats.surveys?.thisMonth || 0}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
+                {/* Removed Average Quality and Survey Responses cards per request */}
               </Grid>
 
               {/* User Distribution */}
@@ -194,13 +132,13 @@ const AdminDashboard = () => {
                 <Grid item xs={12} md={6}>
                   <Paper sx={{ p: 3 }}>
                     <Typography variant="h6" gutterBottom>
-                      Розподіл користувачів за ролями
+                      User Distribution by Role
                     </Typography>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       {stats.users?.byRole && Object.entries(stats.users.byRole).map(([role, count]) => (
                         <Box key={role} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Chip 
-                            label={role === 'instructor' ? 'Викладачі' : role === 'admin' ? 'Адміністратори' : 'Менеджери'} 
+                            label={role === 'instructor' ? 'Instructors' : role === 'admin' ? 'Administrators' : 'Managers'} 
                             color={role === 'instructor' ? 'primary' : role === 'admin' ? 'error' : 'warning'}
                           />
                           <Typography variant="h6">{count}</Typography>
@@ -213,19 +151,19 @@ const AdminDashboard = () => {
                 <Grid item xs={12} md={6}>
                   <Paper sx={{ p: 3 }}>
                     <Typography variant="h6" gutterBottom>
-                      Активність системи
+                      System Activity
                     </Typography>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Typography>Завантажень сьогодні:</Typography>
+                        <Typography>Uploads today:</Typography>
                         <Typography variant="h6">{stats.activity?.uploadsToday || 0}</Typography>
                       </Box>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Typography>Аналізів за тиждень:</Typography>
+                        <Typography>Analyses this week:</Typography>
                         <Typography variant="h6">{stats.activity?.analysesThisWeek || 0}</Typography>
                       </Box>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Typography>Активні користувачі:</Typography>
+                        <Typography>Active users:</Typography>
                         <Typography variant="h6">{stats.activity?.activeUsers || 0}</Typography>
                       </Box>
                     </Box>
@@ -236,16 +174,16 @@ const AdminDashboard = () => {
               {/* Recent Activity */}
               <Paper sx={{ p: 3 }}>
                 <Typography variant="h6" gutterBottom>
-                  Остання активність
+                  Recent Activity
                 </Typography>
                 <TableContainer>
                   <Table>
                     <TableHead>
                       <TableRow>
-                        <TableCell>Силабус</TableCell>
-                        <TableCell>Викладач</TableCell>
-                        <TableCell>Статус</TableCell>
-                        <TableCell>Дата</TableCell>
+                        <TableCell>Syllabus</TableCell>
+                        <TableCell>Instructor</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell>Date</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -255,7 +193,7 @@ const AdminDashboard = () => {
                           <TableCell>
                             {syllabus.uploadedBy ? 
                               `${syllabus.uploadedBy.firstName} ${syllabus.uploadedBy.lastName}` : 
-                              'Невідомо'
+                              'Unknown'
                             }
                           </TableCell>
                           <TableCell>
@@ -269,7 +207,7 @@ const AdminDashboard = () => {
                             />
                           </TableCell>
                           <TableCell>
-                            {new Date(syllabus.createdAt).toLocaleDateString('uk-UA')}
+                            {new Date(syllabus.createdAt).toLocaleDateString('en-US')}
                           </TableCell>
                         </TableRow>
                       ))}
