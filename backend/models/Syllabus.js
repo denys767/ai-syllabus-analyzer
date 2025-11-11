@@ -112,7 +112,9 @@ const syllabusSchema = new mongoose.Schema({
         // Legacy categories (backward compatibility)
         'structure', 'content', 'objectives', 'assessment', 'cases', 'methods', 'plagiarism',
         // New v2.0.0 categories
-        'template-compliance', 'learning-objectives', 'content-quality', 'student-clusters', 'policy', 'other'
+        'template-compliance', 'learning-objectives', 'content-quality', 'student-clusters', 'policy', 'other',
+        // AI Challenger category
+        'practicality'
       ],
       required: true
     },

@@ -21,7 +21,7 @@ router.post('/challenge', auth, async (req, res) => {
     }
 
     // Check if user owns this syllabus
-    if (syllabus.uploadedBy.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    if (syllabus.instructor.toString() !== req.user.userId.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
@@ -63,7 +63,7 @@ router.post('/challenge/respond',
       }
 
       // Check if user owns this syllabus
-      if (syllabus.uploadedBy.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      if (syllabus.instructor.toString() !== req.user.userId.toString() && req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
@@ -93,7 +93,7 @@ router.post('/:syllabusId/challenge/finalize', auth, async (req, res) => {
     }
 
     // Check if user owns this syllabus
-    if (syllabus.uploadedBy.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    if (syllabus.instructor.toString() !== req.user.userId.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized' });
     }
 

@@ -966,9 +966,16 @@ Return the FULL edited text with changes applied naturally.`;
       console.log('📄 Syllabus text length:', syllabus.extractedText?.length || 0, 'characters');
 
       const prompt = `
-        Based on the following syllabus text and analysis, generate a single, thought-provoking, open-ended question for the instructor.
-        This question should challenge the instructor to think about the practical application of a key topic in their course, considering the student profile (IT, Finance, Military, Management).
-        The question should be in English.
+        You are an expert MBA academic advisor helping instructors improve the practical aspects of their courses.
+        
+        Based on the syllabus below, generate ONE thought-provoking question that asks the instructor how they plan to implement the practical part of this material.
+        
+        The question must encourage the instructor to think about:
+        - Using real cases and practical tasks
+        - Relevance to student cluster needs (IT, Finance, Military, Management backgrounds)
+        - Interactive methods (discussions, group work, peer-to-peer learning)
+        
+        The question should be in English, open-ended, and specific to a key topic in this syllabus.
 
         Syllabus Analysis:
         ${JSON.stringify(syllabus.analysis, null, 2)}
@@ -976,7 +983,7 @@ Return the FULL edited text with changes applied naturally.`;
         Syllabus Text:
         ${syllabus.extractedText.substring(0, 4000)}
 
-        Generate only the question, without any introductory text.
+        Generate ONLY the question, without any introductory text or explanation.
       `;
 
       console.log('📝 Prompt length:', prompt.length, 'characters');
@@ -985,7 +992,7 @@ Return the FULL edited text with changes applied naturally.`;
       const response = await this.openai.chat.completions.create({
         model: this.llmModel,
         messages: [
-          { role: 'system', content: 'You are an expert academic advisor for an MBA program. Your task is to challenge instructors to improve the practical relevance of their courses.' },
+          { role: 'system', content: 'You are an expert MBA academic advisor specializing in practical, student-centered pedagogy. You help instructors integrate real business cases, address diverse student backgrounds, and implement interactive teaching methods.' },
           { role: 'user', content: prompt }
         ]
       });
@@ -1033,23 +1040,31 @@ Return the FULL edited text with changes applied naturally.`;
       ).join('\n\n');
 
       const prompt = `
-        You are an expert academic advisor for an MBA program. An instructor is responding to your challenge question.
-        Your goal is to provide constructive, actionable suggestions based on their response.
-
+        You are an expert MBA academic advisor analyzing an instructor's approach to practical teaching.
+        
+        Your goal is to provide constructive feedback that helps them improve in THREE KEY AREAS:
+        
+        1. **Real Cases & Practical Tasks**: Suggest concrete business cases (prioritize Ukrainian examples), simulations, hands-on projects
+        2. **Student Cluster Relevance**: Ensure activities address needs of IT professionals, Finance specialists, Military/Public sector managers, and Business Operations leaders
+        3. **Interactive Methods**: Promote discussions, group projects, peer-to-peer learning, workshops
+        
         Context:
-        - Student Profile: The class is composed of students from IT, Finance, Military, and Management backgrounds.
+        - Student Clusters: IT Leaders, Finance & Banking, Military & Public Sector, Business Operations
         - Initial Question: ${syllabus.practicalChallenge.initialQuestion}
         - Discussion History:
         ${discussionHistory}
         - Instructor's Latest Response: "${instructorResponse}"
 
         Task:
-        Generate a helpful response in English that includes:
-        1. Acknowledgment of the instructor's idea.
-        2. 2-3 concrete suggestions for practical exercises, case studies (especially with Ukrainian examples), or interactive methods.
-        3. A follow-up question to encourage deeper thinking.
+        Generate a response in English that:
+        1. Acknowledges what the instructor said (briefly)
+        2. Provides 2-3 SPECIFIC suggestions covering the three key areas above:
+           - Real Ukrainian business cases or practical exercises
+           - How different student clusters (IT/Finance/Military/Management) can benefit
+           - Interactive/collaborative teaching methods
+        3. Asks ONE follow-up question to deepen their thinking
 
-        Keep the response concise and professional.
+        Be concrete, actionable, and professional. Focus on Ukrainian business context where relevant.
       `;
 
       console.log('📝 Prompt length:', prompt.length, 'characters');
@@ -1058,7 +1073,7 @@ Return the FULL edited text with changes applied naturally.`;
       const response = await this.openai.chat.completions.create({
         model: this.llmModel,
         messages: [
-          { role: 'system', content: 'You are an expert academic advisor for an MBA program. Your task is to provide helpful, actionable feedback to instructors.' },
+          { role: 'system', content: 'You are an expert MBA academic advisor. You provide specific, actionable feedback to instructors focusing on: 1) Real business cases (Ukrainian context prioritized), 2) Diverse student needs (IT/Finance/Military/Management), 3) Interactive teaching methods.' },
           { role: 'user', content: prompt }
         ]
       });
@@ -1084,21 +1099,39 @@ Return the FULL edited text with changes applied naturally.`;
       if (discussion.length >= 1) { // After 2nd or 3rd response
         console.log('\n--- GENERATING PRACTICALITY RECOMMENDATIONS ---');
         try {
-          const recPrompt = `Based on the following AI-Instructor discussion about practical teaching methods, extract 1-3 actionable recommendations for improving the syllabus in JSON format:
-{"recommendations":[{"category":"practicality","priority":"medium","title":"Short title","description":"Concise description <=160 chars","suggestedText":"Optional concrete text to add"}]}
+          const recPrompt = `Based on the AI-Instructor discussion about practical teaching methods, extract 1-3 actionable recommendations for improving the syllabus.
+
+Each recommendation should focus on ONE of these areas:
+1. **Real Cases & Practical Tasks**: Add Ukrainian business cases, simulations, hands-on projects
+2. **Student Cluster Relevance**: Address specific needs of IT/Finance/Military/Management student backgrounds
+3. **Interactive Methods**: Implement discussions, group work, peer-to-peer learning, workshops
+
+Return JSON format:
+{
+  "recommendations": [
+    {
+      "category": "practicality",
+      "priority": "medium" | "high",
+      "title": "Short actionable title (max 80 chars)",
+      "description": "Concise description focusing on one of the three areas above (max 160 chars)",
+      "suggestedText": "Optional concrete text to add to syllabus"
+    }
+  ]
+}
 
 Discussion:
 ${discussionHistory}
+
 Latest exchange:
 Instructor: ${instructorResponse}
 AI: ${aiResponse}
 
-Return only valid JSON.`;
+Return ONLY valid JSON.`;
 
           const recResp = await this.openai.chat.completions.create({
             model: this.llmModel,
             messages: [
-              { role: 'system', content: 'You are an assistant that extracts actionable recommendations from discussions.' },
+              { role: 'system', content: 'You extract actionable recommendations from teaching discussions. Focus on: real cases, student cluster needs (IT/Finance/Military/Management), and interactive methods. Return only valid JSON.' },
               { role: 'user', content: recPrompt }
             ],
             response_format: { type: 'json_object' }
@@ -1109,7 +1142,8 @@ Return only valid JSON.`;
           
           const parsed = JSON.parse(rawRec);
           if (parsed.recommendations && Array.isArray(parsed.recommendations)) {
-            newRecommendations = parsed.recommendations.map(rec => ({
+            newRecommendations = parsed.recommendations.map((rec, idx) => ({
+              id: `rec_ai_challenger_${Date.now()}_${idx}`,
               category: 'practicality',
               priority: rec.priority || 'medium',
               title: rec.title || 'Practical improvement',

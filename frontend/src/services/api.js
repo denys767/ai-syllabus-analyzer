@@ -177,17 +177,12 @@ class ApiService {
     
     getTeachingMethods: (data) =>
       this.client.post('/ai/teaching-methods', data),
-    
-    saveIdea: (data) =>
-      this.client.post('/ai/save-idea', data),
   };
 
   // Reports endpoints
   reports = {
     getSyllabusReport: (id) =>
       this.client.get(`/reports/syllabus/${id}`),
-    getCatalog: () =>
-      this.client.get('/reports/catalog'),
     
     getAnalytics: (params = {}) =>
       this.client.get('/reports/analytics', { params }),
