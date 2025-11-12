@@ -25,7 +25,7 @@ const ManagerSummary = () => {
       const response = await api.reports.getManagerSummary();
       setSummary(response.data.summary);
     } catch (err) {
-      setError('Не вдалося завантажити звіт');
+      setError('Failed to load report');
       console.error(err);
     } finally {
       setLoading(false);
@@ -45,17 +45,17 @@ const ManagerSummary = () => {
   }
 
   if (!summary) {
-    return <Typography>Немає даних для відображення</Typography>;
+    return <Typography>No data to display</Typography>;
   }
 
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
-        Менеджерський звіт
+        Manager Report
       </Typography>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-        Згенеровано: {new Date(summary.generatedAt).toLocaleString('uk-UA')}
+        Generated: {new Date(summary.generatedAt).toLocaleString('en-US')}
       </Typography>
 
       {/* Summary of Changes */}
@@ -65,7 +65,7 @@ const ManagerSummary = () => {
             <CardContent>
               <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                 <Assessment sx={{ mr: 1 }} />
-                Загальне самарі змін
+                General Summary of Changes
               </Typography>
               <Grid container spacing={2}>
                 <Grid item xs={6} sm={3}>
@@ -74,7 +74,7 @@ const ManagerSummary = () => {
                     <Typography variant="h4" color="success.main">
                       {summary.summaryOfChanges.totalAccepted}
                     </Typography>
-                    <Typography variant="body2">Прийнято</Typography>
+                    <Typography variant="body2">Accepted</Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={6} sm={3}>
@@ -83,7 +83,7 @@ const ManagerSummary = () => {
                     <Typography variant="h4" color="error.main">
                       {summary.summaryOfChanges.totalRejected}
                     </Typography>
-                    <Typography variant="body2">Відхилено</Typography>
+                    <Typography variant="body2">Rejected</Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={6} sm={3}>
@@ -92,7 +92,7 @@ const ManagerSummary = () => {
                     <Typography variant="h4" color="warning.main">
                       {summary.summaryOfChanges.totalPending}
                     </Typography>
-                    <Typography variant="body2">Очікує</Typography>
+                    <Typography variant="body2">Pending</Typography>
                   </Box>
                 </Grid>
                 <Grid item xs={6} sm={3}>
@@ -101,7 +101,7 @@ const ManagerSummary = () => {
                     <Typography variant="h4" color="info.main">
                       {summary.summaryOfChanges.totalCommented}
                     </Typography>
-                    <Typography variant="body2">Прокоментовано</Typography>
+                    <Typography variant="body2">Commented</Typography>
                   </Box>
                 </Grid>
               </Grid>
@@ -116,42 +116,42 @@ const ManagerSummary = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Відповідність навчальним цілям MBA
+                MBA Learning Objectives Alignment
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                 <TrendingUp sx={{ mr: 1, color: 'primary.main' }} />
                 <Typography variant="h5" color="primary.main">
                   {summary.learningOutcomesAlignment.averageScore ? 
                     summary.learningOutcomesAlignment.averageScore.toFixed(1) + '%' : 
-                    'Н/Д'
+                    'N/A'
                   }
                 </Typography>
                 <Typography variant="body2" sx={{ ml: 1 }}>
-                  середня відповідність
+                  average compliance
                 </Typography>
               </Box>
 
               <Typography variant="subtitle2" gutterBottom>
-                Покриті цілі ({(summary.learningOutcomesAlignment.coveredObjectives || []).length}):
+                Covered objectives ({(summary.learningOutcomesAlignment.coveredObjectives || []).length}):
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
                 {(summary.learningOutcomesAlignment.coveredObjectives || []).slice(0, 10).map((objective, index) => (
                   <Chip key={index} label={objective.substring(0, 30)} size="small" color="success" />
                 ))}
                 {(!summary.learningOutcomesAlignment.coveredObjectives || summary.learningOutcomesAlignment.coveredObjectives.length === 0) && (
-                  <Typography variant="body2" color="text.secondary">Немає даних</Typography>
+                  <Typography variant="body2" color="text.secondary">No data</Typography>
                 )}
               </Box>
 
               <Typography variant="subtitle2" gutterBottom>
-                Прогалини ({(summary.learningOutcomesAlignment.gaps || []).length}):
+                Gaps ({(summary.learningOutcomesAlignment.gaps || []).length}):
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 {(summary.learningOutcomesAlignment.gaps || []).slice(0, 10).map((gap, index) => (
                   <Chip key={index} label={gap.substring(0, 30)} size="small" color="warning" />
                 ))}
                 {(!summary.learningOutcomesAlignment.gaps || summary.learningOutcomesAlignment.gaps.length === 0) && (
-                  <Typography variant="body2" color="text.secondary">Немає даних</Typography>
+                  <Typography variant="body2" color="text.secondary">No data</Typography>
                 )}
               </Box>
             </CardContent>
@@ -163,7 +163,7 @@ const ManagerSummary = () => {
             <CardContent>
               <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                 <School sx={{ mr: 1 }} />
-                Практичність та інтерактивність
+                Practicality and Interactivity
               </Typography>
 
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -172,29 +172,29 @@ const ManagerSummary = () => {
                   {summary.practicalityAndInteractivity.totalChallengesCompleted || 0} / {summary.totalSyllabi || 0}
                 </Typography>
                 <Typography variant="body2" sx={{ ml: 1 }}>
-                  завершених AI-челенджів
+                  completed AI challenges
                 </Typography>
               </Box>
 
               <Typography variant="body2" sx={{ mb: 2 }}>
-                Загальна кількість AI пропозицій: {summary.practicalityAndInteractivity.aiSuggestionsCount || 0}
+                Total number of AI suggestions: {summary.practicalityAndInteractivity.aiSuggestionsCount || 0}
               </Typography>
 
               <Typography variant="subtitle2" gutterBottom>
-                Топ пропозицій AI:
+                Top AI suggestions:
               </Typography>
               <List dense sx={{ maxHeight: 200, overflow: 'auto' }}>
                 {(summary.practicalityAndInteractivity.topSuggestions || []).slice(0, 5).map((suggestion, index) => (
                   <ListItem key={index}>
                     <ListItemText
-                      primary={(suggestion.suggestion || 'Немає опису')?.substring(0, 100) + '...'}
-                      secondary={suggestion.category || 'Без категорії'}
+                      primary={(suggestion.suggestion || 'No description')?.substring(0, 100) + '...'}
+                      secondary={suggestion.category || 'No category'}
                     />
                   </ListItem>
                 ))}
                 {(!summary.practicalityAndInteractivity.topSuggestions || summary.practicalityAndInteractivity.topSuggestions.length === 0) && (
                   <ListItem>
-                    <ListItemText primary="Немає AI пропозицій" />
+                    <ListItemText primary="No AI suggestions" />
                   </ListItem>
                 )}
               </List>
@@ -207,7 +207,7 @@ const ManagerSummary = () => {
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            Пропозиції щодо покращень ({(summary.improvementProposals || []).length})
+            Improvement Proposals ({(summary.improvementProposals || []).length})
           </Typography>
 
           <List sx={{ maxHeight: 400, overflow: 'auto' }}>
@@ -217,16 +217,16 @@ const ManagerSummary = () => {
                   <ListItemText
                     primary={
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Chip label={proposal.category || 'Без категорії'} size="small" />
-                        <Typography variant="subtitle2">{proposal.title || 'Без назви'}</Typography>
+                        <Chip label={proposal.category || 'No category'} size="small" />
+                        <Typography variant="subtitle2">{proposal.title || 'No title'}</Typography>
                       </Box>
                     }
                     secondary={
                       <Box>
-                        <Typography variant="body2">{proposal.description || 'Без опису'}</Typography>
+                        <Typography variant="body2">{proposal.description || 'No description'}</Typography>
                         {proposal.instructor && (
                           <Typography variant="caption" color="text.secondary">
-                            Викладач: {proposal.instructor.firstName || ''} {proposal.instructor.lastName || ''}
+                            Instructor: {proposal.instructor.firstName || ''} {proposal.instructor.lastName || ''}
                           </Typography>
                         )}
                       </Box>
@@ -238,7 +238,7 @@ const ManagerSummary = () => {
             ))}
             {(!summary.improvementProposals || summary.improvementProposals.length === 0) && (
               <ListItem>
-                <ListItemText primary="Немає пропозицій щодо покращень" />
+                <ListItemText primary="No improvement proposals" />
               </ListItem>
             )}
           </List>

@@ -27,8 +27,8 @@ const Profile = () => {
     setLoading(true); setErr(''); setMsg('');
     try {
   const res = await updateProfile({ firstName, lastName, department, avatarUrl });
-      if (!res.success) throw new Error(res.error || 'Помилка оновлення профілю');
-  setMsg('Профіль оновлено.');
+      if (!res.success) throw new Error(res.error || 'Profile update error');
+      setMsg('Profile updated.');
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -38,15 +38,15 @@ const Profile = () => {
 
   const changePassword = async () => {
     setPwdErr(''); setPwdMsg('');
-    if (!user?.isVerified) return setPwdErr('Спочатку підтвердіть email для зміни пароля');
-    if (newPassword.length < 6) return setPwdErr('Новий пароль має містити мінімум 6 символів');
-    if (newPassword !== confirmPassword) return setPwdErr('Паролі не співпадають');
+    if (!user?.isVerified) return setPwdErr('First verify email to change password');
+    if (newPassword.length < 6) return setPwdErr('New password must contain at least 6 characters');
+    if (newPassword !== confirmPassword) return setPwdErr('Passwords do not match');
     try {
       await api.user.changePassword(currentPassword, newPassword);
-      setPwdMsg('Пароль змінено успішно');
+      setPwdMsg('Password changed successfully');
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
     } catch (e) {
-      setPwdErr(e.response?.data?.message || 'Помилка зміни паролю');
+      setPwdErr(e.response?.data?.message || 'Password change error');
     }
   };
 
@@ -58,18 +58,18 @@ const Profile = () => {
 
   const deleteAccount = async () => {
     setDelErr(''); setDelMsg('');
-    if (!delPwd) return setDelErr('Введіть пароль для підтвердження');
-    if (!window.confirm('Ви впевнені, що хочете назавжди видалити акаунт? Дію не можна відмінити.')) return;
+    if (!delPwd) return setDelErr('Enter password for confirmation');
+    if (!window.confirm('Are you sure you want to permanently delete your account? This action cannot be undone.')) return;
     try {
       setDeleting(true);
       await api.user.deleteAccount(delPwd);
-      setDelMsg('Акаунт видалено. Ви будете виведені...');
+      setDelMsg('Account deleted. You will be logged out...');
       setTimeout(()=>{
         localStorage.removeItem('token');
         window.dispatchEvent(new CustomEvent('auth_logout'));
       }, 1200);
     } catch (e) {
-      setDelErr(e.response?.data?.message || 'Помилка видалення акаунта');
+      setDelErr(e.response?.data?.message || 'Account deletion error');
     } finally {
       setDeleting(false);
     }
@@ -80,42 +80,42 @@ const Profile = () => {
       <Grid container spacing={2}>
         <Grid item xs={12} md={7}>
           <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Профіль</Typography>
+            <Typography variant="h6" fontWeight={700} gutterBottom>Profile</Typography>
             {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
             {msg && <Alert severity="success" sx={{ mb: 2 }}>{msg}</Alert>}
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
-                <TextField label="Ім'я" fullWidth value={firstName} onChange={(e)=>setFirstName(e.target.value)} />
+                <TextField label="First Name" fullWidth value={firstName} onChange={(e)=>setFirstName(e.target.value)} />
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField label="Прізвище" fullWidth value={lastName} onChange={(e)=>setLastName(e.target.value)} />
+                <TextField label="Last Name" fullWidth value={lastName} onChange={(e)=>setLastName(e.target.value)} />
               </Grid>
               <Grid item xs={12}>
-                <TextField type="email" label="Поточний email" fullWidth value={email} disabled />
+                <TextField type="email" label="Current email" fullWidth value={email} disabled />
               </Grid>
               <Grid item xs={12}>
-                <TextField label="Факультет/Відділ" fullWidth value={department} onChange={(e)=>setDepartment(e.target.value)} />
+                <TextField label="Department" fullWidth value={department} onChange={(e)=>setDepartment(e.target.value)} />
               </Grid>
               <Grid item xs={12}>
                 <TextField label="Avatar URL" fullWidth value={avatarUrl} onChange={(e)=>setAvatarUrl(e.target.value)} />
               </Grid>
             </Grid>
             <Box mt={2} display="flex" gap={1}>
-              <Button variant="contained" onClick={saveProfile} disabled={loading}>Зберегти</Button>
+              <Button variant="contained" onClick={saveProfile} disabled={loading}>Save</Button>
             </Box>
           </Paper>
         </Grid>
         <Grid item xs={12} md={5}>
           <Paper sx={{ p: 3, mb: 2 }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Зміна email</Typography>
+            <Typography variant="h6" fontWeight={700} gutterBottom>Change email</Typography>
             {emailChangeErr && <Alert severity="error" sx={{ mb: 2 }}>{emailChangeErr}</Alert>}
             {emailChangeMsg && <Alert severity="success" sx={{ mb: 2 }}>{emailChangeMsg}</Alert>}
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Вкажіть нову адресу. Ми надішлемо на неї лист із посиланням. Після підтвердження ваш email буде змінено.
+              Enter a new address. We will send a confirmation link to it. After confirmation, your email will be changed.
             </Typography>
             <TextField
               type="email"
-              label="Нова адреса email"
+              label="New email address"
               fullWidth
               sx={{ mb: 2 }}
               value={newEmail}
@@ -126,47 +126,47 @@ const Profile = () => {
               onClick={async ()=>{
                 setEmailChangeErr(''); setEmailChangeMsg('');
                 try {
-                  if (!newEmail) throw new Error('Вкажіть нову адресу email');
+                  if (!newEmail) throw new Error('Specify new email address');
                   const res = await api.emailChange.request(newEmail);
-                  setEmailChangeMsg(res.data?.message || 'Перевірте пошту для підтвердження');
+                  setEmailChangeMsg(res.data?.message || 'Check your email for confirmation');
                   setNewEmail('');
                 } catch (e) {
-                  setEmailChangeErr(e.response?.data?.message || 'Не вдалося надіслати підтвердження');
+                  setEmailChangeErr(e.response?.data?.message || 'Failed to send confirmation');
                 }
               }}
-            >Запросити зміну</Button>
+            >Request change</Button>
           </Paper>
           <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Аватар</Typography>
+            <Typography variant="h6" fontWeight={700} gutterBottom>Avatar</Typography>
             <Box display="flex" alignItems="center" gap={2}>
               <Avatar src={avatarUrl} alt="avatar" sx={{ width: 72, height: 72 }} />
-              <Typography variant="body2" color="text.secondary">Посилання на зображення або залиште порожнім для ініціалів</Typography>
+              <Typography variant="body2" color="text.secondary">Link to image or leave empty for initials</Typography>
             </Box>
           </Paper>
 
           <Divider sx={{ my: 2 }} />
 
           <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" fontWeight={700} gutterBottom>Зміна паролю</Typography>
+            <Typography variant="h6" fontWeight={700} gutterBottom>Change password</Typography>
             {pwdErr && <Alert severity="error" sx={{ mb: 2 }}>{pwdErr}</Alert>}
             {pwdMsg && <Alert severity="success" sx={{ mb: 2 }}>{pwdMsg}</Alert>}
-            <TextField type="password" label="Поточний пароль" fullWidth sx={{ mb: 2 }} value={currentPassword} onChange={(e)=>setCurrentPassword(e.target.value)} />
-            <TextField type="password" label="Новий пароль" fullWidth sx={{ mb: 2 }} value={newPassword} onChange={(e)=>setNewPassword(e.target.value)} />
-            <TextField type="password" label="Підтвердити пароль" fullWidth sx={{ mb: 2 }} value={confirmPassword} onChange={(e)=>setConfirmPassword(e.target.value)} />
-            <Button variant="outlined" onClick={changePassword}>Змінити пароль</Button>
+            <TextField type="password" label="Current password" fullWidth sx={{ mb: 2 }} value={currentPassword} onChange={(e)=>setCurrentPassword(e.target.value)} />
+            <TextField type="password" label="New password" fullWidth sx={{ mb: 2 }} value={newPassword} onChange={(e)=>setNewPassword(e.target.value)} />
+            <TextField type="password" label="Confirm password" fullWidth sx={{ mb: 2 }} value={confirmPassword} onChange={(e)=>setConfirmPassword(e.target.value)} />
+            <Button variant="outlined" onClick={changePassword}>Change password</Button>
           </Paper>
 
           <Divider sx={{ my: 2 }} />
 
           <Paper sx={{ p: 3, border: '1px solid', borderColor: 'error.main' }}>
-            <Typography variant="h6" fontWeight={700} color="error" gutterBottom>Видалення акаунта</Typography>
+            <Typography variant="h6" fontWeight={700} color="error" gutterBottom>Account deletion</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Ця дія незворотня і видалить всі ваші силлабуси та практичні ідеї.
+              This action is irreversible and will delete all your syllabi and practical ideas.
             </Typography>
             {delErr && <Alert severity="error" sx={{ mb: 2 }}>{delErr}</Alert>}
             {delMsg && <Alert severity="success" sx={{ mb: 2 }}>{delMsg}</Alert>}
-            <TextField type="password" label="Пароль для підтвердження" fullWidth sx={{ mb: 2 }} value={delPwd} onChange={(e)=>setDelPwd(e.target.value)} />
-            <Button variant="contained" color="error" disabled={deleting} onClick={deleteAccount}>Видалити акаунт</Button>
+            <TextField type="password" label="Password for confirmation" fullWidth sx={{ mb: 2 }} value={delPwd} onChange={(e)=>setDelPwd(e.target.value)} />
+            <Button variant="contained" color="error" disabled={deleting} onClick={deleteAccount}>Delete account</Button>
           </Paper>
         </Grid>
       </Grid>

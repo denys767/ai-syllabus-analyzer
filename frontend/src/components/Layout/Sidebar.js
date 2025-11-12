@@ -36,7 +36,7 @@ const Sidebar = ({ onItemClick }) => {
   };
 
   const isActive = (path) => {
-    // Спеціальна логіка для роботи з вкладеними шляхами
+    // Special logic for working with nested paths
     if (path === '/syllabi/upload') {
       return location.pathname === '/syllabi/upload';
     }
@@ -44,11 +44,11 @@ const Sidebar = ({ onItemClick }) => {
       return location.pathname === '/syllabi' || 
              (location.pathname.startsWith('/syllabi/') && location.pathname !== '/syllabi/upload');
     }
-    // Точне співпадіння для основних шляхів
+    // Exact match for main paths
     if (path === '/dashboard' || path === '/manager' || path === '/admin') {
       return location.pathname === path;
     }
-    // Для інших вкладених шляхів перевіряємо початок
+    // For other nested paths, we check the beginning
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
@@ -122,7 +122,7 @@ const Sidebar = ({ onItemClick }) => {
     
     switch (user?.role) {
       case 'admin':
-        // Адмін: інструкторські + адмінські, БЕЗ менеджерських (щоб уникнути дублю 'Звіти')
+        // Admin: instructor + admin, WITHOUT manager (to avoid duplicate 'Reports')
         items = [
           ...instructorItems,
           ...adminItems
@@ -137,7 +137,7 @@ const Sidebar = ({ onItemClick }) => {
         break;
     }
 
-    // Видаляємо дублікати за шляхом
+    // Remove duplicates by path
     const uniqueItems = items.filter(
       (item, index, self) => index === self.findIndex((t) => t.path === item.path)
     );

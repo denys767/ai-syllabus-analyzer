@@ -124,7 +124,7 @@ const UserManagement = () => {
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
   errors.email = 'Invalid email format';
     }
-  // Пароль більше не вводиться адміністратором — користувач встановлює сам
+  // Password is no longer entered by administrator — user sets it themselves
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -136,7 +136,7 @@ const UserManagement = () => {
     setSubmitting(true);
     try {
       if (dialogMode === 'create') {
-        await api.post('/admin/users', formData); // новий endpoint без пароля
+        await api.post('/admin/users', formData); // new endpoint without password
       } else {
         // For edit, don't send password if it's empty and include all fields that can be updated
         const updateData = {
@@ -226,7 +226,7 @@ const UserManagement = () => {
               name="role" 
               value={filters.role} 
               onChange={handleFilterChange} 
-              label="Роль"
+              label="Role"
             >
               <MenuItem value=""><em>All</em></MenuItem>
               <MenuItem value="instructor">Instructor</MenuItem>
@@ -343,7 +343,7 @@ const UserManagement = () => {
                 disabled={dialogMode === 'edit'} // Don't allow email change
               />
             </Grid>
-            {/* Поле пароля вилучено: користувач сам встановлює пароль через email */}
+            {/* Password field removed: user sets password via email themselves */}
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Role</InputLabel>
@@ -368,7 +368,7 @@ const UserManagement = () => {
                 onChange={handleFormChange}
               />
             </Grid>
-            {/* Верифікація більше не керується адміністратором вручну */}
+            {/* Verification is no longer manually controlled by administrator */}
           </Grid>
         </DialogContent>
         <DialogActions>

@@ -38,10 +38,10 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
   const [pdfMeta, setPdfMeta] = useState(syllabus?.editedPdf || null);
   const [editingStatus, setEditingStatus] = useState(syllabus?.editingStatus || 'idle');
   const [polling, setPolling] = useState(false);
-  const [processingComments, setProcessingComments] = useState(new Set()); // Треки рекомендацій, що чекають на AI відповідь
+  const [processingComments, setProcessingComments] = useState(new Set()); // Tracks recommendations waiting for AI response
 
   const grouped = useMemo(() => {
-    // Функція для визначення числового значення пріоритету (для сортування)
+    // Function to determine numeric priority value (for sorting)
     const getPriorityWeight = (priority) => {
       const weights = { 'critical': 4, 'high': 3, 'medium': 2, 'low': 1 };
       return weights[priority] || 0;
@@ -83,7 +83,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       }
     });
 
-    // Сортуємо рекомендації в кожній групі за пріоритетом (від високого до низького)
+    // Sort recommendations in each group by priority (from high to low)
     Object.keys(groups).forEach(key => {
       groups[key].sort((a, b) => getPriorityWeight(b.priority) - getPriorityWeight(a.priority));
     });
@@ -98,7 +98,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       setWorkingId(rec._id || rec.id);
       setError('');
       
-      // Якщо це коментар, додаємо в список очікування AI відповіді
+      // If this is a comment, add to the list of waiting for AI response
       if (data.status === 'commented') {
         setProcessingComments(prev => new Set([...prev, rec._id || rec.id]));
       }
@@ -107,7 +107,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       setCommentingId(null);
       setCommentText('');
       
-      // Якщо це коментар, запускаємо polling для отримання AI відповіді
+      // If this is a comment, start polling to get AI response
       if (data.status === 'commented') {
         pollForAIResponse(rec._id || rec.id);
       } else {
@@ -190,7 +190,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
           setPolling(false);
           setGenerating(false);
           
-          // Показуємо повідомлення про успіх
+          // Show success message
           setError('');
           onChanged?.();
         }
@@ -377,7 +377,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
             {rec.suggestedText && (
               <Paper sx={{ mt: 1, p: 1.5, bgcolor: 'action.hover' }} variant="outlined">
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>
-                  💡 Запропонований текст:
+                  💡 Suggested text:
                 </Typography>
                 <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem' }}>
                   {rec.suggestedText}

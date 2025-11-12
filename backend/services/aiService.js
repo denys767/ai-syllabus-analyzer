@@ -1111,7 +1111,7 @@ Return JSON format:
   "recommendations": [
     {
       "category": "practicality",
-      "priority": "medium" | "high",
+      "priority": "low" | "medium" | "high",
       "title": "Short actionable title (max 80 chars)",
       "description": "Concise description focusing on one of the three areas above (max 160 chars)",
       "suggestedText": "Optional concrete text to add to syllabus"

@@ -211,7 +211,7 @@ const ManagerReports = () => {
                   </Card>
                 </Grid>
 
-                {/* 2. Аналіз відповідності outcomes програми MBA */}
+                {/* 2. Analysis of MBA program outcomes compliance */}
                 <Grid item xs={12} md={6}>
                   <Card variant="outlined">
                     <CardContent>
@@ -259,7 +259,7 @@ const ManagerReports = () => {
                   </Card>
                 </Grid>
 
-                {/* 3. Оцінка практичності та інтерактивності */}
+                {/* 3. Assessment of practicality and interactivity */}
                 <Grid item xs={12} md={6}>
                   <Card variant="outlined">
                     <CardContent>
@@ -302,7 +302,7 @@ const ManagerReports = () => {
                   </Card>
                 </Grid>
 
-                {/* 4. Пропозиції щодо потенційних покращень */}
+                {/* 4. Suggestions for potential improvements */}
                 <Grid item xs={12}>
                   <Card variant="outlined">
                     <CardContent>

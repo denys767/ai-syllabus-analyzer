@@ -62,7 +62,7 @@ const Login = () => {
         status: err.response?.status,
         data: err.response?.data
       });
-      const errorMessage = err.message || err.response?.data?.message || 'Помилка входу в систему';
+      const errorMessage = err.message || err.response?.data?.message || 'Login error';
       console.log('Setting error message:', errorMessage);
       setError(errorMessage);
     } finally {
@@ -112,10 +112,10 @@ const Login = () => {
         <CardContent sx={{ p: 4 }}>
           <Box sx={{ textAlign: 'center', mb: 3 }}>
             <Typography variant="h5" fontWeight="600" gutterBottom>
-              Вхід до системи
+              System Login
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Введіть ваші облікові дані
+              Enter your credentials
             </Typography>
           </Box>
 
@@ -141,7 +141,7 @@ const Login = () => {
 
             <TextField
               fullWidth
-              label="Пароль"
+              label="Password"
               name="password"
               type={showPassword ? 'text' : 'password'}
               value={formData.password}
@@ -180,18 +180,18 @@ const Login = () => {
                 },
               }}
             >
-              {loading ? 'Вхід...' : 'Увійти'}
+              {loading ? 'Logging in...' : 'Login'}
             </Button>
 
             <Box sx={{ textAlign: 'center', mt: 2 }}>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Забули пароль?{' '}
+                Forgot password?{' '}
                 <Link to="/reset-password" style={{ color: '#1976d2', fontWeight: 600 }}>
-                  Скинути пароль
+                  Reset password
                 </Link>
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Не отримали лист підтвердження? Зверніться до адміністратора
+                Didn't receive confirmation email? Contact administrator
               </Typography>
             </Box>
           </form>

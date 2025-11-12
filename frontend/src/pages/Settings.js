@@ -15,30 +15,30 @@ const Settings = () => {
     setMsg(''); setErr('');
     try {
   const res = await api.put('/users/settings', { theme });
-      if (res.data?.settings) setMsg('Налаштування збережено');
+      if (res.data?.settings) setMsg('Settings saved');
   // Apply theme immediately without waiting for a fresh profile fetch
   setMode(theme);
     } catch (e) {
-      setErr(e.response?.data?.message || 'Помилка збереження налаштувань');
+      setErr(e.response?.data?.message || 'Saving error');
     }
   };
 
   return (
     <Box p={2}>
       <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" fontWeight={700} gutterBottom>Налаштування інтерфейсу</Typography>
+        <Typography variant="h6" fontWeight={700} gutterBottom>Interface settings</Typography>
         {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
         {msg && <Alert severity="success" sx={{ mb: 2 }}>{msg}</Alert>}
         <FormControl fullWidth sx={{ maxWidth: 320 }}>
-          <InputLabel>Тема</InputLabel>
-          <Select label="Тема" value={theme} onChange={(e) => setTheme(e.target.value)}>
-            <MenuItem value="system">Системна</MenuItem>
-            <MenuItem value="light">Світла</MenuItem>
-            <MenuItem value="dark">Темна</MenuItem>
+          <InputLabel>Theme</InputLabel>
+          <Select label="Theme" value={theme} onChange={(e) => setTheme(e.target.value)}>
+            <MenuItem value="system">System</MenuItem>
+            <MenuItem value="light">Light</MenuItem>
+            <MenuItem value="dark">Dark</MenuItem>
           </Select>
         </FormControl>
         <Box mt={2}>
-          <Button variant="contained" onClick={save}>Зберегти</Button>
+          <Button variant="contained" onClick={save}>Save</Button>
         </Box>
       </Paper>
     </Box>

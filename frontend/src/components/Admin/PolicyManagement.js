@@ -294,7 +294,7 @@ const PolicyManagement = () => {
                 onChange={(e) => setFormData({ ...formData, contentType: e.target.value })}
               >
                 <FormControlLabel value="markdown" control={<Radio />} label="Markdown" />
-                <FormControlLabel value="plain" control={<Radio />} label="Звичайний текст" />
+                <FormControlLabel value="plain" control={<Radio />} label="Plain text" />
               </RadioGroup>
             </FormControl>
 

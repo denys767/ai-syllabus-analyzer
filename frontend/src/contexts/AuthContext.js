@@ -75,7 +75,7 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    // Обробник автоматичного logout при 401 помилці
+    // Automatic logout handler for 401 error
     const handleAuthLogout = () => {
       dispatch({ type: 'LOGOUT' });
     };
@@ -90,8 +90,8 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-  // ВАЖЛИВО: не вмикаємо глобальний isLoading під час спроби логіну,
-  // щоб не розмонтувати <App /> і не втрачати введені дані форми / повідомлення про помилку.
+  // IMPORTANT: do not enable global isLoading during login attempt,
+  // to avoid unmounting <App /> and losing entered form data / error messages.
   const response = await api.auth.login(email, password);
       const { user, token } = response.data;
 
@@ -105,12 +105,12 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка входу';
+      const errorMessage = error.response?.data?.message || 'Login error';
       throw new Error(errorMessage);
     }
   };
 
-  const register = async () => ({ success: false, error: 'Публічна реєстрація вимкнена. Зверніться до адміністратора.' });
+  const register = async () => ({ success: false, error: 'Public registration is disabled. Contact administrator.' });
 
   const logout = () => {
     localStorage.removeItem('token');
@@ -127,7 +127,7 @@ export const AuthProvider = ({ children }) => {
       });
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка оновлення профілю';
+      const errorMessage = error.response?.data?.message || 'Profile update error';
       return { success: false, error: errorMessage };
     }
   };
@@ -137,7 +137,7 @@ export const AuthProvider = ({ children }) => {
       await api.auth.forgotPassword(email);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка відновлення паролю';
+      const errorMessage = error.response?.data?.message || 'Password recovery error';
       return { success: false, error: errorMessage };
     }
   };
@@ -147,7 +147,7 @@ export const AuthProvider = ({ children }) => {
       await api.auth.resetPassword(token, password);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка скидання паролю';
+      const errorMessage = error.response?.data?.message || 'Password reset error';
       return { success: false, error: errorMessage };
     }
   };
@@ -157,7 +157,7 @@ export const AuthProvider = ({ children }) => {
       await api.user.changePassword(currentPassword, newPassword);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка зміни паролю';
+      const errorMessage = error.response?.data?.message || 'Password change error';
       return { success: false, error: errorMessage };
     }
   };
@@ -168,7 +168,7 @@ export const AuthProvider = ({ children }) => {
       logout();
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка видалення акаунта';
+      const errorMessage = error.response?.data?.message || 'Account deletion error';
       return { success: false, error: errorMessage };
     }
   };

@@ -33,7 +33,7 @@ const SurveyManagement = () => {
     } catch (error) {
       setSnackbar({ 
         open: true, 
-        message: 'Помилка завантаження опитувань', 
+        message: 'Error loading surveys', 
         severity: 'error' 
       });
     } finally {
@@ -63,7 +63,7 @@ const SurveyManagement = () => {
       const response = await api.delete('/clusters/surveys/all');
       setSnackbar({ 
         open: true, 
-        message: `Видалено ${response.data.deletedCount} відповідей`, 
+        message: `Deleted ${response.data.deletedCount} responses`, 
         severity: 'success' 
       });
       setDeleteAllDialog(false);
@@ -72,7 +72,7 @@ const SurveyManagement = () => {
     } catch (error) {
       setSnackbar({ 
         open: true, 
-        message: 'Помилка видалення опитувань', 
+        message: 'Error deleting surveys', 
         severity: 'error' 
       });
     }
@@ -83,7 +83,7 @@ const SurveyManagement = () => {
       await api.delete(`/clusters/surveys/${surveyId}`);
       setSnackbar({ 
         open: true, 
-        message: 'Відповідь видалено', 
+        message: 'Response deleted', 
         severity: 'success' 
       });
       fetchSurveys();
@@ -91,7 +91,7 @@ const SurveyManagement = () => {
     } catch (error) {
       setSnackbar({ 
         open: true, 
-        message: 'Помилка видалення', 
+        message: 'Error deleting response', 
         severity: 'error' 
       });
     }

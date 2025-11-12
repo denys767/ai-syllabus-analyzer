@@ -27,10 +27,10 @@ const ResetPassword = () => {
     setError(''); setSuccess(''); setLoading(true);
     try {
       const res = await forgotPassword(email);
-      if (!res.success) throw new Error(res.error || 'Помилка запиту');
-      setSuccess('Якщо email існує, ми надіслали інструкції з відновлення паролю.');
+      if (!res.success) throw new Error(res.error || 'Request error');
+      setSuccess('If the email exists, we have sent password recovery instructions.');
     } catch (err) {
-      setError(err.message || 'Помилка запиту');
+      setError(err.message || 'Request error');
     } finally {
       setLoading(false);
     }
@@ -40,21 +40,21 @@ const ResetPassword = () => {
     e.preventDefault();
     setError(''); setSuccess('');
     if (password.length < 6) {
-      setError('Пароль має містити мінімум 6 символів');
+      setError('Password must contain at least 6 characters');
       return;
     }
     if (password !== confirm) {
-      setError('Паролі не співпадають');
+      setError('Passwords do not match');
       return;
     }
     setLoading(true);
     try {
       const res = await resetPassword(existingToken, password);
-      if (!res.success) throw new Error(res.error || 'Помилка скидання паролю');
-      setSuccess('Пароль успішно змінено. Тепер можете увійти.');
+      if (!res.success) throw new Error(res.error || 'Password reset error');
+      setSuccess('Password successfully changed. You can now log in.');
       setTimeout(() => navigate('/login'), 1200);
     } catch (err) {
-      setError(err.message || 'Помилка скидання паролю');
+      setError(err.message || 'Password reset error');
     } finally {
       setLoading(false);
     }
@@ -64,10 +64,10 @@ const ResetPassword = () => {
     <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.default', p: 2 }}>
       <Paper elevation={8} sx={{ maxWidth: 480, width: '100%', p: 4, borderRadius: 3 }}>
         <Typography variant="h5" fontWeight={700} gutterBottom>
-          {mode === 'request' ? 'Відновлення паролю' : 'Скидання паролю'}
+          {mode === 'request' ? 'Password Recovery' : 'Password Reset'}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {mode === 'request' ? 'Введіть ваш email і ми надішлемо інструкції' : 'Введіть новий пароль'}
+          {mode === 'request' ? 'Enter your email and we will send instructions' : 'Enter new password'}
         </Typography>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -77,21 +77,21 @@ const ResetPassword = () => {
           <form onSubmit={handleRequest}>
             <TextField fullWidth type="email" label="Email" value={email} onChange={(e) => setEmail(e.target.value)} required sx={{ mb: 2 }} />
             <Button type="submit" fullWidth variant="contained" disabled={loading}>
-              {loading ? 'Надсилання...' : 'Надіслати інструкції'}
+              {loading ? 'Sending...' : 'Send Instructions'}
             </Button>
           </form>
         ) : (
           <form onSubmit={handleReset}>
-            <TextField fullWidth type="password" label="Новий пароль" value={password} onChange={(e) => setPassword(e.target.value)} required sx={{ mb: 2 }} />
-            <TextField fullWidth type="password" label="Підтвердити пароль" value={confirm} onChange={(e) => setConfirm(e.target.value)} required sx={{ mb: 2 }} />
+            <TextField fullWidth type="password" label="New Password" value={password} onChange={(e) => setPassword(e.target.value)} required sx={{ mb: 2 }} />
+            <TextField fullWidth type="password" label="Confirm Password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required sx={{ mb: 2 }} />
             {password && (
               <Box sx={{ mb: 2 }}>
                 <LinearProgress variant="determinate" value={Math.min(100, password.length * 10)} />
-                <Typography variant="caption" color="text.secondary">Надійність паролю: {Math.min(100, password.length * 10)}%</Typography>
+                <Typography variant="caption" color="text.secondary">Password strength: {Math.min(100, password.length * 10)}%</Typography>
               </Box>
             )}
             <Button type="submit" fullWidth variant="contained" disabled={loading}>
-              {loading ? 'Збереження...' : 'Зберегти пароль'}
+              {loading ? 'Saving...' : 'Save Password'}
             </Button>
           </form>
         )}

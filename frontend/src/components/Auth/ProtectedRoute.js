@@ -21,7 +21,7 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
       >
         <CircularProgress size={48} />
         <Typography variant="body1" color="text.secondary">
-          Завантаження...
+          Loading...
         </Typography>
       </Box>
     );

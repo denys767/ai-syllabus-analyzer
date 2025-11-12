@@ -45,22 +45,22 @@ const Register = () => {
   const [loading, setLoading] = useState(false);
 
   const departments = [
-    'Факультет економіки',
-    'Факультет права',
-    'Факультет бізнесу',
-    'Факультет комп\'ютерних наук',
-    'Факультет публічної політики',
-    'Інше',
+    'Faculty of Economics',
+    'Faculty of Law',
+    'Faculty of Business',
+    'Faculty of Computer Science',
+    'Faculty of Public Policy',
+    'Other',
   ];
 
   const positions = [
-    'Професор',
-    'Доцент',
-    'Асистент',
-    'Лектор',
-    'Викладач',
-    'Науковий співробітник',
-    'Адміністратор',
+    'Professor',
+    'Associate Professor',
+    'Assistant',
+    'Lecturer',
+    'Instructor',
+    'Research Fellow',
+    'Administrator',
   ];
 
   const validatePassword = (password) => {
@@ -70,16 +70,16 @@ const Register = () => {
     const hasNumbers = /\d/.test(password);
     
     if (password.length < minLength) {
-      return 'Пароль повинен містити мінімум 8 символів';
+      return 'Password must contain at least 8 characters';
     }
     if (!hasUpperCase) {
-      return 'Пароль повинен містити хоча б одну велику літеру';
+      return 'Password must contain at least one uppercase letter';
     }
     if (!hasLowerCase) {
-      return 'Пароль повинен містити хоча б одну малу літеру';
+      return 'Password must contain at least one lowercase letter';
     }
     if (!hasNumbers) {
-      return 'Пароль повинен містити хоча б одну цифру';
+      return 'Password must contain at least one digit';
     }
     return '';
   };
@@ -107,7 +107,7 @@ const Register = () => {
 
     // Validation
     if (formData.password !== formData.confirmPassword) {
-      setError('Паролі не співпадають');
+      setError('Passwords do not match');
       return;
     }
 
@@ -124,7 +124,7 @@ const Register = () => {
       await register(registrationData);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Помилка реєстрації');
+      setError(err.message || 'Registration error');
     } finally {
       setLoading(false);
     }
@@ -167,7 +167,7 @@ const Register = () => {
         >
           <School sx={{ fontSize: 40, mb: 1 }} />
           <Typography variant="h5" fontWeight="bold" gutterBottom>
-            Реєстрація в KSE
+            Registration at KSE
           </Typography>
           <Typography variant="body2" opacity={0.9}>
             AI Syllabus Analyzer
@@ -185,7 +185,7 @@ const Register = () => {
             <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
               <TextField
                 fullWidth
-                label="Ім'я"
+                label="First Name"
                 name="firstName"
                 value={formData.firstName}
                 onChange={handleChange}
@@ -194,7 +194,7 @@ const Register = () => {
               />
               <TextField
                 fullWidth
-                label="Прізвище"
+                label="Last Name"
                 name="lastName"
                 value={formData.lastName}
                 onChange={handleChange}
@@ -218,13 +218,13 @@ const Register = () => {
 
             <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
               <FormControl fullWidth>
-                <InputLabel>Факультет</InputLabel>
+                <InputLabel>Faculty</InputLabel>
                 <Select
                   name="department"
                   value={formData.department}
                   onChange={handleChange}
                   required
-                  label="Факультет"
+                  label="Faculty"
                 >
                   {departments.map((dept) => (
                     <MenuItem key={dept} value={dept}>
@@ -235,13 +235,13 @@ const Register = () => {
               </FormControl>
 
               <FormControl fullWidth>
-                <InputLabel>Посада</InputLabel>
+                <InputLabel>Position</InputLabel>
                 <Select
                   name="position"
                   value={formData.position}
                   onChange={handleChange}
                   required
-                  label="Посада"
+                  label="Position"
                 >
                   {positions.map((pos) => (
                     <MenuItem key={pos} value={pos}>
@@ -254,7 +254,7 @@ const Register = () => {
 
             <TextField
               fullWidth
-              label="Пароль"
+              label="Password"
               name="password"
               type={showPassword ? 'text' : 'password'}
               value={formData.password}
@@ -285,14 +285,14 @@ const Register = () => {
                   sx={{ height: 6, borderRadius: 3 }}
                 />
                 <Typography variant="caption" color="text.secondary">
-                  Надійність паролю: {passwordStrength}%
+                  Password strength: {passwordStrength}%
                 </Typography>
               </Box>
             )}
 
             <TextField
               fullWidth
-              label="Підтвердити пароль"
+              label="Confirm Password"
               name="confirmPassword"
               type={showConfirmPassword ? 'text' : 'password'}
               value={formData.confirmPassword}
@@ -331,14 +331,14 @@ const Register = () => {
                 },
               }}
             >
-              {loading ? 'Реєстрація...' : 'Зареєструватися'}
+              {loading ? 'Registering...' : 'Register'}
             </Button>
 
-            <Divider sx={{ mb: 3 }}>або</Divider>
+            <Divider sx={{ mb: 3 }}>or</Divider>
 
             <Box sx={{ textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
-                Вже маєте обліковий запис?{' '}
+                Already have an account?{' '}
                 <Link
                   to="/login"
                   style={{
@@ -347,7 +347,7 @@ const Register = () => {
                     fontWeight: 600,
                   }}
                 >
-                  Увійти
+                  Login
                 </Link>
               </Typography>
             </Box>

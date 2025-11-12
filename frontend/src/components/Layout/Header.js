@@ -99,13 +99,13 @@ const Header = ({ onMenuClick, drawerOpen }) => {
           onChange={handleThemeChange}
           sx={{ mr: 1, bgcolor: 'background.paper', borderRadius: 2, '& .MuiToggleButton-root': { py: 0.5 } }}
         >
-          <ToggleButton value="system" aria-label="system" title="Системна тема">
+          <ToggleButton value="system" aria-label="system" title="System theme">
             <BrightnessAuto fontSize="small" />
           </ToggleButton>
-          <ToggleButton value="light" aria-label="light" title="Світла тема">
+          <ToggleButton value="light" aria-label="light" title="Light theme">
             <LightMode fontSize="small" />
           </ToggleButton>
-          <ToggleButton value="dark" aria-label="dark" title="Темна тема">
+          <ToggleButton value="dark" aria-label="dark" title="Dark theme">
             <DarkMode fontSize="small" />
           </ToggleButton>
         </ToggleButtonGroup>
@@ -161,9 +161,9 @@ const Header = ({ onMenuClick, drawerOpen }) => {
               {user?.email}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {user?.role === 'instructor' ? 'Викладач' : 
-               user?.role === 'admin' ? 'Адміністратор' : 
-               user?.role === 'manager' ? 'Менеджер' : user?.role}
+              {user?.role === 'instructor' ? 'Instructor' : 
+               user?.role === 'admin' ? 'Administrator' : 
+               user?.role === 'manager' ? 'Manager' : user?.role}
             </Typography>
           </Box>
           
@@ -171,19 +171,19 @@ const Header = ({ onMenuClick, drawerOpen }) => {
           
           <MenuItem onClick={handleProfile}>
             <AccountCircle sx={{ mr: 2 }} />
-            Профіль
+            Profile
           </MenuItem>
           
           <MenuItem onClick={handleSettings}>
             <Settings sx={{ mr: 2 }} />
-            Налаштування
+            Settings
           </MenuItem>
           
           <Divider />
           
           <MenuItem onClick={handleLogout}>
             <Logout sx={{ mr: 2 }} />
-            Вийти
+            Logout
           </MenuItem>
         </Menu>
       </Box>

@@ -20,7 +20,7 @@ const SyllabusAnalysis = () => {
       setSyllabus(response.data);
       setError(null);
       
-      // Автоматично вмикаємо polling якщо статус "processing"
+      // Automatically enable polling if status is "processing"
       if (response.data.status === 'processing') {
         setIsPolling(true);
       } else if (response.data.status === 'analyzed' || response.data.status === 'error') {
@@ -35,12 +35,12 @@ const SyllabusAnalysis = () => {
     }
   }, [id]);
 
-  // Початкове завантаження
+  // Initial loading
   useEffect(() => {
     fetchSyllabus();
   }, [fetchSyllabus]);
 
-  // Динамічний polling для статусу аналізу
+  // Dynamic polling for analysis status
   useEffect(() => {
     if (!isPolling || !id) return;
     
@@ -49,23 +49,23 @@ const SyllabusAnalysis = () => {
         const statusResponse = await api.syllabus.getSyllabusStatus(id);
         const newStatus = statusResponse.data.status;
         
-        // Оновлюємо статус без повного перезавантаження
+        // Update status without full reload
         setSyllabus(prev => prev ? { ...prev, status: newStatus } : prev);
         
-        // Якщо аналіз завершено, завантажуємо повні дані та вимикаємо polling
+        // If analysis is complete, load full data and disable polling
         if (newStatus === 'analyzed' || newStatus === 'error') {
           setIsPolling(false);
-          await fetchSyllabus(true); // silent reload для отримання рекомендацій
+          await fetchSyllabus(true); // silent reload to get recommendations
           
           if (newStatus === 'error') {
-            setError(statusResponse.data.error || 'Помилка під час аналізу силабусу');
+            setError(statusResponse.data.error || 'Error during syllabus analysis');
           }
         }
       } catch (err) {
         console.error('Polling error:', err);
-        // Не зупиняємо polling при одиночній помилці
+        // Don't stop polling on single error
       }
-    }, 3000); // Перевірка кожні 3 секунди
+    }, 3000); // Check every 3 seconds
     
     return () => clearInterval(pollInterval);
   }, [isPolling, id, fetchSyllabus]);
@@ -97,38 +97,38 @@ const SyllabusAnalysis = () => {
             <Typography variant="h4" gutterBottom component="h1">{syllabus.title}</Typography>
             <Typography variant="subtitle1" color="text.secondary">{syllabus.course.name} ({syllabus.course.code})</Typography>
             
-            {/* Динамічний статус аналізу */}
+            {/* Dynamic analysis status */}
             {syllabus.status === 'processing' && (
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2 }}>
                 <CircularProgress size={20} />
                 <Typography variant="body2" color="info.main">
-                  Аналіз у процесі... Рекомендації з'являться автоматично після завершення
+                  Analysis in progress... Recommendations will appear automatically after completion
                 </Typography>
               </Stack>
             )}
             
             {syllabus.status === 'analyzed' && (
               <Alert severity="success" sx={{ mt: 2 }}>
-                ✅ Аналіз завершено! Перегляньте рекомендації нижче.
+                ✅ Analysis completed! View recommendations below.
               </Alert>
             )}
             
             {syllabus.status === 'error' && (
               <Alert severity="error" sx={{ mt: 2 }}>
-                ❌ Помилка під час аналізу. Спробуйте перезавантажити сторінку.
+                ❌ Error during analysis. Try refreshing the page.
               </Alert>
             )}
             
             {syllabus.status === 'analyzed' && (
               <Typography variant="body2" color="text.secondary" sx={{ mt:1 }}>
-                Прийміть потрібні рекомендації, натисніть «Редагувати силабус з AI» і дочекайтесь PDF зі змінами.
+                Accept the needed recommendations, click "Edit syllabus with AI" and wait for the PDF with changes.
               </Typography>
             )}
           </Box>
         </Stack>
       </Paper>
 
-      {/* Показуємо рекомендації тільки після завершення аналізу */}
+      {/* Show recommendations only after analysis completion */}
       {syllabus.status === 'analyzed' && (
         <>
           <Grid container spacing={3}>
@@ -163,16 +163,16 @@ const SyllabusAnalysis = () => {
         </>
       )}
       
-      {/* Показуємо placeholder під час обробки */}
+      {/* Show placeholder during processing */}
       {syllabus.status === 'processing' && (
         <Paper sx={{ p: 4, textAlign: 'center' }}>
           <CircularProgress size={60} sx={{ mb: 2 }} />
           <Typography variant="h6" gutterBottom>
-            Аналізуємо ваш силабус...
+            Analyzing your syllabus...
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            AI обробляє текст, генерує рекомендації та перевіряє відповідність до програми MBA.
-            Це може зайняти до 2 хвилин.
+            AI processes the text, generates recommendations and checks compliance with the MBA program.
+            This may take up to 2 minutes.
           </Typography>
         </Paper>
       )}

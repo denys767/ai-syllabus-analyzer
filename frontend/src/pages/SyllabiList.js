@@ -363,7 +363,7 @@ const SyllabiList = () => {
                       {new Date(syllabus.createdAt).toLocaleTimeString('en-US')}
                     </Typography>
                   </TableCell>
-                  {/* AI оцінка прибрана */}
+                  {/* AI rating removed */}
                   <TableCell align="right">
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
                       <Tooltip title="View analysis">
@@ -459,7 +459,7 @@ const SyllabiList = () => {
         </MenuItem>
         
         <MenuItem onClick={() => {
-          // Перенаправляємо на сторінку аналізу силабусу, де доступні звіти/експорти
+          // Redirect to syllabus analysis page where reports/exports are available
           navigate(`/syllabi/${menuAnchor.syllabus._id}`);
           setMenuAnchor({ element: null, syllabus: null });
         }}>

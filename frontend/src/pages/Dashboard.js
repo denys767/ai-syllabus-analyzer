@@ -62,7 +62,7 @@ const Dashboard = () => {
   const pending = list.reduce((acc, s) => acc + (Array.isArray(s.recommendations) ? s.recommendations.filter(r => r.status === 'pending').length : 0), 0);
   setPendingTotal(pending);
     } catch (err) {
-      setError('Помилка завантаження даних дашборда');
+      setError('Error loading dashboard data');
       console.error('Dashboard error:', err);
     } finally {
       setLoading(false);
@@ -191,7 +191,7 @@ const Dashboard = () => {
           </Card>
         </Grid>
 
-  {/* AI score card видалено згідно з оновленими вимогами */}
+  {/* AI score card removed according to updated requirements */}
 
         {/* Pending decisions */}
         <Grid item xs={12} sm={6} md={3}>
