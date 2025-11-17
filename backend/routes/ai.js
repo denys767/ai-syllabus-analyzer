@@ -54,22 +54,37 @@ router.post('/challenge/respond',
       return res.status(400).json({ errors: errors.array() });
     }
 
+    const safeJson = (statusCode, payload) => {
+      if (typeof statusCode !== 'number') {
+        payload = statusCode;
+        statusCode = 200;
+      }
+      if (res.headersSent || res.writableEnded) {
+        console.warn(`Skipped response for ${req.originalUrl} (headers already sent)`);
+        return;
+      }
+      if (payload === undefined) {
+        return res.json(statusCode);
+      }
+      return res.status(statusCode).json(payload);
+    };
+
     try {
       const { syllabusId, response: instructorResponse } = req.body;
       
       const syllabus = await Syllabus.findById(syllabusId);
       if (!syllabus) {
-        return res.status(404).json({ message: 'Syllabus not found' });
+        return safeJson(404, { message: 'Syllabus not found' });
       }
 
       // Check if user owns this syllabus
       if (syllabus.instructor.toString() !== req.user.userId.toString() && req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Not authorized' });
+        return safeJson(403, { message: 'Not authorized' });
       }
 
       const result = await aiService.respondToChallenge(syllabusId, instructorResponse);
       
-      res.json({ 
+      safeJson(200, { 
         message: 'Response processed',
         aiResponse: result.aiResponse,
         newRecommendations: result.newRecommendations || [],
@@ -77,7 +92,7 @@ router.post('/challenge/respond',
       });
     } catch (error) {
       console.error('AI Challenge respond error:', error);
-      res.status(500).json({ message: 'Failed to process response', error: error.message });
+      safeJson(500, { message: 'Failed to process response', error: error.message });
     }
   }
 );

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Typography, TextField, Button, CircularProgress, Paper, Avatar, Grid } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { Psychology, School } from '@mui/icons-material';
@@ -6,15 +6,33 @@ import api from '../../services/api';
 
 const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => {
   const LONG_AI_TIMEOUT = 120000; // 2 minutes for long-running LLM calls
+  const EXPECTED_WAIT_SECONDS = Math.floor(LONG_AI_TIMEOUT / 1000);
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [elapsedMs, setElapsedMs] = useState(0);
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const challenge = syllabus.practicalChallenge;
   const discussionCount = useMemo(() => (challenge?.discussion?.length || 0), [challenge]);
   const maxRounds = 1; // single-question challenge
   const isCompleted = (challenge?.status === 'completed') || (discussionCount >= maxRounds);
+
+  useEffect(() => {
+    let timerId;
+    if (loading) {
+      const startedAt = Date.now();
+      timerId = setInterval(() => {
+        setElapsedMs(Date.now() - startedAt);
+      }, 1000);
+    } else {
+      setElapsedMs(0);
+    }
+
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [loading]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -138,6 +156,16 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
         >
           {loading ? <CircularProgress size={24} /> : isCompleted ? 'Completed' : 'Send Response'}
         </Button>
+        {loading && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Generating a tailored AI reply (~{Math.round(EXPECTED_WAIT_SECONDS / 60)} min). Elapsed {Math.floor(elapsedMs / 1000)}s — keep this tab open.
+          </Typography>
+        )}
+        {!loading && !isCompleted && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Full AI responses usually take about {Math.round(EXPECTED_WAIT_SECONDS / 60)} minutes (~{Math.round(EXPECTED_WAIT_SECONDS / 10) * 10} seconds).
+          </Typography>
+        )}
         {isCompleted && (
           <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
             Discussion completed. New ideas added to the list.

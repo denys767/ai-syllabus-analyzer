@@ -147,10 +147,22 @@ const syllabusSchema = new mongoose.Schema({
       respondedAt: { type: Date, default: Date.now }
     }],
     aiSuggestions: [{
+      title: String,
       suggestion: String,
       category: String, // e.g., 'case-study', 'group-activity', 'interactive-method'
+      priority: {
+        type: String,
+        enum: ['low', 'medium', 'high', 'critical'],
+        default: 'medium'
+      },
       createdAt: { type: Date, default: Date.now }
     }],
+    practicalityScore: {
+      type: Number,
+      min: 0,
+      max: 100
+    },
+    practicalityCritique: String,
     status: {
       type: String,
       enum: ['pending', 'in-progress', 'completed'],

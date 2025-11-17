@@ -966,6 +966,14 @@ Return the FULL edited text with changes applied naturally.`;
     };
   }
 
+  normalizeScore(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    const clamped = Math.min(100, Math.max(0, num));
+    // keep one decimal for readability
+    return Math.round(clamped * 10) / 10;
+  }
+
   // AI Challenger methods
   async startPracticalChallenge(syllabusId) {
     try {
@@ -1060,6 +1068,14 @@ Return the FULL edited text with changes applied naturally.`;
 
       console.log('💬 Previous exchanges:', previousDiscussion.length);
 
+      // Ensure cluster context helpers exist for prompt building
+      const clusterContext = await this.getStudentClusterContext();
+      const defaultClusterDetails = this.getDefaultClusterDetails();
+      const clusterSummaryText = clusterContext?.summary || defaultClusterDetails.summary;
+      const clusterQuarterLabel = clusterContext?.quarter || defaultClusterDetails.quarter;
+      const clusterNameList = clusterContext?.nameList || defaultClusterDetails.nameList;
+      const clusterContextBlock = `Student Cluster Context (Quarter: ${clusterQuarterLabel}):\n${clusterSummaryText}`;
+
       const discussionHistory = previousDiscussion.map(d => 
         `Instructor: ${d.instructorResponse}\nAI: ${d.aiResponse}`
       ).join('\n\n');
@@ -1130,7 +1146,7 @@ Return the FULL edited text with changes applied naturally.`;
       if (updatedDiscussion.length > 0) {
         console.log('\n--- GENERATING PRACTICALITY RECOMMENDATIONS ---');
         try {
-          const recPrompt = `Based on the AI-Instructor discussion about practical teaching methods, extract 1-3 actionable recommendations for improving the syllabus.
+          const recPrompt = `Based on the AI-Instructor discussion about practical teaching methods, extract actionable insights.
 
 Each recommendation should focus on ONE of these areas:
 1. **Real Cases & Practical Tasks**: Add Ukrainian business cases, simulations, hands-on projects
@@ -1142,9 +1158,11 @@ ${clusterContextBlock}
 
 Return JSON format:
 {
+  "score": number, // 0-100 integer practicality & interactivity score after considering the discussion
+  "critique": "1-3 sentence summary explaining the score with concrete insight",
   "recommendations": [
     {
-      "category": "practicality", // Category MUST be "practicality", not anything else
+      "category": "practicality", // Category MUST be "practicality"
       "priority": "low" | "medium" | "high",
       "title": "Short actionable title (max 80 chars)",
       "description": "Concise description focusing on one of the three areas above (max 160 chars)",
@@ -1171,6 +1189,16 @@ Return ONLY valid JSON.`;
           console.log('📥 Raw recommendation extraction:', rawRec.substring(0, 200));
           
           const parsed = JSON.parse(rawRec);
+          const practicalityScore = this.normalizeScore(parsed.score ?? parsed.practicalityScore);
+          const practicalityCritique = typeof parsed.critique === 'string' ? parsed.critique.trim() : '';
+
+          if (Number.isFinite(practicalityScore)) {
+            syllabus.practicalChallenge.practicalityScore = practicalityScore;
+          }
+          if (practicalityCritique) {
+            syllabus.practicalChallenge.practicalityCritique = practicalityCritique.slice(0, 600);
+          }
+
           if (parsed.recommendations && Array.isArray(parsed.recommendations)) {
             newRecommendations = parsed.recommendations.map((rec, idx) => ({
               id: `rec_ai_challenger_${Date.now()}_${idx}`,
@@ -1188,6 +1216,20 @@ Return ONLY valid JSON.`;
               syllabus.recommendations = [];
             }
             syllabus.recommendations.push(...newRecommendations);
+            const suggestionEntries = newRecommendations.map(rec => ({
+              title: rec.title,
+              suggestion: rec.description || rec.title,
+              category: rec.category,
+              priority: rec.priority,
+              createdAt: new Date()
+            }));
+
+            if (!Array.isArray(syllabus.practicalChallenge.aiSuggestions)) {
+              syllabus.practicalChallenge.aiSuggestions = [];
+            }
+            const combinedSuggestions = [...syllabus.practicalChallenge.aiSuggestions, ...suggestionEntries];
+            // Keep latest 10 suggestions to avoid unbounded growth
+            syllabus.practicalChallenge.aiSuggestions = combinedSuggestions.slice(-10);
             
             console.log('✅ Generated', newRecommendations.length, 'practicality recommendations');
           }

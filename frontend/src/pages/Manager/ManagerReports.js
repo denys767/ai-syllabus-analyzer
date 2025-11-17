@@ -10,12 +10,15 @@ import {
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { useNavigate } from 'react-router-dom';
+import { extractAiSuggestions, getPracticalityScoreData, formatPracticalityScore } from '../../utils/practicality';
 
 const ManagerReports = () => {
   const [syllabi, setSyllabi] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedPanel, setExpandedPanel] = useState(false);
+  const [downloadingMap, setDownloadingMap] = useState({});
+  const [downloadErrors, setDownloadErrors] = useState({});
   const navigate = useNavigate();
   const learningOutcomeChipStyles = {
     maxWidth: '100%',
@@ -66,11 +69,42 @@ const ManagerReports = () => {
     setExpandedPanel(isExpanded ? panel : false);
   };
 
-  const downloadPdf = async (syllabusId) => {
+  const downloadPdf = async (syllabus) => {
+    const syllabusId = syllabus._id;
+    setDownloadingMap((prev) => ({ ...prev, [syllabusId]: true }));
+    setDownloadErrors((prev) => ({ ...prev, [syllabusId]: '' }));
+
     try {
-      await api.syllabus.downloadEditedPdf(syllabusId);
+      const resp = await api.syllabus.downloadEditedPdf(syllabusId);
+      const blob = new Blob([
+        resp.data
+      ], { type: resp.headers['content-type'] || 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const disposition = resp.headers['content-disposition'] || '';
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      const fallbackName = `${syllabus.title || syllabus.course?.name || 'syllabus'}-diff.pdf`;
+      link.download = match ? match[1] : fallbackName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setDownloadErrors((prev) => {
+        const next = { ...prev };
+        delete next[syllabusId];
+        return next;
+      });
     } catch (err) {
       console.error('PDF download error:', err);
+      const message = err.response?.data?.message || 'Failed to download PDF with changes';
+      setDownloadErrors((prev) => ({ ...prev, [syllabusId]: message }));
+    } finally {
+      setDownloadingMap((prev) => {
+        const next = { ...prev };
+        delete next[syllabusId];
+        return next;
+      });
     }
   };
 
@@ -119,7 +153,8 @@ const ManagerReports = () => {
           : 0;
 
         const challengeCompleted = syllabus.practicalChallenge?.status === 'completed';
-        const aiSuggestions = syllabus.practicalChallenge?.aiSuggestions || [];
+        const aiSuggestions = extractAiSuggestions(syllabus);
+        const { score: practicalityScore, critique: practicalityCritique } = getPracticalityScoreData(syllabus);
 
         return (
           <Accordion 
@@ -206,14 +241,20 @@ const ManagerReports = () => {
                         <Box sx={{ mt: 2, textAlign: 'center' }}>
                           <Button
                             variant="contained"
-                            startIcon={<Download />}
-                            onClick={() => downloadPdf(syllabus._id)}
+                            startIcon={downloadingMap[syllabus._id] ? <CircularProgress size={18} color="inherit" /> : <Download />}
+                            onClick={() => downloadPdf(syllabus)}
+                            disabled={Boolean(downloadingMap[syllabus._id])}
                             fullWidth={false}
                             size="medium"
                             sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}
                           >
-                            Download PDF with Changes
+                            {downloadingMap[syllabus._id] ? 'Preparing PDF...' : 'Download PDF with Changes'}
                           </Button>
+                          {downloadErrors[syllabus._id] && (
+                            <Alert severity="error" sx={{ mt: 2 }}>
+                              {downloadErrors[syllabus._id]}
+                            </Alert>
+                          )}
                         </Box>
                       )}
                     </CardContent>
@@ -285,7 +326,34 @@ const ManagerReports = () => {
                             <Chip label="Not Completed" color="default" size="small" />
                           }
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
+                        {challengeCompleted ? (
+                          <Box sx={{
+                            display: 'flex',
+                            flexDirection: { xs: 'column', sm: 'row' },
+                            gap: 2,
+                            alignItems: { xs: 'flex-start', sm: 'center' }
+                          }}>
+                            <Box>
+                              <Typography variant="h3" color="primary.main" sx={{ lineHeight: 1 }}>
+                                {formatPracticalityScore(practicalityScore)}
+                                <Typography component="span" variant="subtitle1" sx={{ ml: 0.5 }}>/100</Typography>
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Practicality & interactivity score
+                              </Typography>
+                            </Box>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="body2" color="text.secondary">
+                                {practicalityCritique || 'Score generated after AI challenger completes its response.'}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            Score will appear after the AI challenger response is completed.
+                          </Typography>
+                        )}
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                           Number of AI suggestions: {aiSuggestions.length}
                         </Typography>
                       </Box>
@@ -299,8 +367,11 @@ const ManagerReports = () => {
                             {aiSuggestions.slice(0, 3).map((suggestion, index) => (
                               <ListItem key={index} sx={{ px: 0 }}>
                                 <ListItemText
-                                  primary={suggestion.suggestion?.substring(0, 80) + '...'}
-                                  secondary={suggestion.category || 'No category'}
+                                  primary={(() => {
+                                    const text = suggestion.title || suggestion.suggestion || 'No description';
+                                    return text.length > 80 ? `${text.substring(0, 77)}...` : text;
+                                  })()}
+                                  secondary={suggestion.category || suggestion.priority || 'No category'}
                                   primaryTypographyProps={{ variant: 'body2' }}
                                   secondaryTypographyProps={{ variant: 'caption' }}
                                 />

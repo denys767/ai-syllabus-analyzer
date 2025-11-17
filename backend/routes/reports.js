@@ -64,6 +64,39 @@ router.get('/manager-summary', auth, manager, async (req, res) => {
       .populate('instructor', 'firstName lastName email')
       .select('recommendations analysis practicalChallenge instructor createdAt');
 
+    const practicalityStats = syllabi.reduce((acc, syllabus) => {
+      const challenge = syllabus.practicalChallenge || {};
+      const suggestions = getPracticalitySuggestions(syllabus);
+      if (challenge.status === 'completed') acc.totalChallengesCompleted += 1;
+      acc.aiSuggestionsCount += suggestions.length;
+      if (typeof challenge.practicalityScore === 'number') {
+        acc.scoreSum += challenge.practicalityScore;
+        acc.scoreCount += 1;
+      }
+      if (challenge.practicalityCritique) {
+        acc.critiques.push({
+          syllabus: syllabus.title || syllabus.course?.name || 'Untitled syllabus',
+          critique: challenge.practicalityCritique
+        });
+      }
+      suggestions.forEach(s => acc.topSuggestions.push({
+        suggestion: s.suggestion || s.title || 'Practical improvement',
+        category: s.category || 'practicality',
+        createdAt: s.createdAt || syllabus.updatedAt || syllabus.createdAt
+      }));
+      return acc;
+    }, {
+      totalChallengesCompleted: 0,
+      aiSuggestionsCount: 0,
+      scoreSum: 0,
+      scoreCount: 0,
+      topSuggestions: [],
+      critiques: []
+    });
+    const practicalityAverageScore = practicalityStats.scoreCount > 0
+      ? practicalityStats.scoreSum / practicalityStats.scoreCount
+      : 0;
+
     const summary = {
       totalSyllabi: syllabi.length,
       generatedAt: new Date(),
@@ -83,11 +116,13 @@ router.get('/manager-summary', auth, manager, async (req, res) => {
           }, 0) / syllabi.length : 0
       },
       practicalityAndInteractivity: {
-        // AI Challenge feature removed in v2.0.0 refactoring
-        totalChallengesCompleted: 0,
-        aiSuggestionsCount: 0,
-        topSuggestions: []
-          .slice(0, 20) // Top 20 suggestions
+        totalChallengesCompleted: practicalityStats.totalChallengesCompleted,
+        aiSuggestionsCount: practicalityStats.aiSuggestionsCount,
+        averageScore: Math.round(practicalityAverageScore * 10) / 10,
+        critiques: practicalityStats.critiques.slice(0, 5),
+        topSuggestions: practicalityStats.topSuggestions
+          .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+          .slice(0, 20)
       },
       improvementProposals: syllabi.flatMap(s => s.recommendations.filter(r => r.status === 'accepted'))
         .map(r => ({
@@ -423,7 +458,7 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
       h2('Оцінка практичності та інтерактивності курсу');
   // Deprecated numeric practicality score removed
       p('Інтегральна оцінка практичності (якісна): формалізоване числове оцінювання видалено.');
-      const ideas = Array.isArray(syllabus.practicalChallenge?.aiSuggestions) ? syllabus.practicalChallenge.aiSuggestions : [];
+      const ideas = getPracticalitySuggestions(syllabus);
       if (ideas.length) {
         p('Інтерактивні пропозиції:');
         ideas.slice(0,5).forEach(s => li(String(s.suggestion || '').slice(0,180)));
@@ -571,7 +606,7 @@ function buildImprovementProposals(syllabus){
   
   const sca = syllabus.analysis?.studentClusterAnalysis;
   if ((sca?.suggestedCases||[]).length < 3) proposals.add('Додати українські приклади та кейси, пов\'язані з профілями студентів');
-  if (!(syllabus.practicalChallenge?.aiSuggestions||[]).length) proposals.add('Додати інтерактивні активності (дискусії, групові завдання, peer-to-peer).');
+  if (getPracticalitySuggestions(syllabus).length === 0) proposals.add('Додати інтерактивні активності (дискусії, групові завдання, peer-to-peer).');
   return Array.from(proposals);
 }
 
@@ -640,6 +675,25 @@ function generateNextSteps(syllabus, practicalIdeas) {
   }
 
   return steps;
+}
+
+function getPracticalitySuggestions(syllabus) {
+  if (!syllabus) return [];
+  const stored = Array.isArray(syllabus.practicalChallenge?.aiSuggestions)
+    ? syllabus.practicalChallenge.aiSuggestions.filter(item => item && (item.suggestion || item.title))
+    : [];
+  if (stored.length) return stored;
+
+  const fallback = (syllabus.recommendations || [])
+    .filter(rec => rec.category === 'practicality')
+    .map(rec => ({
+      title: rec.title,
+      suggestion: rec.description || rec.title || 'Practical improvement',
+      category: rec.category || 'practicality',
+      priority: rec.priority || 'medium',
+      createdAt: rec.createdAt || syllabus.updatedAt || syllabus.createdAt || new Date()
+    }));
+  return fallback;
 }
 
 function calculateAverageQualityScore(syllabi) {
@@ -997,7 +1051,7 @@ function buildGroupedRecommendations(syllabus) {
 
   // AI Challenger-derived (from discussion and stored suggestions)
   const aiDisc = Array.isArray(syllabus.practicalChallenge?.discussion) ? syllabus.practicalChallenge.discussion : [];
-  const aiSug = Array.isArray(syllabus.practicalChallenge?.aiSuggestions) ? syllabus.practicalChallenge.aiSuggestions : [];
+  const aiSug = getPracticalitySuggestions(syllabus);
   grouped.aiChallenger = [
     ...aiDisc.slice(-3).map(d => (d.aiResponse || '').slice(0,200)).filter(Boolean),
     ...aiSug.slice(0,5).map(s => s.suggestion)

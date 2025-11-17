@@ -22,6 +22,9 @@ const policiesRoutes = require('./routes/policies');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const DEFAULT_REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS || '20000', 10);
+const AI_REQUEST_TIMEOUT_MS = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '130000', 10);
+const LONG_RUNNING_PATHS = ['/api/ai/challenge', '/api/ai/challenge/respond'];
 
 // Basic in-memory health flags
 let dbConnected = false;
@@ -114,10 +117,12 @@ app.use((req, res, next) => {
   res.setHeader('X-Request-Id', id);
 
   // Per-request timeout (avoid hanging requests)
-  const REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS || '20000', 10);
-  res.setTimeout(REQUEST_TIMEOUT_MS, () => {
+  const url = req.originalUrl || req.url || '';
+  const isLongRunningAiRequest = LONG_RUNNING_PATHS.some(prefix => url.startsWith(prefix));
+  const timeoutMs = isLongRunningAiRequest ? AI_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS;
+  res.setTimeout(timeoutMs, () => {
     if (!res.headersSent) {
-      console.warn(`[timeout] ${req.method} ${req.originalUrl} id=${id} exceeded ${REQUEST_TIMEOUT_MS}ms`);
+      console.warn(`[timeout] ${req.method} ${url} id=${id} exceeded ${timeoutMs}ms`);
       res.status(504).json({ message: 'Request timed out' });
     }
   });
@@ -240,8 +245,9 @@ const server = app.listen(PORT, () => {
 });
 
 // Tighten HTTP server timeouts to avoid resource leaks
-server.requestTimeout = parseInt(process.env.REQUEST_TIMEOUT_MS || '20000', 10); // ms
-server.headersTimeout = Math.max(server.requestTimeout + 1000, 25000); // ms
+const serverRequestTimeout = Math.max(DEFAULT_REQUEST_TIMEOUT_MS, AI_REQUEST_TIMEOUT_MS);
+server.requestTimeout = serverRequestTimeout;
+server.headersTimeout = Math.max(serverRequestTimeout + 1000, 25000); // ms
 server.keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS || '65000', 10);
 
 // Event loop delay monitor (warn if > 200ms)

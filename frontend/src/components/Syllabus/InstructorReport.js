@@ -1,13 +1,16 @@
 import React from 'react';
 import {
   Box, Typography, Card, CardContent, Grid, Chip, List,
-  ListItem, ListItemText, Divider, Button
+  ListItem, ListItemText, Divider
 } from '@mui/material';
 import {
-  CheckCircle, Cancel, Pending, Comment,
-  Description, Download
+  CheckCircle, Cancel, Pending, Comment
 } from '@mui/icons-material';
-import api from '../../services/api';
+import {
+  extractAiSuggestions,
+  getPracticalityScoreData,
+  formatPracticalityScore
+} from '../../utils/practicality';
 
 const InstructorReport = ({ syllabus }) => {
   const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
@@ -18,12 +21,14 @@ const InstructorReport = ({ syllabus }) => {
   const coveredObjectives = syllabus.analysis?.learningObjectivesAlignment?.alignedObjectives || [];
   const gaps = syllabus.analysis?.learningObjectivesAlignment?.missingObjectives || [];
   const totalObjectives = coveredObjectives.length + gaps.length;
-  const coverageScore = totalObjectives > 0 
-    ? ((coveredObjectives.length / totalObjectives) * 100).toFixed(1) 
+  const coverageScore = totalObjectives > 0
+    ? ((coveredObjectives.length / totalObjectives) * 100).toFixed(1)
     : 0;
 
   const challengeCompleted = syllabus.practicalChallenge?.status === 'completed';
-  const aiSuggestions = syllabus.practicalChallenge?.aiSuggestions || [];
+  const aiSuggestions = extractAiSuggestions(syllabus);
+  const { score: practicalityScore, critique: practicalityCritique } = getPracticalityScoreData(syllabus);
+
   const learningOutcomeChipStyles = {
     maxWidth: '100%',
     alignItems: 'flex-start',
@@ -31,14 +36,6 @@ const InstructorReport = ({ syllabus }) => {
       display: 'block',
       whiteSpace: 'normal',
       textAlign: 'left'
-    }
-  };
-
-  const downloadPdf = async () => {
-    try {
-      await api.syllabus.downloadEditedPdf(syllabus._id);
-    } catch (err) {
-      console.error('Error downloading PDF:', err);
     }
   };
 
@@ -98,8 +95,6 @@ const InstructorReport = ({ syllabus }) => {
                   </Box>
                 </Grid>
               </Grid>
-
-              {/* Removed duplicate download button (kept single source in RecommendationsPanel) */}
             </CardContent>
           </Card>
         </Grid>
@@ -169,7 +164,34 @@ const InstructorReport = ({ syllabus }) => {
                     <Chip label="Not Completed" color="default" size="small" />
                   }
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                {challengeCompleted ? (
+                  <Box sx={{
+                    display: 'flex',
+                    flexDirection: { xs: 'column', sm: 'row' },
+                    gap: 2,
+                    alignItems: { xs: 'flex-start', sm: 'center' }
+                  }}>
+                    <Box>
+                      <Typography variant="h3" color="primary.main" sx={{ lineHeight: 1 }}>
+                        {formatPracticalityScore(practicalityScore)}
+                        <Typography component="span" variant="subtitle1" sx={{ ml: 0.5 }}>/100</Typography>
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Practicality & interactivity score
+                      </Typography>
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {practicalityCritique || 'Score generated after AI challenger completes its response.'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    Score will appear after the AI challenger response is completed.
+                  </Typography>
+                )}
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                   Number of AI suggestions: {aiSuggestions.length}
                 </Typography>
               </Box>
@@ -183,8 +205,11 @@ const InstructorReport = ({ syllabus }) => {
                     {aiSuggestions.slice(0, 3).map((suggestion, index) => (
                       <ListItem key={index} sx={{ px: 0 }}>
                         <ListItemText
-                          primary={suggestion.suggestion?.substring(0, 80) + '...'}
-                          secondary={suggestion.category || 'No category'}
+                          primary={(() => {
+                            const text = suggestion.title || suggestion.suggestion || 'No description';
+                            return text.length > 80 ? `${text.substring(0, 77)}...` : text;
+                          })()}
+                          secondary={suggestion.category || suggestion.priority || 'No category'}
                           primaryTypographyProps={{ variant: 'body2' }}
                           secondaryTypographyProps={{ variant: 'caption' }}
                         />
