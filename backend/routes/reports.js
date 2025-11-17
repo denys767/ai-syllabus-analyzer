@@ -23,7 +23,6 @@ router.get('/syllabus/:id', auth, async (req, res) => {
     // Simplified per spec: only section 2.4 info
     const accepted = syllabus.recommendations.filter(r=>r.status==='accepted');
     const rejected = syllabus.recommendations.filter(r=>r.status==='rejected');
-    const commented = syllabus.recommendations.filter(r=>r.status==='commented');
     const pending = syllabus.recommendations.filter(r=>r.status==='pending');
     const report = {
       syllabus: {
@@ -37,7 +36,6 @@ router.get('/syllabus/:id', auth, async (req, res) => {
       summaryOfChanges: {
         accepted: accepted.map(r=> pickRec(r)),
         rejected: rejected.map(r=> pickRec(r)),
-        commented: commented.map(r=> pickRec(r)),
         pending: pending.map(r=> pickRec(r))
       },
       learningOutcomesAlignment: {
@@ -72,8 +70,7 @@ router.get('/manager-summary', auth, manager, async (req, res) => {
       summaryOfChanges: {
         totalAccepted: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'accepted').length, 0),
         totalRejected: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'rejected').length, 0),
-        totalPending: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'pending').length, 0),
-        totalCommented: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'commented').length, 0)
+        totalPending: syllabi.reduce((sum, s) => sum + s.recommendations.filter(r => r.status === 'pending').length, 0)
       },
       learningOutcomesAlignment: {
         coveredObjectives: [...new Set(syllabi.flatMap(s => s.analysis?.learningObjectivesAlignment?.alignedObjectives || []))],
@@ -316,7 +313,6 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
         TotalRecommendations: syllabus.recommendations.length,
         Accepted: syllabus.recommendations.filter(r=>r.status==='accepted').length,
         Rejected: syllabus.recommendations.filter(r=>r.status==='rejected').length,
-        Commented: syllabus.recommendations.filter(r=>r.status==='commented').length
   }).map(([k,v]) => `${k},"${v}"`),
   'AIChallenger:', 'Feature removed in v2.0.0',
   'Timeline:', 'RecommendationID,OldStatus,NewStatus,Comment,At'];
@@ -354,9 +350,9 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
         aiSheet.addRow([d.respondedAt || '', d.instructorResponse || '', d.aiResponse || '']);
       });
       const recSheet = wb.addWorksheet('Recommendations');
-      recSheet.addRow(['ID','Category','Title','Status','Priority','Created','Responded','Comment']);
+      recSheet.addRow(['ID','Category','Title','Status','Priority','Created','Responded']);
       syllabus.recommendations.forEach(r=>{
-        recSheet.addRow([r.id || r._id, r.category, r.title, r.status, r.priority, r.createdAt, r.respondedAt || '', r.instructorComment || '']);
+        recSheet.addRow([r.id || r._id, r.category, r.title, r.status, r.priority, r.createdAt, r.respondedAt || '']);
       });
       const tl = wb.addWorksheet('Timeline');
       tl.addRow(['RecommendationID','From','To','Comment','At']);
@@ -405,11 +401,9 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
       h2('Загальне самарі змін');
       const acceptedCount = syllabus.recommendations.filter(r=>r.status==='accepted').length;
       const rejectedCount = syllabus.recommendations.filter(r=>r.status==='rejected').length;
-      const commentedCount = syllabus.recommendations.filter(r=>r.status==='commented').length;
       const pendingCount = syllabus.recommendations.filter(r=>r.status==='pending').length;
       li(`Прийнято: ${acceptedCount}`);
       li(`Відхилено: ${rejectedCount}`);
-      li(`З коментарями: ${commentedCount}`);
       li(`На розгляді: ${pendingCount}`);
 
       // Section 2: Аналіз відповідності outcomes (ILO)
@@ -482,7 +476,7 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
       h2('Перелік рекомендацій');
       syllabus.recommendations.forEach(r => {
         li(`[${(r.status||'pending').toUpperCase()}] (${r.category}) ${r.title} — ${r.priority}`);
-        if (r.instructorComment) p(`   Коментар: ${r.instructorComment}`);
+        // Commenting removed in v2.1
       });
 
       // End
@@ -546,8 +540,7 @@ function pickRec(r){
     title: r.title,
     description: r.description,
     status: r.status,
-    priority: r.priority,
-    instructorComment: r.instructorComment
+    priority: r.priority
   };
 }
 
@@ -872,7 +865,7 @@ async function generateExcelExportBuffer(syllabi) {
   if (!ExcelJS) ExcelJS = require('exceljs');
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Syllabi');
-  ws.addRow(['Title','Instructor','Department','Status','Quality Score','Template Score','Objectives Score','Uniqueness','Total Recs','Accepted','Rejected','Pending','Commented']);
+  ws.addRow(['Title','Instructor','Department','Status','Quality Score','Template Score','Objectives Score','Uniqueness','Total Recs','Accepted','Rejected','Pending']);
   syllabi.forEach(s => {
     const instr = s.instructor ? `${s.instructor.firstName || ''} ${s.instructor.lastName || ''}` : 'Unknown';
     ws.addRow([
@@ -887,8 +880,7 @@ async function generateExcelExportBuffer(syllabi) {
       s.recommendations.length,
       s.recommendations.filter(r=>r.status==='accepted').length,
       s.recommendations.filter(r=>r.status==='rejected').length,
-      s.recommendations.filter(r=>r.status==='pending').length,
-      s.recommendations.filter(r=>r.status==='commented').length
+      s.recommendations.filter(r=>r.status==='pending').length
     ]);
   });
   return wb.xlsx.writeBuffer();
@@ -935,7 +927,7 @@ function buildRecommendationTimeline(syllabus) {
         to: r.status,
         at: r.respondedAt || r.updatedAt || r.createdAt,
         type: 'status-change',
-        comment: r.instructorComment
+        comment: undefined
       });
     }
   });

@@ -24,6 +24,15 @@ const InstructorReport = ({ syllabus }) => {
 
   const challengeCompleted = syllabus.practicalChallenge?.status === 'completed';
   const aiSuggestions = syllabus.practicalChallenge?.aiSuggestions || [];
+  const learningOutcomeChipStyles = {
+    maxWidth: '100%',
+    alignItems: 'flex-start',
+    '& .MuiChip-label': {
+      display: 'block',
+      whiteSpace: 'normal',
+      textAlign: 'left'
+    }
+  };
 
   const downloadPdf = async () => {
     try {
@@ -36,7 +45,7 @@ const InstructorReport = ({ syllabus }) => {
   return (
     <Box sx={{ mt: 3 }}>
       <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
-        📊 Syllabus Analysis Report
+        Syllabus Analysis Report
       </Typography>
 
       <Grid container spacing={3}>
@@ -45,7 +54,7 @@ const InstructorReport = ({ syllabus }) => {
           <Card variant="outlined">
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                📊 Overall Changes Summary
+                Overall Changes Summary
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Changes made during syllabus editing based on accepted recommendations
@@ -100,7 +109,7 @@ const InstructorReport = ({ syllabus }) => {
           <Card variant="outlined">
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                🎯 MBA Outcomes Alignment
+                MBA Outcomes Alignment
               </Typography>
               
               <Box sx={{ mb: 2 }}>
@@ -119,9 +128,10 @@ const InstructorReport = ({ syllabus }) => {
                 {coveredObjectives.map((objective, index) => (
                   <Chip 
                     key={index} 
-                    label={objective.substring(0, 25) + '...'} 
+                    label={objective} 
                     size="small" 
                     color="success" 
+                    sx={learningOutcomeChipStyles}
                   />
                 ))}
               </Box>
@@ -133,9 +143,10 @@ const InstructorReport = ({ syllabus }) => {
                 {gaps.map((gap, index) => (
                   <Chip 
                     key={index} 
-                    label={gap.substring(0, 25) + '...'} 
+                    label={gap} 
                     size="small" 
                     color="warning" 
+                    sx={learningOutcomeChipStyles}
                   />
                 ))}
               </Box>
@@ -148,7 +159,7 @@ const InstructorReport = ({ syllabus }) => {
           <Card variant="outlined">
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                💡 Practicality and Interactivity
+                Practicality and Interactivity
               </Typography>
 
               <Box sx={{ mb: 2 }}>
@@ -191,7 +202,7 @@ const InstructorReport = ({ syllabus }) => {
           <Card variant="outlined">
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                📝 Improvement Suggestions
+                Improvement Suggestions
               </Typography>
               
               {accepted.length > 0 ? (

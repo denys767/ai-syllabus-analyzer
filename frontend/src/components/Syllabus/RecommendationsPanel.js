@@ -5,7 +5,6 @@ import {
   Chip,
   Button,
   Stack,
-  TextField,
   Paper,
   Divider,
   Tabs,
@@ -17,7 +16,7 @@ import api from '../../services/api';
 
 const StatusChip = ({ status }) => {
   const color =
-    status === 'accepted' ? 'success' : status === 'rejected' ? 'error' : status === 'commented' ? 'warning' : 'default';
+    status === 'accepted' ? 'success' : status === 'rejected' ? 'error' : 'default';
   return <Chip label={status || 'pending'} color={color} size="small" sx={{ textTransform: 'capitalize' }} />;
 };
 
@@ -28,8 +27,6 @@ const PriorityChip = ({ priority }) => {
 
 export default function RecommendationsPanel({ syllabusId, recommendations = [], onChanged, syllabus }) {
   const [workingId, setWorkingId] = useState(null);
-  const [commentingId, setCommentingId] = useState(null);
-  const [commentText, setCommentText] = useState('');
   const [error, setError] = useState('');
   const [tab, setTab] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -38,7 +35,6 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
   const [pdfMeta, setPdfMeta] = useState(syllabus?.editedPdf || null);
   const [editingStatus, setEditingStatus] = useState(syllabus?.editingStatus || 'idle');
   const [polling, setPolling] = useState(false);
-  const [processingComments, setProcessingComments] = useState(new Set()); // Tracks recommendations waiting for AI response
 
   const grouped = useMemo(() => {
     // Function to determine numeric priority value (for sorting)
@@ -98,74 +94,13 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       setWorkingId(rec._id || rec.id);
       setError('');
       
-      // If this is a comment, add to the list of waiting for AI response
-      if (data.status === 'commented') {
-        setProcessingComments(prev => new Set([...prev, rec._id || rec.id]));
-      }
-      
       await api.syllabus.updateRecommendation(syllabusId, rec._id || rec.id, data);
-      setCommentingId(null);
-      setCommentText('');
-      
-      // If this is a comment, start polling to get AI response
-      if (data.status === 'commented') {
-        pollForAIResponse(rec._id || rec.id);
-      } else {
-        onChanged?.();
-      }
+      onChanged?.();
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to update recommendation');
-      setProcessingComments(prev => {
-        const next = new Set(prev);
-        next.delete(rec._id || rec.id);
-        return next;
-      });
     } finally {
       setWorkingId(null);
     }
-  };
-
-  // Polling to get AI response to comment
-  const pollForAIResponse = (recId) => {
-    let attempts = 0;
-    const maxAttempts = 20; // maximum 60 seconds (20 * 3 sec)
-    
-    const interval = setInterval(async () => {
-      attempts++;
-      
-      try {
-        const response = await api.syllabus.getSyllabus(syllabusId);
-        const updatedRec = response.data.recommendations?.find(r => (r._id || r.id) === recId);
-        
-        if (updatedRec?.aiResponse) {
-          // AI response received!
-          setProcessingComments(prev => {
-            const next = new Set(prev);
-            next.delete(recId);
-            return next;
-          });
-          clearInterval(interval);
-          onChanged?.();
-        } else if (attempts >= maxAttempts) {
-          // Timeout - stop trying
-          setProcessingComments(prev => {
-            const next = new Set(prev);
-            next.delete(recId);
-            return next;
-          });
-          clearInterval(interval);
-          setError('AI response is delayed. Try refreshing the page later.');
-        }
-      } catch (err) {
-        console.error('Polling AI response error:', err);
-        setProcessingComments(prev => {
-          const next = new Set(prev);
-          next.delete(recId);
-          return next;
-        });
-        clearInterval(interval);
-      }
-    }, 3000);
   };
 
   const allAccepted = recommendations.some(r => r.status === 'accepted');
@@ -377,7 +312,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
             {rec.suggestedText && (
               <Paper sx={{ mt: 1, p: 1.5, bgcolor: 'action.hover' }} variant="outlined">
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>
-                  💡 Suggested text:
+                  Suggested text:
                 </Typography>
                 <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem' }}>
                   {rec.suggestedText}
@@ -385,79 +320,33 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
               </Paper>
             )}
 
-            {rec.instructorComment && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                Your comment: {rec.instructorComment}
-              </Typography>
-            )}
-            
-            {/* AI response waiting indicator */}
-            {processingComments.has(rec._id || rec.id) && !rec.aiResponse && (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
-                <CircularProgress size={16} />
-                <Typography variant="caption" color="info.main">
-                  AI is preparing a response to your comment...
-                </Typography>
-              </Stack>
-            )}
-            
-            {rec.aiResponse && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                AI Response: {rec.aiResponse}
-              </Typography>
-            )}
-
             <Divider sx={{ my: 1.5 }} />
 
-            {commentingId === (rec._id || rec.id) ? (
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Comment"
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                />
-                <Button
-                  variant="contained"
-                  color="primary"
-                  disabled={workingId === (rec._id || rec.id) || !commentText.trim()}
-                  onClick={() => update(rec, { status: 'commented', comment: commentText.trim() })}
-                >
-                  Save Comment
-                </Button>
-                <Button variant="text" onClick={() => { setCommentingId(null); setCommentText(''); }}>
-                  Cancel
-                </Button>
-              </Stack>
-            ) : (
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <Button
-                  variant="contained"
-                  color="success"
-                  disabled={workingId === (rec._id || rec.id) || rec.status === 'accepted'}
-                  onClick={() => update(rec, { status: 'accepted' })}
-                >
-                  Accept
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  disabled={workingId === (rec._id || rec.id) || rec.status === 'rejected'}
-                  onClick={() => update(rec, { status: 'rejected' })}
-                >
-                  Reject
-                </Button>
-                <Button
-                  variant="text"
-                  color="secondary"
-                  disabled={workingId === (rec._id || rec.id)}
-                  onClick={() => { setCommentingId(rec._id || rec.id); setCommentText(rec.instructorComment || ''); }}
-                >
-                  Comment
-                </Button>
-              </Stack>
-            )}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button
+                variant="contained"
+                color="success"
+                disabled={workingId === (rec._id || rec.id) || rec.status === 'accepted'}
+                onClick={() => update(rec, { status: 'accepted' })}
+              >
+                Accept
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                disabled={workingId === (rec._id || rec.id) || rec.status === 'rejected'}
+                onClick={() => update(rec, { status: 'rejected' })}
+              >
+                Reject
+              </Button>
+              <Button
+                variant="text"
+                disabled={workingId === (rec._id || rec.id) || rec.status === 'pending'}
+                onClick={() => update(rec, { status: 'pending' })}
+              >
+                Reset to pending
+              </Button>
+            </Stack>
           </Paper>
         ))}
       </Stack>

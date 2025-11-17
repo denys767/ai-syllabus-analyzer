@@ -129,11 +129,9 @@ const syllabusSchema = new mongoose.Schema({
     },
     status: {
       type: String,
-      enum: ['pending', 'accepted', 'rejected', 'commented'],
+      enum: ['pending', 'accepted', 'rejected'],
       default: 'pending'
     },
-    instructorComment: String,
-    aiResponse: String,
     createdAt: {
       type: Date,
       default: Date.now

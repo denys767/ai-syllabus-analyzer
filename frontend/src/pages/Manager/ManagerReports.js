@@ -17,6 +17,15 @@ const ManagerReports = () => {
   const [error, setError] = useState('');
   const [expandedPanel, setExpandedPanel] = useState(false);
   const navigate = useNavigate();
+  const learningOutcomeChipStyles = {
+    maxWidth: '100%',
+    alignItems: 'flex-start',
+    '& .MuiChip-label': {
+      display: 'block',
+      whiteSpace: 'normal',
+      textAlign: 'left'
+    }
+  };
 
   useEffect(() => {
     loadReports();
@@ -148,7 +157,7 @@ const ManagerReports = () => {
                   <Card variant="outlined">
                     <CardContent>
                       <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
-                        📊 Overall Changes Summary
+                        Overall Changes Summary
                       </Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
                         Changes made during syllabus editing based on accepted recommendations
@@ -216,7 +225,7 @@ const ManagerReports = () => {
                   <Card variant="outlined">
                     <CardContent>
                       <Typography variant="h6" gutterBottom>
-                        🎯 MBA Outcomes Alignment
+                        MBA Outcomes Alignment
                       </Typography>
                       
                       <Box sx={{ mb: 2 }}>
@@ -235,9 +244,10 @@ const ManagerReports = () => {
                         {coveredObjectives.map((objective, index) => (
                           <Chip 
                             key={index} 
-                            label={objective.substring(0, 25) + '...'} 
+                            label={objective} 
                             size="small" 
                             color="success" 
+                            sx={learningOutcomeChipStyles}
                           />
                         ))}
                       </Box>
@@ -249,9 +259,10 @@ const ManagerReports = () => {
                         {gaps.map((gap, index) => (
                           <Chip 
                             key={index} 
-                            label={gap.substring(0, 25) + '...'} 
+                            label={gap} 
                             size="small" 
                             color="warning" 
+                            sx={learningOutcomeChipStyles}
                           />
                         ))}
                       </Box>
@@ -264,7 +275,7 @@ const ManagerReports = () => {
                   <Card variant="outlined">
                     <CardContent>
                       <Typography variant="h6" gutterBottom>
-                        💡 Practicality and Interactivity
+                        Practicality and Interactivity
                       </Typography>
 
                       <Box sx={{ mb: 2 }}>
@@ -307,7 +318,7 @@ const ManagerReports = () => {
                   <Card variant="outlined">
                     <CardContent>
                       <Typography variant="h6" gutterBottom>
-                        📝 Improvement Suggestions
+                        Improvement Suggestions
                       </Typography>
                       
                       {accepted.length > 0 ? (

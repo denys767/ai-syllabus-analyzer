@@ -5,6 +5,7 @@ import { Psychology, School } from '@mui/icons-material';
 import api from '../../services/api';
 
 const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => {
+  const LONG_AI_TIMEOUT = 120000; // 2 minutes for long-running LLM calls
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -12,7 +13,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
   const isDark = theme.palette.mode === 'dark';
   const challenge = syllabus.practicalChallenge;
   const discussionCount = useMemo(() => (challenge?.discussion?.length || 0), [challenge]);
-  const maxRounds = 3; // configurable number of follow-ups
+  const maxRounds = 1; // single-question challenge
   const isCompleted = (challenge?.status === 'completed') || (discussionCount >= maxRounds);
 
   const handleSubmit = async (e) => {
@@ -25,7 +26,7 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
       const res = await api.post('/ai/challenge/respond', {
         syllabusId: syllabus._id,
         response: response,
-      });
+      }, { timeout: LONG_AI_TIMEOUT });
       setResponse('');
       // Backend returns updated challenge + any new recs
       if (res.data?.newRecommendations && onNewRecommendations) {
@@ -36,7 +37,15 @@ const AIChallenger = ({ syllabus, onChallengeUpdate, onNewRecommendations }) => 
       }
       if (onChallengeUpdate) onChallengeUpdate();
     } catch (err) {
-      setError(err.response?.data?.message || 'Request error');
+      if (err.code === 'ECONNABORTED') {
+        setError('Still working... this may take up to 2 minutes. The answer will appear once ready.');
+        // Poll for updates since backend will finish even after timeout
+        if (onChallengeUpdate) {
+          setTimeout(() => onChallengeUpdate(), 4000);
+        }
+      } else {
+        setError(err.response?.data?.message || 'Request error');
+      }
       console.error(err);
     } finally { setLoading(false); }
   };

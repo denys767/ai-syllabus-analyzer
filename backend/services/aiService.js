@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const Syllabus = require('../models/Syllabus');
+const StudentCluster = require('../models/StudentCluster');
 const natural = require('natural');
 const OpenAI = require('openai');
 const puppeteer = require('puppeteer');
@@ -56,6 +57,13 @@ class AIService {
       console.log('Starting syllabus analysis:', syllabusId);
       const syllabus = await Syllabus.findById(syllabusId);
       if (!syllabus) throw new Error('Syllabus not found');
+
+      const clusterContext = await this.getStudentClusterContext();
+      const defaultClusterDetails = this.getDefaultClusterDetails();
+      const clusterSummaryText = clusterContext?.summary || defaultClusterDetails.summary;
+      const clusterQuarterLabel = clusterContext?.quarter || defaultClusterDetails.quarter;
+      const clusterNameList = clusterContext?.nameList || defaultClusterDetails.nameList;
+      const clusterContextBlock = `Student Cluster Context (Quarter: ${clusterQuarterLabel}):\n${clusterSummaryText}`;
 
       const analysis = await this.analyzeAgainstStandards(syllabus.extractedText);
       const plagiarismCheck = await this.checkPlagiarism(syllabus);
@@ -447,11 +455,6 @@ Return the FULL edited text with changes applied naturally.`;
               📝 This change was applied to the syllabus text inline
             </div>
           `}
-          ${rec.instructorComment ? `
-            <div class="rec-instructor-comment">
-              <strong>💭 Instructor's Comment:</strong> ${escapeHtml(rec.instructorComment)}
-            </div>
-          ` : ''}
           ${rec.suggestedText ? `
             <details class="rec-suggested">
               <summary>💡 Suggested Text</summary>
@@ -709,22 +712,6 @@ Return the FULL edited text with changes applied naturally.`;
         font-weight: 400;
       }
       
-      .rec-instructor-comment {
-        margin-top: 12px;
-        padding: 16px;
-        background: #f0f4ff;
-        border-left: 4px solid #6366f1;
-        border-radius: 6px;
-        font-size: 14px;
-        color: #312e81;
-        line-height: 1.6;
-      }
-      
-      .rec-instructor-comment strong {
-        color: #1e1b4b;
-        font-weight: 600;
-      }
-      
       .rec-suggested {
         margin-top: 12px;
       }
@@ -924,33 +911,59 @@ Return the FULL edited text with changes applied naturally.`;
     return (magA === 0 || magB === 0) ? 0 : dot / (magA * magB);
   }
 
-  async generateResponseToComment(syllabusId, recommendationId, comment) {
+  async getStudentClusterContext() {
     try {
-      const syllabus = await Syllabus.findById(syllabusId);
-      if (!syllabus) throw new Error('Syllabus not found');
+      const clusterDoc = await StudentCluster.getCurrentClusters();
+      if (!clusterDoc) return null;
 
-      const recommendation = syllabus.recommendations.id(recommendationId);
-      if (!recommendation) throw new Error('Recommendation not found');
+      const plain = typeof clusterDoc.toObject === 'function' ? clusterDoc.toObject() : clusterDoc;
+      const clusters = Array.isArray(plain.clusters) ? plain.clusters : [];
 
-      const response = await this.openai.responses.create({
-        model: this.llmModel,
-        input: [
-          { role: 'system', content: 'You are an MBA program assistant.' },
-          { role: 'user', content: `Respond to instructor comment: ${comment}` }
-        ]
-      });
+      const summary = clusters.map(cluster => {
+        const parts = [];
+        const nameWithShare = typeof cluster.percentage === 'number'
+          ? `${cluster.name} (${cluster.percentage}%)`
+          : cluster.name || 'Unnamed cluster';
+        parts.push(nameWithShare);
 
-      const aiResponse = response.output_text || 'Thank you for your feedback.';
-      recommendation.instructorComment = comment;
-      recommendation.aiResponse = aiResponse;
-      recommendation.status = 'commented';
-      await syllabus.save();
+        if (cluster.description) {
+          parts.push(cluster.description);
+        }
 
-      return aiResponse;
-    } catch (error) {
-      console.error('Comment response error:', error);
-      throw error;
+        if (Array.isArray(cluster.businessChallenges) && cluster.businessChallenges.length) {
+          parts.push(`Challenges: ${cluster.businessChallenges.slice(0, 3).join('; ')}`);
+        }
+
+        if (Array.isArray(cluster.characteristics) && cluster.characteristics.length) {
+          parts.push(`Traits: ${cluster.characteristics.slice(0, 3).join('; ')}`);
+        }
+
+        return `- ${parts.join(' — ')}`;
+      }).join('\n');
+
+      return {
+        quarter: plain.quarter || 'Current cohort',
+        clusters,
+        summary: summary || '- No student clusters configured',
+        nameList: clusters.map(c => c.name).filter(Boolean).join(', ') || 'Technology Leaders, Finance & Banking, Military & Public Sector, Business Operations'
+      };
+    } catch (err) {
+      console.error('Student cluster context error:', err.message);
+      return null;
     }
+  }
+
+  getDefaultClusterDetails() {
+    return {
+      summary: [
+        '- Technology Leaders (25%): Focus on digital transformation and product scaling.',
+        '- Finance & Banking (25%): Emphasize risk management and fintech innovation.',
+        '- Military & Public Sector (25%): Highlight adaptive leadership and crisis response.',
+        '- Business Operations (25%): Stress operational excellence and market expansion.'
+      ].join('\n'),
+      nameList: 'Technology Leaders, Finance & Banking, Military & Public Sector, Business Operations',
+      quarter: 'current cohort'
+    };
   }
 
   // AI Challenger methods
@@ -962,6 +975,11 @@ Return the FULL edited text with changes applied naturally.`;
       const syllabus = await Syllabus.findById(syllabusId).select('extractedText analysis');
       if (!syllabus) throw new Error('Syllabus not found');
 
+      const clusterContext = await this.getStudentClusterContext();
+      const defaultClusterDetails = this.getDefaultClusterDetails();
+      const clusterSummaryText = clusterContext?.summary || defaultClusterDetails.summary;
+      const clusterQuarterLabel = clusterContext?.quarter || defaultClusterDetails.quarter;
+
       console.log('📊 Analysis available:', !!syllabus.analysis);
       console.log('📄 Syllabus text length:', syllabus.extractedText?.length || 0, 'characters');
 
@@ -972,8 +990,11 @@ Return the FULL edited text with changes applied naturally.`;
         
         The question must encourage the instructor to think about:
         - Using real cases and practical tasks
-        - Relevance to student cluster needs (IT, Finance, Military, Management backgrounds)
+        - Relevance to the active student cluster needs described below
         - Interactive methods (discussions, group work, peer-to-peer learning)
+
+        Student Cluster Context (Quarter: ${clusterQuarterLabel}):
+        ${clusterSummaryText}
         
         The question should be in English, open-ended, and specific to a key topic in this syllabus.
 
@@ -1029,13 +1050,17 @@ Return the FULL edited text with changes applied naturally.`;
       const syllabus = await Syllabus.findById(syllabusId);
       if (!syllabus) throw new Error('Syllabus not found');
 
-      const discussion = Array.isArray(syllabus.practicalChallenge?.discussion)
-        ? syllabus.practicalChallenge.discussion
+      if (!syllabus.practicalChallenge?.initialQuestion) {
+        throw new Error('AI challenge has not been started for this syllabus');
+      }
+
+      const previousDiscussion = Array.isArray(syllabus.practicalChallenge?.discussion)
+        ? [...syllabus.practicalChallenge.discussion]
         : [];
 
-      console.log('💬 Previous exchanges:', discussion.length);
+      console.log('💬 Previous exchanges:', previousDiscussion.length);
 
-      const discussionHistory = discussion.map(d => 
+      const discussionHistory = previousDiscussion.map(d => 
         `Instructor: ${d.instructorResponse}\nAI: ${d.aiResponse}`
       ).join('\n\n');
 
@@ -1045,26 +1070,26 @@ Return the FULL edited text with changes applied naturally.`;
         Your goal is to provide constructive feedback that helps them improve in THREE KEY AREAS:
         
         1. **Real Cases & Practical Tasks**: Suggest concrete business cases (prioritize Ukrainian examples), simulations, hands-on projects
-        2. **Student Cluster Relevance**: Ensure activities address needs of IT professionals, Finance specialists, Military/Public sector managers, and Business Operations leaders
+        2. **Student Cluster Relevance**: Ensure activities address needs of the current cohorts (${clusterNameList})
         3. **Interactive Methods**: Promote discussions, group projects, peer-to-peer learning, workshops
         
         Context:
-        - Student Clusters: IT Leaders, Finance & Banking, Military & Public Sector, Business Operations
+        ${clusterContextBlock}
         - Initial Question: ${syllabus.practicalChallenge.initialQuestion}
         - Discussion History:
         ${discussionHistory}
         - Instructor's Latest Response: "${instructorResponse}"
 
-        Task:
-        Generate a response in English that:
-        1. Acknowledges what the instructor said (briefly)
-        2. Provides 2-3 SPECIFIC suggestions covering the three key areas above:
-           - Real Ukrainian business cases or practical exercises
-           - How different student clusters (IT/Finance/Military/Management) can benefit
-           - Interactive/collaborative teaching methods
-        3. Asks ONE follow-up question to deepen their thinking
+          Task:
+          Generate a response in English that:
+          1. Acknowledges what the instructor said (briefly)
+          2. Provides 2-3 SPECIFIC suggestions covering the three key areas above:
+            - Real Ukrainian business cases or practical exercises
+            - How each student cluster (${clusterNameList}) can benefit
+            - Interactive/collaborative teaching methods
+          3. Ends with a concise call-to-action or encouragement. Do NOT ask any additional questions.
 
-        Be concrete, actionable, and professional. Focus on Ukrainian business context where relevant.
+          Be concrete, actionable, and professional. Focus on Ukrainian business context where relevant.
       `;
 
       console.log('📝 Prompt length:', prompt.length, 'characters');
@@ -1073,7 +1098,7 @@ Return the FULL edited text with changes applied naturally.`;
       const response = await this.openai.chat.completions.create({
         model: this.llmModel,
         messages: [
-          { role: 'system', content: 'You are an expert MBA academic advisor. You provide specific, actionable feedback to instructors focusing on: 1) Real business cases (Ukrainian context prioritized), 2) Diverse student needs (IT/Finance/Military/Management), 3) Interactive teaching methods.' },
+          { role: 'system', content: `You are an expert MBA academic advisor. You provide specific, actionable feedback to instructors focusing on: 1) Real business cases (Ukrainian context prioritized), 2) Diverse student needs (current student clusters: ${clusterNameList}), 3) Interactive teaching methods.` },
           { role: 'user', content: prompt }
         ]
       });
@@ -1085,32 +1110,41 @@ Return the FULL edited text with changes applied naturally.`;
       console.log('📥 AI response length:', aiResponse.length, 'characters');
 
       // Add to discussion history
-      if (!Array.isArray(syllabus.practicalChallenge.discussion)) {
-        syllabus.practicalChallenge.discussion = [];
-      }
-      syllabus.practicalChallenge.discussion.push({
+      const discussionEntry = {
         instructorResponse,
         aiResponse,
         respondedAt: new Date()
-      });
+      };
 
-      // Generate Practicality recommendations after 2-3 exchanges
+      if (!Array.isArray(syllabus.practicalChallenge.discussion)) {
+        syllabus.practicalChallenge.discussion = [];
+      }
+      syllabus.practicalChallenge.discussion.push(discussionEntry);
+      syllabus.practicalChallenge.status = 'completed';
+      syllabus.practicalChallenge.completedAt = new Date();
+
+      const updatedDiscussion = [...previousDiscussion, discussionEntry];
+
+      // Generate Practicality recommendations once the instructor responds
       let newRecommendations = [];
-      if (discussion.length >= 1) { // After 2nd or 3rd response
+      if (updatedDiscussion.length > 0) {
         console.log('\n--- GENERATING PRACTICALITY RECOMMENDATIONS ---');
         try {
           const recPrompt = `Based on the AI-Instructor discussion about practical teaching methods, extract 1-3 actionable recommendations for improving the syllabus.
 
 Each recommendation should focus on ONE of these areas:
 1. **Real Cases & Practical Tasks**: Add Ukrainian business cases, simulations, hands-on projects
-2. **Student Cluster Relevance**: Address specific needs of IT/Finance/Military/Management student backgrounds
+2. **Student Cluster Relevance**: Address specific needs of the current cohorts (${clusterNameList})
 3. **Interactive Methods**: Implement discussions, group work, peer-to-peer learning, workshops
+
+Student Cluster Context:
+${clusterContextBlock}
 
 Return JSON format:
 {
   "recommendations": [
     {
-      "category": "practicality",
+      "category": "practicality", // Category MUST be "practicality", not anything else
       "priority": "low" | "medium" | "high",
       "title": "Short actionable title (max 80 chars)",
       "description": "Concise description focusing on one of the three areas above (max 160 chars)",
@@ -1120,18 +1154,14 @@ Return JSON format:
 }
 
 Discussion:
-${discussionHistory}
-
-Latest exchange:
-Instructor: ${instructorResponse}
-AI: ${aiResponse}
+${updatedDiscussion.map(d => `Instructor: ${d.instructorResponse}\nAI: ${d.aiResponse}`).join('\n\n')}
 
 Return ONLY valid JSON.`;
 
           const recResp = await this.openai.chat.completions.create({
             model: this.llmModel,
             messages: [
-              { role: 'system', content: 'You extract actionable recommendations from teaching discussions. Focus on: real cases, student cluster needs (IT/Finance/Military/Management), and interactive methods. Return only valid JSON.' },
+              { role: 'system', content: `You extract actionable recommendations from teaching discussions. Focus on: real cases, student cluster needs (${clusterNameList}), and interactive methods. Return only valid JSON.` },
               { role: 'user', content: recPrompt }
             ],
             response_format: { type: 'json_object' }

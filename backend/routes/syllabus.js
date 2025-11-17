@@ -278,11 +278,8 @@ router.get('/:id', auth, async (req, res) => {
 // Update recommendation status
 router.put('/:id/recommendations/:recommendationId', auth, [
   body('status')
-    .isIn(['accepted', 'rejected', 'commented'])
-    .withMessage('Status must be accepted, rejected, or commented'),
-  body('comment')
-    .optional()
-    .trim()
+    .isIn(['accepted', 'rejected', 'pending'])
+    .withMessage('Status must be accepted, rejected, or pending')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -293,7 +290,7 @@ router.put('/:id/recommendations/:recommendationId', auth, [
       });
     }
 
-    const { status, comment } = req.body;
+    const { status } = req.body;
     const { id: syllabusId, recommendationId } = req.params;
 
     const syllabus = await Syllabus.findById(syllabusId);
@@ -325,29 +322,7 @@ router.put('/:id/recommendations/:recommendationId', auth, [
     recommendation.status = status;
     recommendation.respondedAt = new Date();
     
-    if (comment) {
-      recommendation.instructorComment = comment;
-    }
-
     await syllabus.save();
-
-    // If status is 'commented', trigger AI response
-    if (status === 'commented' && comment) {
-      setImmediate(async () => {
-        try {
-          const aiResponse = await aiService.generateResponseToComment(
-            syllabus._id, 
-            recommendationId, 
-            comment
-          );
-          
-          recommendation.aiResponse = aiResponse;
-          await syllabus.save();
-        } catch (error) {
-          console.error('AI response generation error:', error);
-        }
-      });
-    }
 
     res.json({
       message: 'Recommendation updated successfully',
@@ -698,8 +673,7 @@ router.get('/:id/download-modified', auth, async (req, res) => {
     const used = new Set();
     function buildComment(rec, idx){
       const base = `${rec.title || 'Рекомендація'}: ${(rec.description||'').replace(/\s+/g,' ').slice(0,220)}`;
-      const instr = rec.instructorComment ? ` Коментар викладача: ${rec.instructorComment.replace(/\s+/g,' ').slice(0,160)}` : '';
-      return `<${idx+1}. ${base}${instr}>`;
+      return `<${idx+1}. ${base}>`;
     }
     const annotated = lines.map(line => {
       let appended = line;
