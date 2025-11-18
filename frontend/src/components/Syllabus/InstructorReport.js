@@ -16,7 +16,6 @@ const InstructorReport = ({ syllabus }) => {
   const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
   const rejected = (syllabus.recommendations || []).filter(r => r.status === 'rejected');
   const pending = (syllabus.recommendations || []).filter(r => r.status === 'pending');
-  const commented = (syllabus.recommendations || []).filter(r => r.status === 'commented');
 
   const coveredObjectives = syllabus.analysis?.learningObjectivesAlignment?.alignedObjectives || [];
   const gaps = syllabus.analysis?.learningObjectivesAlignment?.missingObjectives || [];
@@ -83,15 +82,6 @@ const InstructorReport = ({ syllabus }) => {
                       {pending.length}
                     </Typography>
                     <Typography variant="body2">Pending</Typography>
-                  </Box>
-                </Grid>
-                <Grid item xs={6} sm={3}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Comment color="info" sx={{ fontSize: 32 }} />
-                    <Typography variant="h5" color="info.main">
-                      {commented.length}
-                    </Typography>
-                    <Typography variant="body2">Commented</Typography>
                   </Box>
                 </Grid>
               </Grid>

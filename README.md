@@ -9,7 +9,7 @@ End-to-end platform to analyze MBA course syllabi using AI, generate grouped rec
 - Exports: per-syllabus and aggregate reports to CSV/Excel/PDF
 - Admin/Manager analytics and drill-downs
 - Auth with email verification, password reset, and account deletion notifications (Gmail/SMTP)
-- Profile editing (name, email, department, avatar URL) and theme mode (system/light/dark)
+- Profile editing (name, email, avatar URL) and theme mode (system/light/dark)
 - Hardened backend (CORS, rate limits, request timeouts, robust error handling)
 
 ## Tech Stack
@@ -105,7 +105,7 @@ The server defaults to port 5000.
 - Aggregate: CSV/Excel/PDF with core metrics and counts
 
 ## Theming and Profile
-- Profile: edit first/last name, email (re-verification required), department, avatar URL, change password
+- Profile: edit first/last name, email (re-verification required), avatar URL, change password
 - Settings: theme selection (system/light/dark); theme respects system preference when set to system
 
 ## Troubleshooting

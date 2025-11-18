@@ -39,7 +39,7 @@ router.post('/create-user', auth, admin, [
       });
     }
 
-    const { email, password, firstName, lastName, role, department } = req.body;
+    const { email, password, firstName, lastName, role } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -56,7 +56,6 @@ router.post('/create-user', auth, admin, [
       firstName,
       lastName,
       role,
-      department,
       isVerified: false, // Require email verification
       isActive: true
     });
@@ -194,9 +193,6 @@ router.put('/profile', auth, [
     .trim()
     .notEmpty()
     .withMessage('Last name cannot be empty'),
-  body('department')
-    .optional()
-    .trim(),
   body('avatarUrl')
     .optional()
     .trim(),
@@ -214,7 +210,7 @@ router.put('/profile', auth, [
       });
     }
 
-  const { firstName, lastName, department, avatarUrl, email } = req.body;
+  const { firstName, lastName, avatarUrl, email } = req.body;
     
     const user = await User.findById(req.user.userId);
     if (!user) {
@@ -226,7 +222,6 @@ router.put('/profile', auth, [
     // Update fields if provided
     if (firstName) user.firstName = firstName;
     if (lastName) user.lastName = lastName;
-    if (department !== undefined) user.department = department;
     if (avatarUrl !== undefined) user.avatarUrl = avatarUrl;
 
     // Handle email change: set new email and mark unverified + issue token

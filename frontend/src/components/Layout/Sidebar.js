@@ -240,7 +240,7 @@ const Sidebar = ({ onItemClick }) => {
           {user?.firstName} {user?.lastName}
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          {user?.department || 'KSE'}
+          {user?.email || 'kse.edu'}
         </Typography>
       </Box>
     </Box>

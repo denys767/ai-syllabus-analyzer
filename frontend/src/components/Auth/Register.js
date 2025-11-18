@@ -35,7 +35,6 @@ const Register = () => {
     email: '',
     password: '',
     confirmPassword: '',
-    department: '',
     position: '',
     role: 'instructor',
   });
@@ -43,15 +42,6 @@ const Register = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const departments = [
-    'Faculty of Economics',
-    'Faculty of Law',
-    'Faculty of Business',
-    'Faculty of Computer Science',
-    'Faculty of Public Policy',
-    'Other',
-  ];
 
   const positions = [
     'Professor',
@@ -216,41 +206,22 @@ const Register = () => {
               sx={{ mb: 2 }}
             />
 
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-              <FormControl fullWidth>
-                <InputLabel>Faculty</InputLabel>
-                <Select
-                  name="department"
-                  value={formData.department}
-                  onChange={handleChange}
-                  required
-                  label="Faculty"
-                >
-                  {departments.map((dept) => (
-                    <MenuItem key={dept} value={dept}>
-                      {dept}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <FormControl fullWidth>
-                <InputLabel>Position</InputLabel>
-                <Select
-                  name="position"
-                  value={formData.position}
-                  onChange={handleChange}
-                  required
-                  label="Position"
-                >
-                  {positions.map((pos) => (
-                    <MenuItem key={pos} value={pos}>
-                      {pos}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Position</InputLabel>
+              <Select
+                name="position"
+                value={formData.position}
+                onChange={handleChange}
+                required
+                label="Position"
+              >
+                {positions.map((pos) => (
+                  <MenuItem key={pos} value={pos}>
+                    {pos}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
 
             <TextField
               fullWidth

@@ -2,7 +2,13 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
-const pdf = require('pdf-parse');
+const pdfParseLib = require('pdf-parse');
+const legacyPdfParse = typeof pdfParseLib === 'function'
+  ? pdfParseLib
+  : typeof pdfParseLib?.default === 'function'
+    ? pdfParseLib.default
+    : null;
+const PdfParseClass = pdfParseLib?.PDFParse || pdfParseLib?.default?.PDFParse;
 const mammoth = require('mammoth');
 const { body, validationResult } = require('express-validator');
 
@@ -73,8 +79,22 @@ async function extractTextFromFile(filePath, mimetype) {
   try {
   if (mimetype === 'application/pdf') {
       const dataBuffer = await fs.readFile(filePath);
-      const data = await pdf(dataBuffer);
-      return data.text;
+      if (typeof legacyPdfParse === 'function') {
+        const data = await legacyPdfParse(dataBuffer);
+        return data.text;
+      }
+      if (typeof PdfParseClass === 'function') {
+        const parser = new PdfParseClass({ data: dataBuffer });
+        try {
+          const result = await parser.getText();
+          return result?.text || '';
+        } finally {
+          if (typeof parser.destroy === 'function') {
+            await parser.destroy().catch(() => {});
+          }
+        }
+      }
+      throw new Error('PDF parser is unavailable');
   } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || mimetype === 'application/msword') {
       const result = await mammoth.extractRawText({ path: filePath });
       return result.value;
@@ -249,7 +269,7 @@ router.get('/my-syllabi', auth, async (req, res) => {
 router.get('/:id', auth, async (req, res) => {
   try {
     const syllabus = await Syllabus.findById(req.params.id)
-      .populate('instructor', 'firstName lastName email department');
+      .populate('instructor', 'firstName lastName email');
 
     if (!syllabus) {
       return res.status(404).json({
@@ -382,7 +402,7 @@ router.delete('/:id', auth, async (req, res) => {
     }
 
   // Check ownership or admin privileges
-  if (!isOwnerOrRole(req.user, syllabus, ['admin'])) {
+  if (!isOwnerOrRole(req.user, syllabus, ['admin', 'manager'])) {
       return res.status(403).json({
         message: 'Access denied. You can only delete your own syllabi.'
       });

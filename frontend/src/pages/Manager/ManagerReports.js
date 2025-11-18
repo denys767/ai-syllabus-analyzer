@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box, Typography, Card, CardContent, Grid, Chip, List,
   ListItem, ListItemText, CircularProgress, Alert, Divider,
-  Accordion, AccordionSummary, AccordionDetails, Button
+  Accordion, AccordionSummary, AccordionDetails, Button,
+  FormControl, InputLabel, Select, MenuItem, Stack,
+  IconButton, Tooltip
 } from '@mui/material';
 import {
-  CheckCircle, Cancel, Pending, Comment, ExpandMore,
-  Description, Person, CalendarToday, Download
+  CheckCircle, Cancel, Pending, ExpandMore,
+  Description, Person, CalendarToday, Download, Delete as DeleteIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +21,9 @@ const ManagerReports = () => {
   const [expandedPanel, setExpandedPanel] = useState(false);
   const [downloadingMap, setDownloadingMap] = useState({});
   const [downloadErrors, setDownloadErrors] = useState({});
+  const [deletingMap, setDeletingMap] = useState({});
+  const [deleteErrors, setDeleteErrors] = useState({});
+  const [sortOrder, setSortOrder] = useState('desc');
   const navigate = useNavigate();
   const learningOutcomeChipStyles = {
     maxWidth: '100%',
@@ -108,6 +113,46 @@ const ManagerReports = () => {
     }
   };
 
+  const handleDeleteSyllabus = async (event, syllabusId) => {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const confirmed = window.confirm('Delete this syllabus report? This action cannot be undone.');
+    if (!confirmed) return;
+
+    setDeletingMap((prev) => ({ ...prev, [syllabusId]: true }));
+    setDeleteErrors((prev) => ({ ...prev, [syllabusId]: '' }));
+
+    try {
+      await api.syllabus.deleteSyllabus(syllabusId);
+      setSyllabi((prev) => prev.filter((item) => item._id !== syllabusId));
+      setDeleteErrors((prev) => {
+        const next = { ...prev };
+        delete next[syllabusId];
+        return next;
+      });
+    } catch (err) {
+      console.error('Delete syllabus error:', err);
+      const message = err.response?.data?.message || 'Failed to delete syllabus';
+      setDeleteErrors((prev) => ({ ...prev, [syllabusId]: message }));
+    } finally {
+      setDeletingMap((prev) => {
+        const next = { ...prev };
+        delete next[syllabusId];
+        return next;
+      });
+    }
+  };
+
+  const sortedSyllabi = useMemo(() => {
+    const list = [...syllabi];
+    return list.sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime();
+      const dateB = new Date(b.createdAt).getTime();
+      return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+    });
+  }, [syllabi, sortOrder]);
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
@@ -131,19 +176,39 @@ const ManagerReports = () => {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 4 }, fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
-        Syllabus Reports
-      </Typography>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'flex-start', sm: 'center' }}
+        spacing={2}
+        sx={{ mb: 3 }}
+      >
+        <Box>
+          <Typography variant="h4" gutterBottom sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' }, mb: { xs: 1, sm: 0 } }}>
+            Syllabus Reports
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.875rem', sm: '0.875rem' } }}>
+            Analytical reports for each syllabus after completing the onboarding process
+          </Typography>
+        </Box>
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="sort-by-date-label">Sort by date</InputLabel>
+          <Select
+            labelId="sort-by-date-label"
+            value={sortOrder}
+            label="Sort by date"
+            onChange={(event) => setSortOrder(event.target.value)}
+          >
+            <MenuItem value="desc">Newest first</MenuItem>
+            <MenuItem value="asc">Oldest first</MenuItem>
+          </Select>
+        </FormControl>
+      </Stack>
 
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3, fontSize: { xs: '0.875rem', sm: '0.875rem' } }}>
-        Analytical reports for each syllabus after completing the onboarding process
-      </Typography>
-
-      {syllabi.map((syllabus) => {
+      {sortedSyllabi.map((syllabus) => {
         const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
         const rejected = (syllabus.recommendations || []).filter(r => r.status === 'rejected');
         const pending = (syllabus.recommendations || []).filter(r => r.status === 'pending');
-        const commented = (syllabus.recommendations || []).filter(r => r.status === 'commented');
 
         const coveredObjectives = syllabus.analysis?.learningObjectivesAlignment?.alignedObjectives || [];
         const gaps = syllabus.analysis?.learningObjectivesAlignment?.missingObjectives || [];
@@ -174,18 +239,39 @@ const ManagerReports = () => {
                     <Person sx={{ fontSize: { xs: 12, sm: 14 }, verticalAlign: 'middle', mr: 0.5 }} />
                     {syllabus.instructor?.firstName} {syllabus.instructor?.lastName}
                     <CalendarToday sx={{ fontSize: { xs: 12, sm: 14 }, verticalAlign: 'middle', ml: { xs: 1, sm: 2 }, mr: 0.5 }} />
-                    {new Date(syllabus.createdAt).toLocaleDateString('en-US')}
+                    {new Date(syllabus.createdAt).toLocaleDateString('en-GB')}
                   </Typography>
                 </Box>
-                <Chip 
-                  label={`${accepted.length} accepted`} 
-                  color="success" 
-                  size="small" 
-                />
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Chip 
+                    label={`${accepted.length} accepted`} 
+                    color="success" 
+                    size="small" 
+                  />
+                  <Tooltip title="Delete syllabus" arrow>
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        disabled={!!deletingMap[syllabus._id]}
+                        onClick={(event) => handleDeleteSyllabus(event, syllabus._id)}
+                      >
+                        {deletingMap[syllabus._id]
+                          ? <CircularProgress size={18} />
+                          : <DeleteIcon fontSize="small" />}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Stack>
               </Box>
             </AccordionSummary>
 
             <AccordionDetails>
+              {deleteErrors[syllabus._id] && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {deleteErrors[syllabus._id]}
+                </Alert>
+              )}
               <Grid container spacing={{ xs: 2, sm: 3 }}>
                 {/* 1. Overall Changes Summary */}
                 <Grid item xs={12}>
@@ -224,15 +310,6 @@ const ManagerReports = () => {
                               {pending.length}
                             </Typography>
                             <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>Pending</Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={6} sm={3}>
-                          <Box sx={{ textAlign: 'center' }}>
-                            <Comment color="info" sx={{ fontSize: { xs: 24, sm: 32 } }} />
-                            <Typography variant="h5" color="info.main" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-                              {commented.length}
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>Commented</Typography>
                           </Box>
                         </Grid>
                       </Grid>

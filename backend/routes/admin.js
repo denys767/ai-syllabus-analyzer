@@ -352,10 +352,7 @@ router.put('/users/:id', auth, admin, [
   body('isVerified')
     .optional()
     .isBoolean()
-    .withMessage('isVerified must be a boolean'),
-  body('department')
-    .optional()
-    .trim()
+    .withMessage('isVerified must be a boolean')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -366,7 +363,7 @@ router.put('/users/:id', auth, admin, [
       });
     }
 
-    const { firstName, lastName, password, role, isActive, isVerified, department } = req.body;
+    const { firstName, lastName, password, role, isActive, isVerified } = req.body;
 
     const user = await User.findById(req.params.id);
     if (!user) {
@@ -391,7 +388,6 @@ router.put('/users/:id', auth, admin, [
     if (role !== undefined) user.role = role;
     if (isActive !== undefined) user.isActive = isActive;
     if (isVerified !== undefined) user.isVerified = isVerified;
-    if (department !== undefined) user.department = department;
 
     await user.save();
 

@@ -109,7 +109,7 @@ const SyllabusAnalysis = () => {
             
             {syllabus.status === 'analyzed' && (
               <Alert severity="success" sx={{ mt: 2 }}>
-                ✅ Analysis completed! View recommendations below.
+                Analysis completed. View recommendations below.
               </Alert>
             )}
             
@@ -120,9 +120,30 @@ const SyllabusAnalysis = () => {
             )}
             
             {syllabus.status === 'analyzed' && (
-              <Typography variant="body2" color="text.secondary" sx={{ mt:1 }}>
-                Accept the needed recommendations, click "Edit syllabus with AI" and wait for the PDF with changes.
-              </Typography>
+              <Paper
+                elevation={0}
+                sx={{
+                  mt: 2,
+                  p: 2,
+                  border: '1px solid',
+                  borderColor: 'primary.main',
+                  bgcolor: 'primary.light',
+                  color: 'primary.contrastText'
+                }}
+              >
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+                  User Instructions:
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  1. Answer AI Challenger questions.
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  2. Read the scores of your learning outcomes and practicality. Accept the needed recommendations ("Practicality" reccomendations are made after ai-challenger has been used). Refer to Documents tab to see which learning outcomes refer to its number (LO1, LO2 ...)
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  3. Click "Edit syllabus with AI" and wait for the PDF with changes.
+                </Typography>
+              </Paper>
             )}
           </Box>
         </Stack>

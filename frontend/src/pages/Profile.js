@@ -11,7 +11,6 @@ const Profile = () => {
   const [newEmail, setNewEmail] = useState('');
   const [emailChangeMsg, setEmailChangeMsg] = useState('');
   const [emailChangeErr, setEmailChangeErr] = useState('');
-  const [department, setDepartment] = useState(user?.department || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
@@ -26,7 +25,7 @@ const Profile = () => {
   const saveProfile = async () => {
     setLoading(true); setErr(''); setMsg('');
     try {
-  const res = await updateProfile({ firstName, lastName, department, avatarUrl });
+      const res = await updateProfile({ firstName, lastName, avatarUrl });
       if (!res.success) throw new Error(res.error || 'Profile update error');
       setMsg('Profile updated.');
     } catch (e) {
@@ -92,9 +91,6 @@ const Profile = () => {
               </Grid>
               <Grid item xs={12}>
                 <TextField type="email" label="Current email" fullWidth value={email} disabled />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField label="Department" fullWidth value={department} onChange={(e)=>setDepartment(e.target.value)} />
               </Grid>
               <Grid item xs={12}>
                 <TextField label="Avatar URL" fullWidth value={avatarUrl} onChange={(e)=>setAvatarUrl(e.target.value)} />

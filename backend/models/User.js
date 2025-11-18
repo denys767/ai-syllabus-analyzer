@@ -30,10 +30,6 @@ const userSchema = new mongoose.Schema({
     enum: ['instructor', 'admin', 'manager'],
     default: 'instructor'
   },
-  department: {
-    type: String,
-    trim: true
-  },
   avatarUrl: {
     type: String,
     trim: true
@@ -110,7 +106,6 @@ userSchema.methods.toPublicJSON = function() {
     lastName: this.lastName,
   avatarUrl: this.avatarUrl,
     role: this.role,
-    department: this.department,
     isVerified: this.isVerified,
     lastLogin: this.lastLogin,
     createdAt: this.createdAt,

@@ -27,7 +27,6 @@ const UserManagement = () => {
     lastName: '',
     email: '',
     role: 'instructor',
-    department: '',
   });
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -63,7 +62,6 @@ const UserManagement = () => {
       lastName: '',
       email: '',
       role: 'instructor',
-      department: '',
       isVerified: false,
     });
     setFormErrors({});
@@ -78,7 +76,6 @@ const UserManagement = () => {
       lastName: user.lastName,
       email: user.email,
       role: user.role,
-      department: user.department || '',
     });
     setFormErrors({});
     setSelectedUser(user);
@@ -93,7 +90,6 @@ const UserManagement = () => {
       lastName: '',
       email: '',
       role: 'instructor',
-      department: '',
     });
     setFormErrors({});
   };
@@ -143,7 +139,6 @@ const UserManagement = () => {
           firstName: formData.firstName,
           lastName: formData.lastName,
           role: formData.role,
-          department: formData.department,
         };
         await api.put(`/admin/users/${selectedUser._id}`, updateData);
       }
@@ -358,15 +353,6 @@ const UserManagement = () => {
                   <MenuItem value="admin">Administrator</MenuItem>
                 </Select>
               </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Department"
-                name="department"
-                value={formData.department}
-                onChange={handleFormChange}
-              />
             </Grid>
             {/* Verification is no longer manually controlled by administrator */}
           </Grid>

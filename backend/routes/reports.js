@@ -15,7 +15,7 @@ let PDFDocument = null;
 router.get('/syllabus/:id', auth, async (req, res) => {
   try {
     const syllabus = await Syllabus.findById(req.params.id)
-      .populate('instructor', 'firstName lastName email department');
+      .populate('instructor', 'firstName lastName email');
     if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
     if (syllabus.instructor && syllabus.instructor._id.toString() !== req.user.userId && !['admin','manager'].includes(req.user.role)) {
       return res.status(403).json({ message: 'Access denied' });
@@ -224,7 +224,7 @@ router.get('/top-instructors', auth, manager, async (req, res) => {
     }
 
     const instructors = await User.find({ _id: { $in: instructorIds }, role: 'instructor' })
-      .select('firstName lastName email department role createdAt');
+      .select('firstName lastName email role createdAt');
 
     // Map counts to user objects
     const countMap = syllabusCounts.reduce((acc, item) => { acc[item._id.toString()] = item.syllabusCount; return acc; }, {});
@@ -233,7 +233,6 @@ router.get('/top-instructors', auth, manager, async (req, res) => {
       firstName: u.firstName,
       lastName: u.lastName,
       email: u.email,
-      department: u.department,
       syllabusCount: countMap[u._id.toString()] || 0
     })).sort((a, b) => b.syllabusCount - a.syllabusCount);
 
@@ -707,15 +706,6 @@ function getSyllabusCountsByStatus(syllabi) {
   const counts = { processing: 0, analyzed: 0, reviewed: 0, approved: 0 };
   syllabi.forEach(s => {
     counts[s.status] = (counts[s.status] || 0) + 1;
-  });
-  return counts;
-}
-
-function getSyllabusCountsByDepartment(syllabi) {
-  const counts = {};
-  syllabi.forEach(s => {
-    const dept = (s.instructor && s.instructor.department) || 'Unknown';
-    counts[dept] = (counts[dept] || 0) + 1;
   });
   return counts;
 }
