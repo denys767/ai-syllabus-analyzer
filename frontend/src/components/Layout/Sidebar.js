@@ -69,7 +69,7 @@ const Sidebar = ({ onItemClick }) => {
       text: 'Upload Syllabus',
       icon: <Upload />,
       path: '/syllabi/upload',
-      roles: ['instructor', 'admin'],
+      roles: ['instructor'],
     },
     {
       text: 'Documents',
@@ -86,6 +86,12 @@ const Sidebar = ({ onItemClick }) => {
       icon: <Dashboard />,
       path: '/manager',
       roles: ['manager', 'admin'],
+    },
+    {
+      text: 'Upload Syllabus',
+      icon: <Upload />,
+      path: '/syllabi/upload',
+      roles: ['manager'],
     },
     {
       text: 'Reports',

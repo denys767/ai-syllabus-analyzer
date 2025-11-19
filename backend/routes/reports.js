@@ -356,7 +356,7 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
       rows.push('From Survey,'); grouped.surveyBased.forEach(t => rows.push(`,"${t.replace(/"/g,'"')}"`));
       rows.push('Clusters & Ukrainian Cases,'); grouped.clusterAndUkrainianCases.forEach(t => rows.push(`,"${t.replace(/"/g,'"')}"`));
       rows.push('Plagiarism,'); grouped.plagiarism.forEach(t => rows.push(`,"${t.replace(/"/g,'"')}"`));
-      rows.push('Learning Objectives,'); grouped.learningObjectives.forEach(t => rows.push(`,"${t.replace(/"/g,'"')}"`));
+      rows.push('Learning Outcomes,'); grouped.learningObjectives.forEach(t => rows.push(`,"${t.replace(/"/g,'"')}"`));
       rows.push('Template Compliance,'); grouped.templateCompliance.forEach(t => rows.push(`,"${t.replace(/"/g,'"')}"`));
       rows.push('AI Challenger,'); grouped.aiChallenger.forEach(t => rows.push(`,"${t.replace(/"/g,'"')}"`));
       const csv = rows.join('\n');
@@ -398,7 +398,7 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
   pushGroup('From Survey', grp.surveyBased);
   pushGroup('Clusters & UA Cases', grp.clusterAndUkrainianCases);
   pushGroup('Plagiarism', grp.plagiarism);
-  pushGroup('Learning Objectives', grp.learningObjectives);
+  pushGroup('Learning Outcomes', grp.learningObjectives);
   pushGroup('Template', grp.templateCompliance);
   pushGroup('AI Challenger', grp.aiChallenger);
       const buffer = await wb.xlsx.writeBuffer();
@@ -485,7 +485,7 @@ router.get('/syllabus/:id/export/:type', auth, async (req, res) => {
         (grouped.plagiarism.length ? grouped.plagiarism : ['Суттєвої схожості не виявлено']).forEach(t => li(t));
       }
 
-      h2('Рекомендації за відповідністю до Learning Objectives');
+      h2('Рекомендації за відповідністю до Learning Outcomes');
       (grouped.learningObjectives.length ? grouped.learningObjectives : ['Немає додаткових рекомендацій по ILO']).forEach(t => li(t));
 
       h2('Рекомендації за відповідністю до шаблону');
@@ -598,9 +598,9 @@ function buildImprovementProposals(syllabus){
     proposals.add('Закрити прогалини ILO: ' + loa.missingObjectives.slice(0,6).join(', '));
   }
   
-  // Learning objectives alignment score (нове поле)
+  // Learning outcomes alignment score (нове поле)
   if (loa?.alignmentScore && loa.alignmentScore < 70) {
-    proposals.add(`Покращити покриття Learning Objectives (поточний score: ${loa.alignmentScore}%)`);
+    proposals.add(`Покращити покриття Learning Outcomes (поточний score: ${loa.alignmentScore}%)`);
   }
   
   const sca = syllabus.analysis?.studentClusterAnalysis;
@@ -629,9 +629,9 @@ function getKeyStrengths(syllabus) {
   // Template compliance score
   if (tc?.score && tc.score >= 90) strengths.push(`Excellent template compliance (${tc.score}%)`);
   
-  if ((loa?.missingObjectives||[]).length === 0) strengths.push('Breadth of learning objectives addressed');
+  if ((loa?.missingObjectives||[]).length === 0) strengths.push('Breadth of learning outcomes addressed');
   
-  // Learning objectives alignment score
+  // Learning outcomes alignment score
   if (loa?.alignmentScore && loa.alignmentScore >= 80) strengths.push(`Strong LO alignment (${loa.alignmentScore}%)`);
   
   if (syllabus.recommendations.filter(r => r.status === 'accepted').length > syllabus.recommendations.length * 0.7) {
@@ -644,7 +644,7 @@ function getKeyStrengths(syllabus) {
 function getAreasForImprovement(syllabus) {
   const improvements = [];
   if ((syllabus.analysis?.templateCompliance?.missingElements||[]).length > 0) improvements.push('Add missing required sections');
-  if ((syllabus.analysis?.learningObjectivesAlignment?.missingObjectives||[]).length > 0) improvements.push('Cover missing learning objectives');
+  if ((syllabus.analysis?.learningObjectivesAlignment?.missingObjectives||[]).length > 0) improvements.push('Cover missing learning outcomes');
   if (syllabus.recommendations.filter(r => r.status === 'pending').length > 3) {
     improvements.push('Response to improvement recommendations');
   }
@@ -1021,7 +1021,7 @@ function buildGroupedRecommendations(syllabus) {
     grouped.plagiarism.push(`Виявлено схожість із силабусом ${top.instructor || 'іншого викладача'} (${top.course || ''}, ${top.year||''}) на ${top.similarity}% — рекомендуємо переробити проблемні розділи, додати оригінальні кейси та завдання.`);
   }
 
-  // Learning Objectives alignment
+  // Learning Outcomes alignment
   const loa = syllabus.analysis?.learningObjectivesAlignment || {};
   if (Array.isArray(loa.missingObjectives) && loa.missingObjectives.length) {
     grouped.learningObjectives.push(`Компенсувати прогалини ILO: ${loa.missingObjectives.slice(0,6).join(', ')}`);

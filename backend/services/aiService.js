@@ -113,7 +113,7 @@ class AIService {
 **SYLLABUS TEMPLATE TO FOLLOW:**
 ${this.syllabusTemplate}
 
-**MBA-27 LEARNING OBJECTIVES (ALL COURSES MUST ALIGN):**
+**MBA-27 LEARNING OUTCOMES (ALL COURSES MUST ALIGN):**
 ${this.learningObjectives.map((lo, idx) => `LO${idx + 1}: ${lo.text}`).join('\n')}
 
 **SYLLABUS TO ANALYZE:**
@@ -122,7 +122,7 @@ ${syllabusText}
 **TASK:**
 Analyze the syllabus and provide recommendations in the following categories:
 1. **template-compliance** - Missing sections, formatting issues compared to template
-2. **learning-objectives** - Which LOs are covered/missing, how to improve alignment. Specify which LO is covered by this recommendation
+2. **learning-objectives** - Which learning outcomes are covered/missing, how to improve alignment. Specify which LO is covered by this recommendation
 3. **content-quality** - Content depth, relevance, clarity improvements
 4. **assessment** - Grading structure, assessment methods improvements
 5. **other** - Any other improvements
@@ -325,7 +325,7 @@ ${idx + 1}. [${rec.category}] ${rec.title}
    ${rec.suggestedText ? `Suggested text: ${rec.suggestedText}` : ''}
 `).join('\n')}
 
-MBA-27 LEARNING OBJECTIVES REFERENCE:
+MBA-27 LEARNING OUTCOMES REFERENCE:
 ${this.learningObjectives.map((lo, idx) => `LO${idx + 1}: ${lo.text}`).join('\n')}
 
 Return JSON:
@@ -877,7 +877,7 @@ Return the FULL edited text with changes applied naturally.`;
   getCategoryLabel(category) {
     const labels = {
       'template-compliance': 'Відповідність до шаблону',
-      'learning-objectives': 'Відповідність до learning objectives',
+      'learning-objectives': 'Відповідність до learning outcomes',
       'content-quality': 'Якість контенту',
       'assessment': 'Оцінювання',
       'policy': 'Політики курсу',
@@ -1146,32 +1146,35 @@ Return the FULL edited text with changes applied naturally.`;
       if (updatedDiscussion.length > 0) {
         console.log('\n--- GENERATING PRACTICALITY RECOMMENDATIONS ---');
         try {
-          const recPrompt = `Based on the AI-Instructor discussion about practical teaching methods, extract actionable insights.
+          const recPrompt = `Analyze the AI ⇄ Instructor dialog and produce practicality insights tied directly to:
+- The latest instructor answer: "${instructorResponse}"
+- Current student clusters (${clusterNameList}) and their needs
+- Ukrainian business context for real cases
 
-Each recommendation should focus on ONE of these areas:
-1. **Real Cases & Practical Tasks**: Add Ukrainian business cases, simulations, hands-on projects
-2. **Student Cluster Relevance**: Address specific needs of the current cohorts (${clusterNameList})
-3. **Interactive Methods**: Implement discussions, group work, peer-to-peer learning, workshops
+Each recommendation must explicitly mention:
+1. At least one student cluster from this list: ${clusterNameList}
+2. A Ukrainian company, sector, or case idea that fits that cluster
+3. An interactive delivery format (discussion, workshop, simulation, etc.)
 
 Student Cluster Context:
 ${clusterContextBlock}
 
 Return JSON format:
 {
-  "score": number, // 0-100 integer practicality & interactivity score after considering the discussion
-  "critique": "1-3 sentence summary explaining the score with concrete insight",
+  "score": number, // 0-100 integer practicality & interactivity score after considering the latest instructor response
+  "critique": "1-3 sentences referencing the instructor answer, clusters, and Ukrainian practicality context",
   "recommendations": [
     {
       "category": "practicality", // Category MUST be "practicality"
       "priority": "low" | "medium" | "high",
       "title": "Short actionable title (max 80 chars)",
-      "description": "Concise description focusing on one of the three areas above (max 160 chars)",
+      "description": "Describe the practical idea, naming the cluster and Ukrainian case (max 160 chars)",
       "suggestedText": "Optional concrete text to add to syllabus"
     }
   ]
 }
 
-Discussion:
+Discussion Transcript:
 ${updatedDiscussion.map(d => `Instructor: ${d.instructorResponse}\nAI: ${d.aiResponse}`).join('\n\n')}
 
 Return ONLY valid JSON.`;

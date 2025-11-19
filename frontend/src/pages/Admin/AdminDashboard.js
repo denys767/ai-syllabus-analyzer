@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Grid, Card, CardContent, Paper, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, 
-  Snackbar, Alert, Tabs, Tab, Chip, CircularProgress
+  Snackbar, Alert, Tabs, Tab, Chip, CircularProgress, IconButton, Tooltip,
+  List, ListItem, ListItemAvatar, Avatar, ListItemText
 } from '@mui/material';
 import {
-  People, School, Groups, Poll, Dashboard, Description
+  People, School, Groups, Poll, Dashboard, Description, Visibility
 } from '@mui/icons-material';
 import api from '../../services/api';
 import UserManagement from '../../components/Admin/UserManagement';
@@ -14,11 +16,13 @@ import SurveyManagement from '../../components/Admin/SurveyManagement';
 import PolicyManagement from '../../components/Admin/PolicyManagement';
 
 const AdminDashboard = () => {
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTab, setSelectedTab] = useState(0);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [topInstructors, setTopInstructors] = useState([]);
 
   useEffect(() => {
     fetchDashboardStats();
@@ -28,8 +32,12 @@ const AdminDashboard = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('/admin/dashboard-stats');
-      setStats(response.data.stats);
+      const [statsResponse, topInstructorsResponse] = await Promise.all([
+        api.get('/admin/dashboard-stats'),
+        api.get('/reports/top-instructors?limit=8')
+      ]);
+      setStats(statsResponse.data.stats);
+      setTopInstructors(topInstructorsResponse.data.instructors || []);
     } catch (err) {
   setError(err.response?.data?.message || 'Failed to load statistics');
     } finally {
@@ -82,7 +90,7 @@ const AdminDashboard = () => {
         <Box>
           {/* Overview Statistics */}
           {stats && (
-            <>
+            <React.Fragment>
               <Grid container spacing={3} sx={{ mb: 4 }}>
                 <Grid item xs={12} sm={6} md={4}>
                   <Card>
@@ -124,11 +132,112 @@ const AdminDashboard = () => {
                     </CardContent>
                   </Card>
                 </Grid>
-                {/* Removed Average Quality and Survey Responses cards per request */}
+              </Grid>
+              <Grid container spacing={3}>
+                <Grid item xs={12} md={8}>
+                  <Paper sx={{ p: 3, height: '100%' }}>
+                    <Typography variant="h6" gutterBottom>
+                      Recent Syllabi
+                    </Typography>
+                    <TableContainer>
+                      <Table>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Syllabus</TableCell>
+                            <TableCell>Instructor</TableCell>
+                            <TableCell>Status</TableCell>
+                            <TableCell>Date</TableCell>
+                            <TableCell>Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {stats.recentSyllabi && stats.recentSyllabi.length > 0 ? (
+                            stats.recentSyllabi.map((syllabus) => (
+                              <TableRow key={syllabus._id}>
+                                <TableCell>{syllabus.title}</TableCell>
+                                <TableCell>
+                                  {syllabus.instructor ? 
+                                    `${syllabus.instructor.firstName} ${syllabus.instructor.lastName}` : 
+                                    'Unknown'
+                                  }
+                                </TableCell>
+                                <TableCell>
+                                  <Chip 
+                                    label={syllabus.status} 
+                                    color={
+                                      syllabus.status === 'analyzed' ? 'success' : 
+                                      syllabus.status === 'processing' ? 'warning' : 'default'
+                                    }
+                                    size="small"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  {new Date(syllabus.createdAt).toLocaleDateString('en-US')}
+                                </TableCell>
+                                <TableCell>
+                                  <Tooltip title={syllabus.status === 'analyzed' ? 'View syllabus analysis' : 'Available after analysis'}>
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => navigate(`/syllabi/${syllabus._id}`)}
+                                        disabled={syllabus.status !== 'analyzed'}
+                                      >
+                                        <Visibility fontSize="small" />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell colSpan={5} align="center">
+                                <Typography variant="body2" color="text.secondary">
+                                  No recent syllabi available
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <Paper sx={{ p: 3, height: '100%' }}>
+                    <Typography variant="h6" gutterBottom>
+                      Top Instructors
+                    </Typography>
+                    {topInstructors.length > 0 ? (
+                      <List>
+                        {topInstructors.map((instructor) => (
+                          <ListItem key={instructor._id} sx={{ px: 0 }}>
+                            <ListItemAvatar>
+                              <Avatar sx={{ bgcolor: 'primary.main' }}>
+                                {instructor.firstName?.[0]}{instructor.lastName?.[0]}
+                              </Avatar>
+                            </ListItemAvatar>
+                            <ListItemText
+                              primary={`${instructor.firstName} ${instructor.lastName}`}
+                              secondary={
+                                <Typography variant="caption" color="text.secondary">
+                                  Syllabi analyzed: {instructor.syllabusCount || 0}
+                                </Typography>
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        No instructor data available
+                      </Typography>
+                    )}
+                  </Paper>
+                </Grid>
               </Grid>
 
-              {/* User Distribution */}
-              <Grid container spacing={3} sx={{ mb: 4 }}>
+              <Grid container spacing={3} sx={{ mt: 0 }}>
                 <Grid item xs={12} md={6}>
                   <Paper sx={{ p: 3 }}>
                     <Typography variant="h6" gutterBottom>
@@ -170,52 +279,7 @@ const AdminDashboard = () => {
                   </Paper>
                 </Grid>
               </Grid>
-
-              {/* Recent Activity */}
-              <Paper sx={{ p: 3 }}>
-                <Typography variant="h6" gutterBottom>
-                  Recent Activity
-                </Typography>
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Syllabus</TableCell>
-                        <TableCell>Instructor</TableCell>
-                        <TableCell>Status</TableCell>
-                        <TableCell>Date</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {stats.recentSyllabi && stats.recentSyllabi.map((syllabus) => (
-                        <TableRow key={syllabus._id}>
-                          <TableCell>{syllabus.title}</TableCell>
-                          <TableCell>
-                            {syllabus.uploadedBy ? 
-                              `${syllabus.uploadedBy.firstName} ${syllabus.uploadedBy.lastName}` : 
-                              'Unknown'
-                            }
-                          </TableCell>
-                          <TableCell>
-                            <Chip 
-                              label={syllabus.status} 
-                              color={
-                                syllabus.status === 'analyzed' ? 'success' : 
-                                syllabus.status === 'processing' ? 'warning' : 'default'
-                              }
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            {new Date(syllabus.createdAt).toLocaleDateString('en-US')}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Paper>
-            </>
+            </React.Fragment>
           )}
         </Box>
       )}

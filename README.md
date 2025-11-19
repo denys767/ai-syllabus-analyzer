@@ -138,7 +138,7 @@ The recommendation system generates four main types of recommendations:
 
 ### 1. Static Materials (Unchanging)
 - **Syllabus Template**: MBA template structure verified by KSE experts
-- **MBA-27 Learning Objectives**: Academic standards approved by the program
+- **MBA-27 Learning Outcomes**: Academic standards approved by the program
 - **Source**: `initializeStaticContent()` method in AIService constructor
 
 ### 2. Dynamic Materials (Updated Regularly)
@@ -271,14 +271,14 @@ The recommendation system generates four main types of recommendations:
 
 ### Validation Methods
 - **Static Templates**: Expert-reviewed by KSE faculty
-- **Learning Objectives**: Program-approved standards
+- **Learning Outcomes**: Program-approved standards
 - **Student Clusters**: Data-driven quarterly updates
 - **Survey Data**: Real-time student feedback
 - **Web Cases**: AI-filtered for relevance and Ukrainian context
 
 ### How Materials Are Combined
 1. **Structure Foundation**: Static templates provide analysis framework
-2. **Academic Standards**: Learning objectives ensure educational quality
+2. **Academic Standards**: Learning outcomes ensure educational quality
 3. **Audience Adaptation**: Student clusters tailor content
 4. **Current Needs**: Survey insights address immediate student challenges
 5. **Practical Relevance**: Web cases add real-world applications
@@ -359,7 +359,7 @@ The AI analysis service has been significantly refactored for better performance
 - **Result**: Professional, functional PDFs
 
 **3. Embedded Standards**
-- Hardcoded MBA-27 Learning Objectives (9 objectives)
+- Hardcoded MBA-27 Learning Outcomes (9 outcomes)
 - Hardcoded syllabus template (5 sections)
 - Simplified recommendation generation (1 LLM call)
 

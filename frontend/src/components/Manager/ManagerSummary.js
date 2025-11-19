@@ -116,7 +116,7 @@ const ManagerSummary = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                MBA Learning Objectives Alignment
+                MBA Learning Outcomes Alignment
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                 <TrendingUp sx={{ mr: 1, color: 'primary.main' }} />
@@ -132,7 +132,7 @@ const ManagerSummary = () => {
               </Box>
 
               <Typography variant="subtitle2" gutterBottom>
-                Covered objectives ({(summary.learningOutcomesAlignment.coveredObjectives || []).length}):
+                Covered outcomes ({(summary.learningOutcomesAlignment.coveredObjectives || []).length}):
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
                 {(summary.learningOutcomesAlignment.coveredObjectives || []).slice(0, 10).map((objective, index) => (
@@ -144,7 +144,7 @@ const ManagerSummary = () => {
               </Box>
 
               <Typography variant="subtitle2" gutterBottom>
-                Gaps ({(summary.learningOutcomesAlignment.gaps || []).length}):
+                Outcome gaps ({(summary.learningOutcomesAlignment.gaps || []).length}):
               </Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 {(summary.learningOutcomesAlignment.gaps || []).slice(0, 10).map((gap, index) => (

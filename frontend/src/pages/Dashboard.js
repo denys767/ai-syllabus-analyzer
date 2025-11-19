@@ -284,7 +284,7 @@ const Dashboard = () => {
                 <TableCell colSpan={5} align="center">
                   <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
                     No syllabi found. {' '}
-                    {hasRole(['instructor']) && (
+                    {hasRole(['instructor', 'manager']) && (
                       <Button
                         variant="text"
                         onClick={() => navigate('/syllabi/upload')}

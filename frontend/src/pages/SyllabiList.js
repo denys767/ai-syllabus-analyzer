@@ -49,13 +49,14 @@ import {
   Schedule,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-// import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 
 const SyllabiList = () => {
   const navigate = useNavigate();
-  // const { user } = useAuth(); // not currently used
+  const { user } = useAuth();
   const [syllabi, setSyllabi] = useState([]);
+  const canUpload = ['instructor', 'manager'].includes(user?.role);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteDialog, setDeleteDialog] = useState({ open: false, syllabus: null });
@@ -216,14 +217,16 @@ const SyllabiList = () => {
         <Typography variant="h4" fontWeight="bold">
           Syllabi
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<Upload />}
-          onClick={() => navigate('/syllabi/upload')}
-          sx={{ borderRadius: 2 }}
-        >
-          Upload new
-        </Button>
+        {canUpload && (
+          <Button
+            variant="contained"
+            startIcon={<Upload />}
+            onClick={() => navigate('/syllabi/upload')}
+            sx={{ borderRadius: 2 }}
+          >
+            Upload new
+          </Button>
+        )}
       </Box>
 
       {error && (
@@ -421,7 +424,7 @@ const SyllabiList = () => {
                     <Typography variant="body2" color="text.secondary">
                       {searchTerm || statusFilter ? 
                         'Try adjusting your search criteria' : 
-                        'Upload your first syllabus to get started'
+                        canUpload ? 'Upload your first syllabus to get started' : 'No syllabi available for this account'
                       }
                     </Typography>
                   </Box>

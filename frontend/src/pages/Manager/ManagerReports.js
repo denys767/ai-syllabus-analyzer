@@ -351,12 +351,12 @@ const ManagerReports = () => {
                           {coverageScore}%
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          learning objectives coverage
+                          learning outcomes coverage
                         </Typography>
                       </Box>
 
                       <Typography variant="subtitle2" gutterBottom>
-                        Covered Objectives ({coveredObjectives.length}):
+                        Covered Outcomes ({coveredObjectives.length}):
                       </Typography>
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
                         {coveredObjectives.map((objective, index) => (
@@ -371,7 +371,7 @@ const ManagerReports = () => {
                       </Box>
 
                       <Typography variant="subtitle2" gutterBottom>
-                        Gaps ({gaps.length}):
+                        Outcome gaps ({gaps.length}):
                       </Typography>
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                         {gaps.map((gap, index) => (

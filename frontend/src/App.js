@@ -77,7 +77,7 @@ function App() {
         <Route 
           path="syllabi/upload" 
           element={
-            <ProtectedRoute requiredRoles={['instructor', 'admin']}>
+            <ProtectedRoute requiredRoles={['instructor', 'manager']}>
               <SyllabusUpload />
             </ProtectedRoute>
           } 

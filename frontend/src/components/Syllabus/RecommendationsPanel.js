@@ -45,7 +45,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
 
     const groups = {
       'Template Compliance': [],
-      'Learning Objectives Alignment': [],
+      'Learning Outcomes Alignment': [],
       'Plagiarism Check': [],
       'Student Clusters Integration': [],
       'Practicality': [],
@@ -57,7 +57,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
         groups['Template Compliance'].push(r);
       } 
       else if (r.category === 'learning-objectives' || r.category === 'objectives') {
-        groups['Learning Objectives Alignment'].push(r);
+        groups['Learning Outcomes Alignment'].push(r);
       }
       else if (r.category === 'plagiarism') {
         groups['Plagiarism Check'].push(r);
