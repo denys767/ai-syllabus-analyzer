@@ -88,6 +88,12 @@ const Sidebar = ({ onItemClick }) => {
       roles: ['manager', 'admin'],
     },
     {
+      text: 'My Syllabi',
+      icon: <Description />,
+      path: '/syllabi',
+      roles: ['manager'],
+    },
+    {
       text: 'Upload Syllabus',
       icon: <Upload />,
       path: '/syllabi/upload',
@@ -130,7 +136,7 @@ const Sidebar = ({ onItemClick }) => {
       case 'admin':
         // Admin: instructor + admin, WITHOUT manager (to avoid duplicate 'Reports')
         items = [
-          ...instructorItems,
+          ...instructorItems.filter((item) => item.path !== '/syllabi'),
           ...adminItems
         ];
         break;

@@ -38,6 +38,7 @@ import api from '../services/api';
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [stats, setStats] = useState({});
   const [recentSyllabi, setRecentSyllabi] = useState([]);
   const [pendingTotal, setPendingTotal] = useState(0);
@@ -51,16 +52,22 @@ const Dashboard = () => {
   const loadDashboardData = async () => {
     try {
       setLoading(true);
+      const syllabiRequest = isAdmin
+        ? api.get('/reports/recent-syllabi', { params: { limit: 5 } })
+        : api.get('/syllabus/my-syllabi', { params: { limit: 5 } });
+
       const [statsResponse, syllabiResponse] = await Promise.all([
         api.get('/users/stats'),
-        api.get('/syllabus/my-syllabi?limit=5'),
+        syllabiRequest,
       ]);
       
-  setStats(statsResponse.data);
-  const list = syllabiResponse.data.syllabi || [];
-  setRecentSyllabi(list);
-  const pending = list.reduce((acc, s) => acc + (Array.isArray(s.recommendations) ? s.recommendations.filter(r => r.status === 'pending').length : 0), 0);
-  setPendingTotal(pending);
+      setStats(statsResponse.data);
+      const list = syllabiResponse.data.syllabi || [];
+      setRecentSyllabi(list);
+      const pending = isAdmin
+        ? 0
+        : list.reduce((acc, s) => acc + (Array.isArray(s.recommendations) ? s.recommendations.filter(r => r.status === 'pending').length : 0), 0);
+      setPendingTotal(pending);
     } catch (err) {
       setError('Error loading dashboard data');
       console.error('Dashboard error:', err);
@@ -226,6 +233,7 @@ const Dashboard = () => {
           <TableHead>
             <TableRow>
               <TableCell>Title</TableCell>
+              {isAdmin && <TableCell>Instructor</TableCell>}
               <TableCell>Course</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Date</TableCell>
@@ -244,6 +252,13 @@ const Dashboard = () => {
                       </Typography>
                     </Box>
                   </TableCell>
+                  {isAdmin && (
+                    <TableCell>
+                      {syllabus.instructor ? (
+                        `${syllabus.instructor.firstName || ''} ${syllabus.instructor.lastName || ''}`.trim()
+                      ) : '—'}
+                    </TableCell>
+                  )}
                   <TableCell>{syllabus.courseName || syllabus.course?.name || syllabus.title || 'N/A'}</TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -281,7 +296,7 @@ const Dashboard = () => {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                <TableCell colSpan={isAdmin ? 6 : 5} align="center">
                   <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
                     No syllabi found. {' '}
                     {hasRole(['instructor', 'manager']) && (
