@@ -293,10 +293,10 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
             <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap">
               <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                 <Chip 
-                  label={rec.category || 'content'} 
+                  label={rec.groupTag || rec.category || 'content'} 
                   size="small"
-                  color={rec.category === 'practicality' ? 'secondary' : 'default'}
-                  variant={rec.category === 'practicality' ? 'filled' : 'outlined'}
+                  color={rec.category === 'practicality' ? 'secondary' : rec.category === 'student-clusters' ? 'primary' : 'default'}
+                  variant={rec.category === 'practicality' || rec.category === 'student-clusters' ? 'filled' : 'outlined'}
                 />
                 <PriorityChip priority={rec.priority} />
                 <StatusChip status={rec.status} />

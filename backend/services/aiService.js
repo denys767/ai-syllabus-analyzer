@@ -73,6 +73,9 @@ class AIService {
         plagiarismRecommendations = await this.generateAntiPlagiarismRecommendations(syllabus, plagiarismCheck);
       }
 
+      // Generate student cluster-specific recommendations
+      const clusterRecommendations = await this.generateClusterRecommendations(syllabus.extractedText, clusterNameList, clusterSummaryText);
+
       await Syllabus.findByIdAndUpdate(syllabusId, {
         structure: analysis.structure || {},
         analysis: {
@@ -85,7 +88,7 @@ class AIService {
           },
           plagiarismCheck: plagiarismCheck
         },
-        recommendations: [...analysis.recommendations, ...plagiarismRecommendations],
+        recommendations: [...analysis.recommendations, ...plagiarismRecommendations, ...clusterRecommendations],
         vectorEmbedding: this.generateVectorEmbedding(syllabus.extractedText),
         status: 'analyzed'
       });
@@ -235,6 +238,63 @@ Return JSON with this exact structure:
       });
     }
     return recommendations;
+  }
+
+  async generateClusterRecommendations(syllabusText, clusterNameList, clusterSummaryText) {
+    try {
+      console.log('🎯 Generating student cluster recommendations...');
+      
+      const prompt = `Analyze this MBA syllabus and generate specific recommendations for each student cluster.
+
+SYLLABUS:
+${syllabusText.substring(0, 3000)}
+
+STUDENT CLUSTERS:
+${clusterSummaryText}
+
+For EACH cluster, generate ONE specific recommendation on how to make the course more relevant to their background.
+
+Return JSON:
+{
+  "recommendations": [
+    {
+      "cluster": "cluster name",
+      "title": "Short recommendation title (max 60 chars)",
+      "description": "Specific suggestion mentioning a Ukrainian company/case relevant to this cluster (max 150 chars)",
+      "priority": "medium"
+    }
+  ]
+}
+
+Generate recommendations for all clusters: ${clusterNameList}`;
+
+      const response = await this.openai.chat.completions.create({
+        model: this.llmModel,
+        messages: [
+          { role: 'system', content: 'You are an MBA curriculum advisor. Generate practical, cluster-specific recommendations. Always return valid JSON.' },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_object' }
+      });
+
+      const result = JSON.parse(response.choices[0]?.message?.content || '{}');
+      
+      const recommendations = (result.recommendations || []).map((rec, idx) => ({
+        id: `cluster_${Date.now()}_${idx}`,
+        category: 'student-clusters',
+        groupTag: `Рекомендації для ${rec.cluster}`,
+        title: rec.title || `Recommendation for ${rec.cluster}`,
+        description: rec.description || 'No description provided',
+        priority: rec.priority || 'medium',
+        status: 'pending'
+      }));
+
+      console.log(`✅ Generated ${recommendations.length} cluster recommendations`);
+      return recommendations;
+    } catch (error) {
+      console.error('❌ Cluster recommendations error:', error.message);
+      return [];
+    }
   }
 
   findSimilarExcerpts(text1, text2) {
@@ -992,27 +1052,24 @@ Return the FULL edited text with changes applied naturally.`;
       console.log('📄 Syllabus text length:', syllabus.extractedText?.length || 0, 'characters');
 
       const prompt = `
-        You are an expert MBA academic advisor helping instructors improve the practical aspects of their courses.
-        
-        Based on the syllabus below, generate ONE thought-provoking question that asks the instructor how they plan to implement the practical part of this material.
-        
-        The question must encourage the instructor to think about:
-        - Using real cases and practical tasks
-        - Relevance to the active student cluster needs described below
-        - Interactive methods (discussions, group work, peer-to-peer learning)
+Generate ONE short, simple question (max 2 sentences) asking the instructor how they will make this course practical.
 
-        Student Cluster Context (Quarter: ${clusterQuarterLabel}):
-        ${clusterSummaryText}
-        
-        The question should be in English, open-ended, and specific to a key topic in this syllabus.
+Course topic from syllabus:
+${syllabus.extractedText.substring(0, 1500)}
 
-        Syllabus Analysis:
-        ${JSON.stringify(syllabus.analysis, null, 2)}
+Student groups: ${clusterQuarterLabel}
 
-        Syllabus Text:
-        ${syllabus.extractedText.substring(0, 4000)}
+The question should be:
+- Simple and direct (not academic or complex)
+- Ask about ONE specific practical activity (case study, exercise, or project)
+- Easy to answer in 2-3 sentences
 
-        Generate ONLY the question, without any introductory text or explanation.
+Example good questions:
+- "What real company example will you use to teach pricing strategies?"
+- "How will students practice negotiation skills in class?"
+- "What hands-on exercise will help students understand financial modeling?"
+
+Generate ONLY the question, nothing else.
       `;
 
       console.log('📝 Prompt length:', prompt.length, 'characters');
