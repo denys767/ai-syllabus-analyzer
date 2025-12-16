@@ -230,7 +230,7 @@ Return JSON with this exact structure:
       recommendations.push({
         id: `plagiarism_${Date.now()}_${i}`,
         category: 'plagiarism',
-        groupTag: 'Збіг з попередніми силабусами',
+        groupTag: 'Match with Previous Syllabi',
         title: `Висока схожість із "${similar.title}" (${similar.similarity}%)`,
         description: `Рекомендується додати унікальні українські кейси та переформулювати контент для підвищення оригінальності.`,
         priority: plagiarismCheck.riskLevel === 'high' ? 'critical' : 'high',
@@ -282,7 +282,7 @@ Generate recommendations for all clusters: ${clusterNameList}`;
       const recommendations = (result.recommendations || []).map((rec, idx) => ({
         id: `cluster_${Date.now()}_${idx}`,
         category: 'student-clusters',
-        groupTag: `Рекомендації для ${rec.cluster}`,
+        groupTag: `Recommendations for ${rec.cluster}`,
         title: rec.title || `Recommendation for ${rec.cluster}`,
         description: rec.description || 'No description provided',
         priority: rec.priority || 'medium',
@@ -936,16 +936,16 @@ Return the FULL edited text with changes applied naturally.`;
 
   getCategoryLabel(category) {
     const labels = {
-      'template-compliance': 'Відповідність до шаблону',
-      'learning-objectives': 'Відповідність до learning outcomes',
-      'content-quality': 'Якість контенту',
-      'assessment': 'Оцінювання',
-      'policy': 'Політики курсу',
-      'plagiarism': 'Збіг з попередніми силабусами',
-      'student-clusters': 'Інтеграція прикладів для кластеру студентів',
-      'other': 'Інше'
+      'template-compliance': 'Template Compliance',
+      'learning-objectives': 'Learning Outcomes Alignment',
+      'content-quality': 'Content Quality',
+      'assessment': 'Assessment',
+      'policy': 'Course Policies',
+      'plagiarism': 'Match with Previous Syllabi',
+      'student-clusters': 'Student Cluster Integration',
+      'other': 'Other'
     };
-    return labels[category] || 'Інше';
+    return labels[category] || 'Other';
   }
 
   generateVectorEmbedding(text) {
