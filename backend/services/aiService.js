@@ -329,7 +329,16 @@ Generate recommendations for all clusters: ${clusterNameList}`;
       const filename = `syllabus-edited-${Date.now()}.pdf`;
       const pdfPath = path.join(uploadDir, filename);
 
-      browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
+      const executablePath = (process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_BIN || '').trim();
+      const launchOptions = {
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      };
+      if (executablePath) {
+        launchOptions.executablePath = executablePath;
+      }
+
+      browser = await puppeteer.launch(launchOptions);
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'networkidle0' });
       await page.pdf({ format: 'A4', path: pdfPath, printBackground: true });
