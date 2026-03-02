@@ -13,11 +13,9 @@ import {
 } from '@mui/material';
 import {
   Dashboard,
-  Description,
   AdminPanelSettings,
   People,
   School,
-  Upload,
   Assessment,
   Policy
 } from '@mui/icons-material';
@@ -36,14 +34,6 @@ const Sidebar = ({ onItemClick }) => {
   };
 
   const isActive = (path) => {
-    // Special logic for working with nested paths
-    if (path === '/syllabi/upload') {
-      return location.pathname === '/syllabi/upload';
-    }
-    if (path === '/syllabi') {
-      return location.pathname === '/syllabi' || 
-             (location.pathname.startsWith('/syllabi/') && location.pathname !== '/syllabi/upload');
-    }
     // Exact match for main paths
     if (path === '/dashboard' || path === '/manager' || path === '/admin') {
       return location.pathname === path;
@@ -60,18 +50,6 @@ const Sidebar = ({ onItemClick }) => {
       roles: ['instructor', 'admin'],
     },
     {
-      text: 'My Syllabi',
-      icon: <Description />,
-      path: '/syllabi',
-      roles: ['instructor', 'admin'],
-    },
-    {
-      text: 'Upload Syllabus',
-      icon: <Upload />,
-      path: '/syllabi/upload',
-      roles: ['instructor'],
-    },
-    {
       text: 'Documents',
       icon: <Policy />,
       path: '/policies',
@@ -86,18 +64,6 @@ const Sidebar = ({ onItemClick }) => {
       icon: <Dashboard />,
       path: '/manager',
       roles: ['manager', 'admin'],
-    },
-    {
-      text: 'My Syllabi',
-      icon: <Description />,
-      path: '/syllabi',
-      roles: ['manager'],
-    },
-    {
-      text: 'Upload Syllabus',
-      icon: <Upload />,
-      path: '/syllabi/upload',
-      roles: ['manager'],
     },
     {
       text: 'Reports',
