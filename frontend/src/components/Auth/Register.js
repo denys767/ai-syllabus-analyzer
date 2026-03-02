@@ -148,7 +148,7 @@ const Register = () => {
         {/* Header */}
         <Box
           sx={{
-            background: 'linear-gradient(45deg, #1976d2 30%, #2196f3 90%)',
+            background: 'linear-gradient(45deg, #00665a 30%, #33998a 90%)',
             color: 'white',
             py: 3,
             px: 3,
@@ -296,9 +296,9 @@ const Register = () => {
               sx={{
                 py: 1.5,
                 mb: 3,
-                background: 'linear-gradient(45deg, #1976d2 30%, #2196f3 90%)',
+                background: 'linear-gradient(45deg, #00665a 30%, #33998a 90%)',
                 '&:hover': {
-                  background: 'linear-gradient(45deg, #1565c0 30%, #1976d2 90%)',
+                  background: 'linear-gradient(45deg, #004d43 30%, #00665a 90%)',
                 },
               }}
             >
@@ -313,7 +313,7 @@ const Register = () => {
                 <Link
                   to="/login"
                   style={{
-                    color: '#1976d2',
+                    color: '#00665a',
                     textDecoration: 'none',
                     fontWeight: 600,
                   }}

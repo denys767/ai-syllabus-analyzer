@@ -12,18 +12,7 @@ import {
   Paper,
   Chip,
   IconButton,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  ListItemSecondaryAction,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Stepper,
-  Step,
-  StepLabel,
+  CircularProgress,
 } from '@mui/material';
 import {
   CloudUpload,
@@ -31,7 +20,6 @@ import {
   Delete,
   CheckCircle,
   Error,
-  Info,
   School,
   Psychology,
 } from '@mui/icons-material';
@@ -45,10 +33,7 @@ const SyllabusUpload = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [uploadResults, setUploadResults] = useState([]);
-  const [currentStep, setCurrentStep] = useState(0);
   const [error, setError] = useState('');
-
-  const steps = ['Select Files', 'Metadata', 'Upload'];
 
   const maxSize = 10 * 1024 * 1024; // 10MB
   const acceptedFormats = {
@@ -106,10 +91,13 @@ const SyllabusUpload = () => {
   };
 
   const uploadFiles = async () => {
+    if (files.length === 0) {
+      setError('Please select files to upload');
+      return;
+    }
     if (!validateFiles()) return;
 
     setUploading(true);
-    setCurrentStep(2);
     setUploadResults([]);
 
     for (const fileData of files) {
@@ -122,18 +110,13 @@ const SyllabusUpload = () => {
         formData.append('courseCode', fileData.courseCode);
         formData.append('description', fileData.description);
 
-  const response = await api.syllabus.upload(formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
+        const response = await api.syllabus.upload(formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
           onUploadProgress: (progressEvent) => {
             const percentCompleted = Math.round(
               (progressEvent.loaded * 100) / progressEvent.total
             );
-            setUploadProgress(prev => ({ 
-              ...prev, 
-              [fileData.id]: percentCompleted 
-            }));
+            setUploadProgress(prev => ({ ...prev, [fileData.id]: percentCompleted }));
           },
         });
 
@@ -142,7 +125,6 @@ const SyllabusUpload = () => {
           success: true,
           syllabusId: response.data.syllabusId || response.data._id,
         }]);
-
       } catch (err) {
         const errorMessage = err.response?.data?.message || err.message || 'Upload error';
         setUploadResults(prev => [...prev, {
@@ -156,25 +138,6 @@ const SyllabusUpload = () => {
     setUploading(false);
   };
 
-  const handleNext = () => {
-    if (currentStep === 0 && files.length === 0) {
-      setError('Please select files to upload');
-      return;
-    }
-    if (currentStep === 1 && !validateFiles()) {
-      return;
-    }
-    if (currentStep === 1) {
-      uploadFiles();
-    } else {
-      setCurrentStep(prev => prev + 1);
-    }
-  };
-
-  const handleBack = () => {
-    setCurrentStep(prev => prev - 1);
-  };
-
   const getFileIcon = (file) => {
     if (file.type === 'application/pdf') {
       return <Description color="error" />;
@@ -186,11 +149,31 @@ const SyllabusUpload = () => {
     return (bytes / 1024 / 1024).toFixed(2) + ' MB';
   };
 
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 0:
-        return (
-          <Box>
+  const uploadDone = !uploading && uploadResults.length > 0;
+
+  return (
+    <Box sx={{ p: 3, maxWidth: 800, mx: 'auto' }}>
+      {/* Header */}
+      <Box sx={{ textAlign: 'center', mb: 4 }}>
+        <School sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
+        <Typography variant="h4" fontWeight="bold" gutterBottom>
+          Syllabus Upload
+        </Typography>
+        <Typography variant="body1" color="text.secondary">
+          Upload your syllabi for AI analysis
+        </Typography>
+      </Box>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
+
+      {!uploadDone ? (
+        <Card>
+          <CardContent sx={{ p: 3 }}>
+            {/* Drop zone */}
             <Paper
               {...getRootProps()}
               sx={{
@@ -208,256 +191,131 @@ const SyllabusUpload = () => {
               }}
             >
               <input {...getInputProps()} />
-              <CloudUpload sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
+              <CloudUpload sx={{ fontSize: 56, color: 'primary.main', mb: 1 }} />
               <Typography variant="h6" gutterBottom>
-                {isDragActive ? 
-                  'Drop files here...' : 
-                  'Drag and drop files here or click to select'
-                }
+                {isDragActive ? 'Drop files here...' : 'Drag and drop files here or click to select'}
               </Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
+              <Typography variant="body2" color="text.secondary">
                 Supported formats: PDF, DOC, DOCX (max 10MB)
               </Typography>
-              <Button variant="outlined" sx={{ mt: 2 }}>
-                Select Files
-              </Button>
             </Paper>
 
+            {/* File list with inline metadata */}
             {files.length > 0 && (
               <Box sx={{ mt: 3 }}>
-                <Typography variant="h6" gutterBottom>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                   Selected Files ({files.length})
                 </Typography>
-                <List>
-                  {files.map((fileData) => (
-                    <ListItem key={fileData.id} divider>
-                      <ListItemIcon>
-                        {getFileIcon(fileData.file)}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={fileData.file.name}
-                        secondary={formatFileSize(fileData.file.size)}
-                      />
-                      <ListItemSecondaryAction>
-                        <IconButton onClick={() => removeFile(fileData.id)}>
-                          <Delete />
-                        </IconButton>
-                      </ListItemSecondaryAction>
-                    </ListItem>
-                  ))}
-                </List>
-              </Box>
-            )}
-          </Box>
-        );
-
-      case 1:
-        return (
-          <Box>
-            <Typography variant="h6" gutterBottom>
-              Course Metadata
-            </Typography>
-            <Typography variant="body2" color="text.secondary" paragraph>
-              Enter information about each course for better analysis
-            </Typography>
-            
-            {files.map((fileData, index) => (
-              <Card key={fileData.id} sx={{ mb: 2 }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    {getFileIcon(fileData.file)}
-                    <Typography variant="subtitle1" sx={{ ml: 1 }}>
-                      {fileData.file.name}
-                    </Typography>
-                  </Box>
-                  
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        fullWidth
-                        label="Course Name *"
-                        value={fileData.courseName}
-                        onChange={(e) => updateFileMetadata(fileData.id, 'courseName', e.target.value)}
-                        placeholder="e.g., Microeconomics"
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        fullWidth
-                        label="Course Code"
-                        value={fileData.courseCode}
-                        onChange={(e) => updateFileMetadata(fileData.id, 'courseCode', e.target.value)}
-                        placeholder="e.g., ECON101"
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <TextField
-                        fullWidth
-                        label="Course Description"
-                        value={fileData.description}
-                        onChange={(e) => updateFileMetadata(fileData.id, 'description', e.target.value)}
-                        multiline
-                        rows={2}
-                        placeholder="Brief course description..."
-                      />
-                    </Grid>
-                  </Grid>
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
-        );
-
-      case 2:
-        return (
-          <Box>
-            <Typography variant="h6" gutterBottom>
-              Upload Results
-            </Typography>
-            
-            {uploading && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Typography>Uploading files...</Typography>
-                </Box>
-              </Alert>
-            )}
-
-            {uploadResults.map((result) => (
-              <Card key={result.id} sx={{ mb: 2 }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    {result.success ? 
-                      <CheckCircle color="success" /> : 
-                      <Error color="error" />
-                    }
-                    <Typography variant="subtitle1" sx={{ ml: 1 }}>
-                      {result.file.name}
-                    </Typography>
-                  </Box>
-                  
-                  {uploading && uploadProgress[result.id] !== undefined && (
-                    <LinearProgress 
-                      variant="determinate" 
-                      value={uploadProgress[result.id]} 
-                      sx={{ mb: 1 }}
-                    />
-                  )}
-                  
-                  {result.success ? (
-                    <Box>
-                      <Chip label="Successfully Uploaded" color="success" size="small" />
-                      <Button
-                        size="small"
-                        onClick={() => navigate(`/syllabi/${result.syllabusId}`)}
-                        sx={{ ml: 1 }}
-                      >
-                        View
-                      </Button>
+                {files.map((fileData) => (
+                  <Paper key={fileData.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                      {getFileIcon(fileData.file)}
+                      <Typography variant="body2" sx={{ ml: 1, flex: 1 }}>
+                        {fileData.file.name}
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                          ({formatFileSize(fileData.file.size)})
+                        </Typography>
+                      </Typography>
+                      <IconButton size="small" onClick={() => removeFile(fileData.id)}>
+                        <Delete fontSize="small" />
+                      </IconButton>
                     </Box>
-                  ) : result.error && (
-                    <Alert severity="error" sx={{ mt: 1 }}>
-                      {result.error}
-                    </Alert>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Course Name *"
+                          value={fileData.courseName}
+                          onChange={(e) => updateFileMetadata(fileData.id, 'courseName', e.target.value)}
+                          placeholder="e.g., Microeconomics"
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Course Code"
+                          value={fileData.courseCode}
+                          onChange={(e) => updateFileMetadata(fileData.id, 'courseCode', e.target.value)}
+                          placeholder="e.g., ECON101"
+                        />
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                ))}
 
-            {!uploading && uploadResults.length > 0 && (
-              <Box sx={{ mt: 3, textAlign: 'center' }}>
-                <Button
-                  variant="contained"
-                  onClick={() => navigate('/syllabi')}
-                  sx={{ mr: 2 }}
-                >
-                  View All Syllabi
-                </Button>
-                <Button
-                  variant="outlined"
-                  onClick={() => {
-                    setFiles([]);
-                    setUploadResults([]);
-                    setCurrentStep(0);
-                  }}
-                >
-                  Upload More
-                </Button>
+                <Box sx={{ textAlign: 'right', mt: 2 }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    onClick={uploadFiles}
+                    disabled={uploading}
+                    startIcon={uploading ? <CircularProgress size={18} color="inherit" /> : <Psychology />}
+                  >
+                    {uploading ? 'Uploading...' : 'Upload and Analyze'}
+                  </Button>
+                </Box>
+
+                {uploading && (
+                  <Box sx={{ mt: 2 }}>
+                    {files.map(f => (
+                      uploadProgress[f.id] !== undefined && (
+                        <Box key={f.id} sx={{ mb: 1 }}>
+                          <Typography variant="caption">{f.file.name}</Typography>
+                          <LinearProgress variant="determinate" value={uploadProgress[f.id]} sx={{ mt: 0.5 }} />
+                        </Box>
+                      )
+                    ))}
+                  </Box>
+                )}
               </Box>
             )}
-          </Box>
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <Box sx={{ p: 3, maxWidth: 1000, mx: 'auto' }}>
-      {/* Header */}
-      <Box sx={{ textAlign: 'center', mb: 4 }}>
-        <School sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
-        <Typography variant="h4" fontWeight="bold" gutterBottom>
-          Syllabus Upload
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Upload your syllabi for AI analysis
-        </Typography>
-      </Box>
-
-      {/* Steps */}
-      <Stepper activeStep={currentStep} sx={{ mb: 4 }}>
-        {steps.map((label) => (
-          <Step key={label}>
-            <StepLabel>{label}</StepLabel>
-          </Step>
-        ))}
-      </Stepper>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
+          </CardContent>
+        </Card>
+      ) : (
+        /* Upload results */
+        <Card>
+          <CardContent sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>Upload Results</Typography>
+            {uploadResults.map((result) => (
+              <Paper key={result.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                  {result.success ? <CheckCircle color="success" /> : <Error color="error" />}
+                  <Typography variant="subtitle2" sx={{ ml: 1 }}>{result.file.name}</Typography>
+                </Box>
+                {result.success ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Chip label="Successfully Uploaded" color="success" size="small" />
+                    <Button size="small" onClick={() => navigate(`/syllabi/${result.syllabusId}`)}>
+                      View Analysis
+                    </Button>
+                  </Box>
+                ) : (
+                  <Alert severity="error" sx={{ mt: 1 }}>{result.error}</Alert>
+                )}
+              </Paper>
+            ))}
+            <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
+              <Button variant="contained" onClick={() => navigate('/syllabi')}>
+                View All Syllabi
+              </Button>
+              <Button variant="outlined" onClick={() => { setFiles([]); setUploadResults([]); }}>
+                Upload More
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Content */}
-      <Card>
-        <CardContent sx={{ p: 3 }}>
-          {renderStepContent()}
-        </CardContent>
-      </Card>
-
-      {/* Navigation */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
-        <Button
-          onClick={handleBack}
-          disabled={currentStep === 0 || uploading}
-        >
-          Back
-        </Button>
-        
-        <Box>
-          {currentStep < steps.length - 1 && (
-            <Button
-              variant="contained"
-              onClick={handleNext}
-              disabled={uploading}
-              startIcon={currentStep === 1 ? <Psychology /> : undefined}
-            >
-              {currentStep === 1 ? 'Upload and Analyze' : 'Next'}
-            </Button>
-          )}
-        </Box>
-      </Box>
-
-      {/* Info */}
-      <Alert severity="info" sx={{ mt: 3 }}>
-        <Typography variant="body2">
-          <strong>Tips:</strong> For better analysis, make sure your syllabus contains:
-          course objectives, lesson structure, assessment methods, and recommended literature.
-        </Typography>
-      </Alert>
+      {!uploadDone && (
+        <Alert severity="info" sx={{ mt: 3 }}>
+          <Typography variant="body2">
+            <strong>Tips:</strong> For better analysis, make sure your syllabus contains:
+            course objectives, lesson structure, assessment methods, and recommended literature.
+          </Typography>
+        </Alert>
+      )}
     </Box>
   );
 };

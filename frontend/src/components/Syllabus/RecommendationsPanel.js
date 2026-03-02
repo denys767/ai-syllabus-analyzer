@@ -7,10 +7,11 @@ import {
   Stack,
   Paper,
   Divider,
-  Tabs,
-  Tab,
   CircularProgress,
+  IconButton,
+  LinearProgress,
 } from '@mui/material';
+import { ChevronLeft, ChevronRight } from '@mui/icons-material';
 import api from '../../services/api';
 // import AIChallenger from './AIChallenger'; // Removed in v2.0.0 refactoring
 
@@ -87,7 +88,10 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
     return groups;
   }, [recommendations]);
 
-  const tabs = Object.keys(grouped);
+  const tabs = Object.keys(grouped).filter(key => grouped[key].length > 0);
+
+  // Ensure tab index stays in bounds when recommendations change
+  const safeTab = Math.min(tab, Math.max(0, tabs.length - 1));
 
   const update = async (rec, data) => {
     try {
@@ -194,9 +198,43 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Accept or reject proposed syllabus changes. After completion, an updated file will be generated.
       </Typography>
-      <Tabs value={tab} onChange={(e,v)=> setTab(v)} sx={{ mb:2 }} variant="scrollable" scrollButtons allowScrollButtonsMobile>
-        {tabs.map(label => <Tab key={label} label={`${label} (${grouped[label].length})`} />)}
-      </Tabs>
+
+      {/* Page-flipping category navigation */}
+      {tabs.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+            <IconButton
+              size="small"
+              onClick={() => setTab(Math.max(0, safeTab - 1))}
+              disabled={safeTab === 0}
+              color="primary"
+            >
+              <ChevronLeft />
+            </IconButton>
+            <Box sx={{ flex: 1, textAlign: 'center' }}>
+              <Typography variant="subtitle1" fontWeight={600}>
+                {tabs[safeTab]}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {safeTab + 1} / {tabs.length} · {(grouped[tabs[safeTab]] || []).length} recommendation{(grouped[tabs[safeTab]] || []).length !== 1 ? 's' : ''}
+              </Typography>
+            </Box>
+            <IconButton
+              size="small"
+              onClick={() => setTab(Math.min(tabs.length - 1, safeTab + 1))}
+              disabled={safeTab === tabs.length - 1}
+              color="primary"
+            >
+              <ChevronRight />
+            </IconButton>
+          </Stack>
+          <LinearProgress
+            variant="determinate"
+            value={tabs.length > 1 ? (safeTab / (tabs.length - 1)) * 100 : 100}
+            sx={{ borderRadius: 2, height: 4 }}
+          />
+        </Box>
+      )}
       <Stack direction="row" spacing={1} sx={{ mb:2 }}>
         <Button
           size="small"
@@ -273,7 +311,7 @@ export default function RecommendationsPanel({ syllabusId, recommendations = [],
           '& > *': { width: '100%' }
         }
       }}>
-        {(grouped[tabs[tab]]||[]).map((rec, idx) => (
+        {(grouped[tabs[safeTab]]||[]).map((rec, idx) => (
           <Paper 
             key={rec._id || rec.id || idx} 
             className="rec-card" 

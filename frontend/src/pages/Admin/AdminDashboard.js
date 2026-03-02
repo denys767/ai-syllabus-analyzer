@@ -63,19 +63,20 @@ const AdminDashboard = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Admin Panel
-      </Typography>
+      <Box sx={{ bgcolor: 'primary.main', color: 'white', mx: -3, mt: -3, px: 3, pt: 3, pb: 2, mb: 3 }}>
+        <Typography variant="h4" gutterBottom sx={{ color: 'white' }}>
+          Admin Panel
+        </Typography>
 
-      {/* Tab Navigation */}
-      <Paper sx={{ mb: 3 }}>
+        {/* Tab Navigation */}
         <Tabs 
           value={selectedTab} 
           onChange={handleTabChange}
-          indicatorColor="primary"
-          textColor="primary"
+          indicatorColor="secondary"
+          textColor="inherit"
           variant="scrollable"
           scrollButtons="auto"
+          sx={{ '& .MuiTab-root': { color: 'rgba(255,255,255,0.7)' }, '& .Mui-selected': { color: 'white' } }}
         >
           <Tab icon={<Dashboard />} label="Overview" iconPosition="start" />
           <Tab icon={<People />} label="Users" iconPosition="start" />
@@ -83,7 +84,7 @@ const AdminDashboard = () => {
           <Tab icon={<Poll />} label="Surveys" iconPosition="start" />
           <Tab icon={<Description />} label="Documents" iconPosition="start" />
         </Tabs>
-      </Paper>
+      </Box>
 
       {/* Tab Content */}
       {selectedTab === 0 && (
