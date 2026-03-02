@@ -8,10 +8,25 @@ const ThemeModeContext = createContext();
 
 const base = {
   palette: {
-    primary: { main: '#1976d2', light: '#42a5f5', dark: '#1565c0', contrastText: '#ffffff' },
+    primary: { main: '#00665a', light: '#33998a', dark: '#004d43', contrastText: '#ffffff' },
     secondary: { main: '#9c27b0', light: '#ba68c8', dark: '#7b1fa2', contrastText: '#ffffff' },
   },
   shape: { borderRadius: 8 },
+  components: {
+    MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: 8,
+          margin: '4px 8px',
+          '&.Mui-selected': {
+            backgroundColor: '#e6f4f2',
+            color: '#00665a',
+            '&:hover': { backgroundColor: '#cce8e5' },
+          },
+        },
+      },
+    },
+  },
 };
 
 export const ThemeModeProvider = ({ children }) => {
