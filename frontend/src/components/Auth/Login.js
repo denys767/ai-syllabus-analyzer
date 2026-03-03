@@ -93,7 +93,7 @@ const Login = () => {
         {/* Header */}
         <Box
           sx={{
-            background: 'linear-gradient(45deg, #1976d2 30%, #2196f3 90%)',
+            background: 'linear-gradient(45deg, #00665a 30%, #33998a 90%)',
             color: 'white',
             py: 4,
             px: 3,
@@ -174,9 +174,9 @@ const Login = () => {
               sx={{
                 py: 1.5,
                 mb: 3,
-                background: 'linear-gradient(45deg, #1976d2 30%, #2196f3 90%)',
+                background: 'linear-gradient(45deg, #00665a 30%, #33998a 90%)',
                 '&:hover': {
-                  background: 'linear-gradient(45deg, #1565c0 30%, #1976d2 90%)',
+                  background: 'linear-gradient(45deg, #004d43 30%, #00665a 90%)',
                 },
               }}
             >
@@ -186,7 +186,7 @@ const Login = () => {
             <Box sx={{ textAlign: 'center', mt: 2 }}>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 Forgot password?{' '}
-                <Link to="/reset-password" style={{ color: '#1976d2', fontWeight: 600 }}>
+                <Link to="/reset-password" style={{ color: '#00665a', fontWeight: 600 }}>
                   Reset password
                 </Link>
               </Typography>

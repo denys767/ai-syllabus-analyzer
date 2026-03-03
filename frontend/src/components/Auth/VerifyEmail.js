@@ -66,7 +66,7 @@ const VerifyEmail = () => {
 
         <Box sx={{ mt: 3 }}>
           <Typography variant="body2">
-            <Link to="/login" style={{ color: '#1976d2', fontWeight: 600 }}>Go to Login</Link>
+            <Link to="/login" style={{ color: '#00665a', fontWeight: 600 }}>Go to Login</Link>
           </Typography>
         </Box>
       </Paper>
