@@ -15,7 +15,6 @@ const UserManagement = () => {
   const [filters, setFilters] = useState({
     search: '',
     role: '',
-    verified: '',
   });
 
   // Dialog states
@@ -240,7 +239,6 @@ const UserManagement = () => {
               <TableCell>Name</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Role</TableCell>
-              <TableCell>Verified</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -252,9 +250,6 @@ const UserManagement = () => {
                 </TableCell>
                 <TableCell>{user.email}</TableCell>
                 <TableCell>{getRoleLabel(user.role)}</TableCell>
-                <TableCell>
-                  {user.verified ? '✓' : '—'}
-                </TableCell>
                 <TableCell>
                   <Tooltip title="Edit">
                     <IconButton 
