@@ -16,3 +16,4 @@ uploads
 README_AI*
 build
 *_GUIDE.md
+.env.production
