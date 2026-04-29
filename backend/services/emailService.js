@@ -50,7 +50,7 @@ try {
 const getFromAddress = () =>
   process.env.EMAIL_FROM || process.env.GMAIL_USER || 'no-reply@ai-syllabus-analyzer.local';
 
-async function sendMail({ to, subject, html, text }) {
+async function sendMail({ to, subject, html, text, attachments }) {
   if (!transporter) {
     console.warn('sendMail skipped: transporter not configured');
     return { skipped: true };
@@ -64,6 +64,7 @@ async function sendMail({ to, subject, html, text }) {
       subject,
       text: text || html?.replace(/<[^>]+>/g, ''),
       html,
+      attachments,
     });
     console.log(`Email sent successfully to ${to}: ${info.messageId}`);
     return info;
@@ -146,9 +147,40 @@ async function sendEmailChangeConfirmation(newEmail, token) {
   return sendMail({ to: newEmail, subject, html });
 }
 
+async function sendSyllabusSubmissionEmail({ to, syllabusTitle, reportText, pdfPath, pdfFilename }) {
+  const subject = `Submitted syllabus: ${syllabusTitle}`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#243041">
+      <h2>Professor's Tutor Submission</h2>
+      <p>A syllabus was submitted for Academic Director review.</p>
+      <p><strong>Title:</strong> ${syllabusTitle}</p>
+      <pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #dbe5f0;padding:16px;border-radius:8px;">${reportText}</pre>
+    </div>
+  `;
+
+  const attachments = pdfPath
+    ? [
+        {
+          filename: pdfFilename || 'final-syllabus.pdf',
+          path: pdfPath,
+        },
+      ]
+    : undefined;
+
+  return sendMail({
+    to,
+    subject,
+    html,
+    text: `Professor's Tutor Submission\n\nTitle: ${syllabusTitle}\n\n${reportText}`,
+    attachments,
+  });
+}
+
 module.exports = {
+  sendMail,
   sendInvitationEmail,
   sendPasswordResetEmail,
   sendAccountDeletionEmail,
   sendEmailChangeConfirmation,
+  sendSyllabusSubmissionEmail,
 };

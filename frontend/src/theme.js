@@ -9,9 +9,9 @@ const theme = createTheme({
       contrastText: '#ffffff',
     },
     secondary: {
-      main: '#9c27b0',
-      light: '#ba68c8',
-      dark: '#7b1fa2',
+      main: '#b46a2a',
+      light: '#cf8a52',
+      dark: '#8d4f1d',
       contrastText: '#ffffff',
     },
     error: {
@@ -48,7 +48,7 @@ const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: 'Inter, "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: '"Manrope", "Segoe UI", "Helvetica Neue", Arial, sans-serif',
     h1: {
       fontSize: '2.5rem',
       fontWeight: 600,

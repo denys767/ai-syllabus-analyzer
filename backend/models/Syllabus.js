@@ -1,229 +1,277 @@
 const mongoose = require('mongoose');
 
-const syllabusSchema = new mongoose.Schema({
-  title: {
-    type: String,
-    required: true,
-    trim: true
+const workflowMessageSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    role: { type: String, enum: ['assistant', 'user'], required: true },
+    kind: {
+      type: String,
+      enum: ['greeting', 'summary', 'issue', 'status', 'chat'],
+      default: 'chat',
+    },
+    issueId: String,
+    content: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
   },
-  course: {
-    code: String,
-    name: String,
-    credits: Number,
-    semester: String,
-    year: Number
+  { _id: false }
+);
+
+const choiceOptionSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    label: { type: String, required: true },
+    description: String,
+    text: String,
+    isRecommended: { type: Boolean, default: false },
   },
-  instructor: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+  { _id: false }
+);
+
+const issueChoiceSchema = new mongoose.Schema(
+  {
+    prompt: String,
+    customPrompt: String,
+    selectedOptionId: String,
+    customNote: String,
+    appliedText: String,
+    options: [choiceOptionSchema],
   },
-  originalFile: {
-    filename: String,
-    originalName: String,
-    mimetype: String,
-    size: Number,
-    path: String,
-    uploadedAt: {
-      type: Date,
-      default: Date.now
-    }
+  { _id: false }
+);
+
+const caseCardSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    title: { type: String, required: true },
+    source: String,
+    fitLabel: String,
+    previewText: String,
+    afterText: String,
   },
-  // Auto-generated updated version of syllabus that incorporates accepted AI recommendations
-  modifiedFile: {
-    filename: String,
-    originalName: String, // base name + "-modified"
-    mimetype: { type: String, default: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-    size: Number,
-    path: String,
-    generatedAt: Date
+  { _id: false }
+);
+
+const caseRecommendationSchema = new mongoose.Schema(
+  {
+    weekLabel: String,
+    selectedCardIds: [String],
+    previewCardId: String,
+    cards: [caseCardSchema],
   },
-  editedPdf: {
+  { _id: false }
+);
+
+const workflowIssueSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    block: {
+      type: String,
+      enum: ['template', 'learning_outcomes', 'cases', 'policies'],
+      required: true,
+    },
+    kind: {
+      type: String,
+      enum: ['diff', 'choice', 'case_recommendation'],
+      required: true,
+    },
+    severity: {
+      type: String,
+      enum: ['critical', 'normal'],
+      default: 'normal',
+    },
+    required: { type: Boolean, default: false },
+    state: {
+      type: String,
+      enum: ['open', 'resolved'],
+      default: 'open',
+    },
+    decision: {
+      type: String,
+      enum: ['confirmed', 'cancelled', null],
+      default: null,
+    },
+    order: { type: Number, default: 0 },
+    title: { type: String, required: true },
+    description: String,
+    beforeText: String,
+    afterText: String,
+    choice: issueChoiceSchema,
+    caseRecommendation: caseRecommendationSchema,
+    instructorNote: String,
+    resolvedAt: Date,
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+const readinessBlockSchema = new mongoose.Schema(
+  {
+    block: String,
+    weight: Number,
+    requiredTotal: Number,
+    resolvedRequired: Number,
+    pct: Number,
+  },
+  { _id: false }
+);
+
+const workflowReadinessSchema = new mongoose.Schema(
+  {
+    pct: { type: Number, default: 0 },
+    label: { type: String, default: 'Needs work' },
+    canSubmit: { type: Boolean, default: false },
+    openIssues: { type: Number, default: 0 },
+    resolvedIssues: { type: Number, default: 0 },
+    blocks: [readinessBlockSchema],
+  },
+  { _id: false }
+);
+
+const finalPdfSchema = new mongoose.Schema(
+  {
     filename: String,
     originalName: String,
     mimetype: { type: String, default: 'application/pdf' },
     size: Number,
     path: String,
-    generatedAt: Date
+    generatedAt: Date,
   },
-  extractedText: {
-    type: String,
-    required: true
-  },
-  // Generated annotated version with inline comments after applying accepted recommendations
-  editedText: {
-    type: String
-  },
-  structure: {
-    hasObjectives: Boolean,
-    hasAssessment: Boolean,
-    hasSchedule: Boolean,
-    hasResources: Boolean,
-    missingParts: [String]
-  },
-  analysis: {
-    templateCompliance: {
-      missingElements: [String],
-      recommendations: [String]
+  { _id: false }
+);
+
+const submissionSchema = new mongoose.Schema(
+  {
+    submittedAt: Date,
+    submittedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
     },
-    learningObjectivesAlignment: {
-      alignedObjectives: [String],
-      missingObjectives: [String],
-      recommendations: [String]
-    },
-    studentClusterAnalysis: {
-      dominantClusters: [{
-        cluster: String,
-        percentage: Number,
-        recommendations: [String]
-      }],
-      suggestedCases: [{
-        company: String,
-        cluster: String,
-        description: String,
-        relevance: Number
-  }],
-  adaptationRecommendations: [String]
-    },
-    plagiarismCheck: {
-      similarSyllabi: [{
-        syllabusId: mongoose.Schema.Types.ObjectId,
-        similarity: Number,
-        instructor: String,
-        course: String,
-        year: Number
-      }],
-      riskLevel: {
-        type: String,
-        enum: ['none', 'low', 'medium', 'high', 'unknown']
-      }
+    academicDirectorEmail: String,
+    reportText: String,
   },
-  // Optional survey insights snapshot used for grouped recommendations
-  surveyInsights: mongoose.Schema.Types.Mixed
-  },
-  recommendations: [{
-    id: {
+  { _id: false }
+);
+
+const syllabusSchema = new mongoose.Schema(
+  {
+    title: {
       type: String,
-      required: true
+      required: true,
+      trim: true,
     },
-    category: {
+    program: {
       type: String,
-      enum: [
-        // Legacy categories (backward compatibility)
-        'structure', 'content', 'objectives', 'assessment', 'cases', 'methods', 'plagiarism',
-        // New v2.0.0 categories
-        'template-compliance', 'learning-objectives', 'content-quality', 'student-clusters', 'policy', 'other',
-        // AI Challenger category
-        'practicality'
-      ],
-      required: true
+      enum: ['MBA', 'EMBA', 'Corporate', 'Intensive'],
+      default: 'MBA',
+      required: true,
     },
-  // UI grouping tag (UA labels) — NOT enforced enum to allow future expansion
-  groupTag: { type: String }, // e.g. "Відповідність до шаблону"
-    title: String,
-    description: String,
-    priority: {
-      type: String,
-      enum: ['low', 'medium', 'high', 'critical'],
-      default: 'medium'
+    course: {
+      code: String,
+      name: String,
+      credits: Number,
+      semester: String,
+      year: Number,
     },
-    status: {
-      type: String,
-      enum: ['pending', 'accepted', 'rejected'],
-      default: 'pending'
+    instructor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
     },
-    createdAt: {
-      type: Date,
-      default: Date.now
-    },
-    respondedAt: Date
-  }],
-  practicalChallenge: {
-    initialQuestion: String,
-    instructorResponse: String,
-    discussion: [{
-      instructorResponse: String,
-      aiResponse: String,
-      respondedAt: { type: Date, default: Date.now }
-    }],
-    aiSuggestions: [{
-      title: String,
-      suggestion: String,
-      category: String, // e.g., 'case-study', 'group-activity', 'interactive-method'
-      priority: {
-        type: String,
-        enum: ['low', 'medium', 'high', 'critical'],
-        default: 'medium'
+    originalFile: {
+      filename: String,
+      originalName: String,
+      mimetype: String,
+      size: Number,
+      path: String,
+      uploadedAt: {
+        type: Date,
+        default: Date.now,
       },
-      createdAt: { type: Date, default: Date.now }
-    }],
-    practicalityScore: {
-      type: Number,
-      min: 0,
-      max: 100
     },
-    practicalityCritique: String,
+    extractedText: {
+      type: String,
+      required: true,
+    },
+    analysis: {
+      templateCompliance: {
+        missingElements: [String],
+      },
+      learningObjectivesAlignment: {
+        alignedObjectives: [String],
+        missingObjectives: [String],
+      },
+      summary: {
+        criticalIssues: { type: Number, default: 0 },
+        improvements: { type: Number, default: 0 },
+      },
+    },
+    recommendations: [
+      {
+        id: { type: String, required: true },
+        category: String,
+        groupTag: String,
+        title: String,
+        description: String,
+        priority: String,
+        status: {
+          type: String,
+          enum: ['pending', 'accepted', 'rejected'],
+          default: 'pending',
+        },
+        suggestedText: String,
+        createdAt: { type: Date, default: Date.now },
+        respondedAt: Date,
+      },
+    ],
+    workflow: {
+      messages: [workflowMessageSchema],
+      issues: [workflowIssueSchema],
+      activeIssueId: String,
+      readiness: workflowReadinessSchema,
+      finalPdf: finalPdfSchema,
+      submission: submissionSchema,
+    },
+    workspaceStatus: {
+      type: String,
+      enum: ['Draft', 'In Progress', 'Submitted'],
+      default: 'Draft',
+    },
     status: {
       type: String,
-      enum: ['pending', 'in-progress', 'completed'],
-      default: 'pending'
-    }
+      enum: ['processing', 'analyzed', 'error'],
+      default: 'processing',
+    },
+    version: {
+      type: Number,
+      default: 1,
+    },
   },
-  vectorEmbedding: [Number], // For similarity comparison
-  editingStatus: {
-    type: String,
-    enum: ['idle', 'processing', 'ready', 'error'],
-    default: 'idle'
-  },
-  editingError: {
-    type: String
-  },
-  status: {
-    type: String,
-    enum: ['processing', 'analyzed', 'reviewed', 'approved', 'error'],
-    default: 'processing'
-  },
-  version: {
-    type: Number,
-    default: 1
+  {
+    timestamps: true,
   }
-}, {
-  timestamps: true
-});
+);
 
-// Indexes for performance
 syllabusSchema.index({ instructor: 1, createdAt: -1 });
-syllabusSchema.index({ 'course.code': 1, 'course.year': 1 });
-syllabusSchema.index({ status: 1 });
-// Removed uniquenessScore index (numeric scoring deprecated)
+syllabusSchema.index({ status: 1, workspaceStatus: 1, program: 1 });
 
-// Method to calculate overall quality score
-// Deprecated: quality score removed per new simplified spec (no percentage scoring)
-syllabusSchema.methods.calculateQualityScore = function() { return 0; };
-
-// Helper to remove associated files from disk
-syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
+syllabusSchema.methods.cleanupFiles = async function cleanupFiles(fsPromises) {
   const fs = fsPromises || require('fs').promises;
-  const tryUnlink = async (p) => {
-    if (!p) return;
-    try { await fs.unlink(p); } catch (e) { /* ignore */ }
+  const tryUnlink = async (filePath) => {
+    if (!filePath) return;
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      // ignore cleanup errors
+    }
   };
-  try {
-    await tryUnlink(this.originalFile?.path);
-    await tryUnlink(this.editedPdf?.path);
-    await tryUnlink(this.modifiedFile?.path);
-  } catch (e) {
-    // swallow errors; cleanup is best-effort
-  }
+
+  await tryUnlink(this.originalFile?.path);
+  await tryUnlink(this.workflow?.finalPdf?.path);
 };
 
-// Static helper to cleanup multiple syllabi files by filter
-syllabusSchema.statics.cleanupFilesByFilter = async function(filter = {}) {
-  const fs = require('fs').promises;
-  const docs = await this.find(filter).select('originalFile.path editedPdf.path modifiedFile.path');
-  for (const doc of docs) {
-    await doc.cleanupFiles(fs);
-  }
+syllabusSchema.methods.calculateQualityScore = function calculateQualityScore() {
+  return this.workflow?.readiness?.pct || 0;
 };
 
 module.exports = mongoose.model('Syllabus', syllabusSchema);

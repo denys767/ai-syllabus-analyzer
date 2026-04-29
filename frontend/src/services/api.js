@@ -110,9 +110,10 @@ class ApiService {
 
   // Syllabus endpoints
   syllabus = {
-    upload: (formData) =>
+    upload: (formData, config = {}) =>
       this.client.post('/syllabus/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        ...config,
       }),
     
     getAll: (params = {}) =>
@@ -126,21 +127,30 @@ class ApiService {
     
     getSyllabusStatus: (id) =>
       this.client.get(`/syllabus/${id}/status`),
-    
-    updateRecommendation: (syllabusId, recommendationId, data) =>
-      this.client.put(`/syllabus/${syllabusId}/recommendations/${recommendationId}`, data),
-    
+
+    sendChatMessage: (id, message) =>
+      this.client.post(`/syllabus/${id}/chat`, { message }),
+
+    confirmIssue: (id, issueId, note = '') =>
+      this.client.post(`/syllabus/${id}/issues/${issueId}/confirm`, { note }),
+
+    cancelIssue: (id, issueId, note = '') =>
+      this.client.post(`/syllabus/${id}/issues/${issueId}/cancel`, { note }),
+
+    applyChoice: (id, issueId, optionId, customNote = '') =>
+      this.client.post(`/syllabus/${id}/issues/${issueId}/apply-choice`, { optionId, customNote }),
+
+    addCaseCard: (id, issueId, cardId, preview = false) =>
+      this.client.post(`/syllabus/${id}/issues/${issueId}/add-case`, { cardId, preview }),
+
+    previewFinal: (id) =>
+      this.client.get(`/syllabus/${id}/preview`, { responseType: 'blob' }),
+
+    submitFinal: (id) =>
+      this.client.post(`/syllabus/${id}/submit`),
+
     deleteSyllabus: (id) =>
       this.client.delete(`/syllabus/${id}`),
-
-    requestDiffPdf: (id) =>
-      this.client.post(`/syllabus/${id}/generate-diff-pdf`),
-
-    getEditingStatus: (id) =>
-      this.client.get(`/syllabus/${id}/editing-status`),
-
-    downloadEditedPdf: (id) =>
-      this.client.get(`/syllabus/${id}/download-edited-pdf`, { responseType: 'blob' }),
   };
 
   // Survey endpoints
@@ -169,14 +179,8 @@ class ApiService {
 
   // AI endpoints
   ai = {
-    challenge: (data) =>
-      this.client.post('/ai/challenge', data),
-    
-    generateCases: (data) =>
-      this.client.post('/ai/generate-cases', data),
-    
-    getTeachingMethods: (data) =>
-      this.client.post('/ai/teaching-methods', data),
+    unavailable: () =>
+      this.client.get('/ai/unavailable'),
   };
 
   // Reports endpoints
@@ -239,25 +243,25 @@ class ApiService {
   admin = {
     getUsers: (params = {}) =>
       this.client.get('/admin/users', { params }),
-    
-    getUser: (id) =>
-      this.client.get(`/admin/users/${id}`),
-    
+
     updateUser: (id, data) =>
       this.client.put(`/admin/users/${id}`, data),
     
     deleteUser: (id) =>
       this.client.delete(`/admin/users/${id}`),
-    
-    bulkUserAction: (data) =>
-      this.client.post('/admin/users/bulk-action', data),
-    
-    getStatistics: (params = {}) =>
-      this.client.get('/admin/statistics', { params }),
-    
-    getAuditLogs: (params = {}) =>
-      this.client.get('/admin/audit-logs', { params }),
-    
+
+    createUser: (data) =>
+      this.client.post('/admin/users', data),
+
+    getSyllabi: (params = {}) =>
+      this.client.get('/admin/syllabi', { params }),
+
+    getConfig: () =>
+      this.client.get('/admin/config'),
+
+    updateConfig: (data) =>
+      this.client.put('/admin/config', data),
+
     getSystemHealth: () =>
       this.client.get('/admin/health'),
   };

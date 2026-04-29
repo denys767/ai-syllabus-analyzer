@@ -1,16 +1,5 @@
 import React from 'react';
-import {
-  Toolbar,
-  Typography,
-  IconButton,
-  Box,
-  Avatar,
-  Menu,
-  MenuItem,
-  Divider,
-  Badge,
-  Tooltip,
-} from '@mui/material';
+import { Toolbar, Typography, IconButton, Box, Avatar, Menu, MenuItem, Divider } from '@mui/material';
 import {
   Menu as MenuIcon,
   AccountCircle,
@@ -87,7 +76,7 @@ const Header = ({ onMenuClick, drawerOpen }) => {
           color: 'text.primary'
         }}
       >
-        AI Syllabus Analyzer
+        Professor&apos;s Tutor
       </Typography>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

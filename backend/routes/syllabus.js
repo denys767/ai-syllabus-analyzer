@@ -3,44 +3,93 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
 const pdfParseLib = require('pdf-parse');
-const legacyPdfParse = typeof pdfParseLib === 'function'
-  ? pdfParseLib
-  : typeof pdfParseLib?.default === 'function'
-    ? pdfParseLib.default
-    : null;
-const PdfParseClass = pdfParseLib?.PDFParse || pdfParseLib?.default?.PDFParse;
 const mammoth = require('mammoth');
 const { body, validationResult } = require('express-validator');
 
 const Syllabus = require('../models/Syllabus');
-const { auth, authorize, requireVerification } = require('../middleware/auth');
+const AppConfig = require('../models/AppConfig');
+const { auth } = require('../middleware/auth');
 const aiService = require('../services/aiService');
-const { admin } = require('../middleware/roles');
+const { sendSyllabusSubmissionEmail } = require('../services/emailService');
+const {
+  PROGRAMS,
+  buildAssistantChatMessage,
+  buildUserMessage,
+  buildWorkspacePayload,
+  buildWorkspaceSummary,
+  cancelIssue,
+  confirmIssue,
+  ensureWorkflow,
+  markWorkflowDirty,
+} = require('../services/workflowService');
 
 const router = express.Router();
 
-// Helpers
+const legacyPdfParse =
+  typeof pdfParseLib === 'function'
+    ? pdfParseLib
+    : typeof pdfParseLib?.default === 'function'
+      ? pdfParseLib.default
+      : null;
+const PdfParseClass = pdfParseLib?.PDFParse || pdfParseLib?.default?.PDFParse;
+
 function getOwnerId(syllabus) {
-  const inst = syllabus && syllabus.instructor;
-  if (!inst) return null;
-  if (typeof inst === 'object' && inst !== null && inst._id) {
-    return inst._id.toString();
+  const instructor = syllabus?.instructor;
+  if (!instructor) return null;
+  if (typeof instructor === 'object' && instructor !== null && instructor._id) {
+    return instructor._id.toString();
   }
-  try {
-    return inst.toString();
-  } catch {
-    return null;
-  }
+  return instructor.toString();
 }
 
 function isOwnerOrRole(user, syllabus, allowedRoles = ['admin', 'manager']) {
   const ownerId = getOwnerId(syllabus);
-  const isOwner = !!ownerId && ownerId === user.userId;
-  const hasRole = allowedRoles.includes(user.role);
-  return isOwner || hasRole;
+  return ownerId === user.userId || allowedRoles.includes(user.role);
 }
 
-// Configure multer for file uploads
+function getIssue(workflow, issueId) {
+  return workflow.issues.find((candidate) => candidate.id === issueId);
+}
+
+function ensureIssue(workflow, issueId) {
+  const issue = getIssue(workflow, issueId);
+  if (!issue) {
+    const error = new Error('Issue not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  return issue;
+}
+
+function buildSubmissionReport(syllabus) {
+  const workflow = ensureWorkflow(syllabus);
+  const criticalIssues = workflow.issues.filter((issue) => issue.required || issue.severity === 'critical');
+  const confirmed = criticalIssues.filter((issue) => issue.decision === 'confirmed');
+  const declined = criticalIssues.filter((issue) => issue.decision === 'cancelled');
+  const open = criticalIssues.filter((issue) => issue.state === 'open');
+
+  return [
+    `Syllabus: ${syllabus.title}`,
+    `Program: ${syllabus.program}`,
+    '',
+    `Critical items found: ${criticalIssues.length}`,
+    `Confirmed: ${confirmed.length}`,
+    `Declined: ${declined.length}`,
+    `Still open: ${open.length}`,
+    '',
+    'Confirmed items:',
+    ...confirmed.map((issue) => `- ${issue.title}`),
+    '',
+    'Declined items:',
+    ...(declined.length ? declined.map((issue) => `- ${issue.title}`) : ['- None']),
+  ].join('\n');
+}
+
+async function getAcademicDirectorEmail() {
+  const config = await AppConfig.findOne({ key: 'main' });
+  return config?.academicDirectorEmail || process.env.ACADEMIC_DIRECTOR_EMAIL || process.env.ADMIN_EMAIL || '';
+}
+
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
     const uploadDir = path.join(__dirname, '../uploads/syllabi');
@@ -52,793 +101,467 @@ const storage = multer.diskStorage({
     }
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
+  },
 });
 
 const upload = multer({
-  storage: storage,
+  storage,
   limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10485760, // 10MB default
+    fileSize: parseInt(process.env.MAX_FILE_SIZE || '10485760', 10),
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['.pdf', '.docx', '.doc'];
     const fileExt = path.extname(file.originalname).toLowerCase();
-    
     if (allowedTypes.includes(fileExt)) {
       cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only PDF and DOCX files are allowed.'));
+      return;
     }
-  }
+    cb(new Error('Invalid file type. Only PDF and DOCX files are allowed.'));
+  },
 });
 
-// Extract text from uploaded file
 async function extractTextFromFile(filePath, mimetype) {
-  try {
   if (mimetype === 'application/pdf') {
-      const dataBuffer = await fs.readFile(filePath);
-      if (typeof legacyPdfParse === 'function') {
-        const data = await legacyPdfParse(dataBuffer);
-        return data.text;
-      }
-      if (typeof PdfParseClass === 'function') {
-        const parser = new PdfParseClass({ data: dataBuffer });
-        try {
-          const result = await parser.getText();
-          return result?.text || '';
-        } finally {
-          if (typeof parser.destroy === 'function') {
-            await parser.destroy().catch(() => {});
-          }
+    const buffer = await fs.readFile(filePath);
+    if (typeof legacyPdfParse === 'function') {
+      const parsed = await legacyPdfParse(buffer);
+      return parsed.text;
+    }
+    if (typeof PdfParseClass === 'function') {
+      const parser = new PdfParseClass({ data: buffer });
+      try {
+        const result = await parser.getText();
+        return result?.text || '';
+      } finally {
+        if (typeof parser.destroy === 'function') {
+          await parser.destroy().catch(() => {});
         }
       }
-      throw new Error('PDF parser is unavailable');
-  } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || mimetype === 'application/msword') {
-      const result = await mammoth.extractRawText({ path: filePath });
-      return result.value;
-    } else {
-      throw new Error('Unsupported file type');
     }
-  } catch (error) {
-    console.error('Text extraction error:', error);
-    throw new Error('Failed to extract text from file');
+    throw new Error('PDF parser unavailable');
   }
+
+  if (
+    mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    mimetype === 'application/msword'
+  ) {
+    const result = await mammoth.extractRawText({ path: filePath });
+    return result.value;
+  }
+
+  throw new Error('Unsupported file type');
 }
 
-// Upload and analyze syllabus
-router.post('/upload', auth, /* requireVerification, */ upload.single('syllabus'), [
-  body('courseName')
-    .trim()
-    .notEmpty()
-    .withMessage('Syllabus title is required'),
-  body('courseCode')
-    .optional()
-    .trim(),
-  body('credits')
-    .optional()
-    .isInt({ min: 1, max: 10 })
-    .withMessage('Credits must be between 1 and 10'),
-  body('semester')
-    .optional()
-    .trim(),
-  body('year')
-    .optional()
-    .isInt({ min: 2020, max: 2030 })
-    .withMessage('Year must be between 2020 and 2030')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      // Clean up uploaded file if validation fails
+router.post(
+  '/upload',
+  auth,
+  upload.single('syllabus'),
+  [
+    body('courseName').trim().notEmpty().withMessage('Syllabus title is required'),
+    body('courseCode').optional().trim(),
+    body('program').isIn(PROGRAMS).withMessage(`Program must be one of: ${PROGRAMS.join(', ')}`),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        if (req.file) {
+          await fs.unlink(req.file.path).catch(() => {});
+        }
+        return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ message: 'Syllabus file is required' });
+      }
+
+      const extractedText = await extractTextFromFile(req.file.path, req.file.mimetype);
+      if (!extractedText.trim()) {
+        await fs.unlink(req.file.path).catch(() => {});
+        return res.status(400).json({ message: 'Could not extract text from the uploaded file' });
+      }
+
+      const syllabus = new Syllabus({
+        title: req.body.courseName,
+        program: req.body.program,
+        course: {
+          code: req.body.courseCode || '',
+          name: req.body.courseName,
+          year: new Date().getFullYear(),
+        },
+        instructor: req.user.userId,
+        originalFile: {
+          filename: req.file.filename,
+          originalName: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          path: req.file.path,
+        },
+        extractedText,
+        workflow: {
+          messages: [
+            {
+              id: `msg_${Date.now()}`,
+              role: 'assistant',
+              kind: 'greeting',
+              content:
+                "Hi! I'm here to help you build a syllabus that meets all KSE Graduate Business School standards. Upload your draft and I'll take it from there.",
+              createdAt: new Date(),
+            },
+          ],
+          issues: [],
+          readiness: {
+            pct: 0,
+            label: 'Needs work',
+            canSubmit: false,
+            openIssues: 0,
+            resolvedIssues: 0,
+            blocks: [],
+          },
+        },
+        status: 'processing',
+        workspaceStatus: 'Draft',
+      });
+
+      await syllabus.save();
+
+      setImmediate(async () => {
+        try {
+          await aiService.analyzeSyllabus(syllabus._id);
+        } catch (error) {
+          await Syllabus.findByIdAndUpdate(syllabus._id, { status: 'error' });
+          console.error('Syllabus analysis error:', error);
+        }
+      });
+
+      return res.status(201).json({
+        message: 'Syllabus uploaded successfully. Analysis is in progress.',
+        syllabus: buildWorkspaceSummary(syllabus),
+      });
+    } catch (error) {
       if (req.file) {
-        await fs.unlink(req.file.path).catch(console.error);
+        await fs.unlink(req.file.path).catch(() => {});
       }
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+      console.error('Upload error:', error);
+      return res.status(500).json({ message: 'Internal server error during file upload' });
     }
-
-    if (!req.file) {
-      return res.status(400).json({
-        message: 'Syllabus file is required'
-      });
-    }
-
-    const { courseName, courseCode, credits, semester, year } = req.body;
-
-    // Extract text from file
-    const extractedText = await extractTextFromFile(req.file.path, req.file.mimetype);
-
-    if (!extractedText || extractedText.trim().length === 0) {
-      await fs.unlink(req.file.path).catch(console.error);
-      return res.status(400).json({
-        message: 'Could not extract text from the uploaded file'
-      });
-    }
-
-    // Create syllabus record
-    const syllabus = new Syllabus({
-      title: courseName,
-      course: {
-        code: courseCode,
-        name: courseName,
-        credits: credits ? parseInt(credits) : undefined,
-        semester,
-        year: year ? parseInt(year) : new Date().getFullYear()
-      },
-      instructor: req.user.userId,
-      originalFile: {
-        filename: req.file.filename,
-        originalName: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size,
-        path: req.file.path
-      },
-      extractedText,
-      status: 'processing'
-    });
-
-    await syllabus.save();
-
-    // Start AI analysis in background
-    setImmediate(async () => {
-      try {
-        await aiService.analyzeSyllabus(syllabus._id);
-      } catch (error) {
-        console.error('AI analysis error for syllabus', syllabus._id, ':', error);
-        // Update status to indicate analysis failed
-        await Syllabus.findByIdAndUpdate(syllabus._id, { 
-          status: 'error',
-          'analysis.error': error.message 
-        });
-      }
-    });
-
-    res.status(201).json({
-      message: 'Syllabus uploaded successfully. Analysis is in progress.',
-      syllabusId: syllabus._id,
-      status: syllabus.status
-    });
-
-  } catch (error) {
-    // Clean up uploaded file on error
-    if (req.file) {
-      await fs.unlink(req.file.path).catch(console.error);
-    }
-
-    console.error('Syllabus upload error:', error);
-    
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        message: 'File too large. Maximum size is 10MB.'
-      });
-    }
-
-    res.status(500).json({
-      message: 'Internal server error during file upload',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
   }
-});
+);
 
-// Get all syllabi for current user
 router.get('/my-syllabi', auth, async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    const query = { instructor: req.user.userId };
-    
-    // Add status filter if provided
-    if (req.query.status) {
-      query.status = req.query.status;
-    }
-
-    const syllabi = await Syllabus.find(query)
-      .select('-extractedText -vectorEmbedding') // Exclude large fields
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
+    const syllabi = await Syllabus.find({ instructor: req.user.userId })
+      .sort({ updatedAt: -1 })
       .populate('instructor', 'firstName lastName email');
-
-    const total = await Syllabus.countDocuments(query);
-
-    res.json({
-      syllabi,
-      pagination: {
-        current: page,
-        pages: Math.ceil(total / limit),
-        total,
-        limit
-      }
-    });
-
+    const items = syllabi.map((syllabus) => buildWorkspaceSummary(syllabus));
+    return res.json({ syllabi: items });
   } catch (error) {
-    console.error('Get syllabi error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
+    console.error('Get my syllabi error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Get specific syllabus details
-router.get('/:id', auth, async (req, res) => {
-  try {
-    const syllabus = await Syllabus.findById(req.params.id)
-      .populate('instructor', 'firstName lastName email');
-
-    if (!syllabus) {
-      return res.status(404).json({
-        message: 'Syllabus not found'
-      });
-    }
-
-  // Check if user owns this syllabus or has admin/manager role
-  if (!isOwnerOrRole(req.user, syllabus)) {
-      return res.status(403).json({
-        message: 'Access denied. You can only view your own syllabi.'
-      });
-    }
-
-  // Return syllabus without legacy quality score metric
-  res.json(syllabus.toObject());
-
-  } catch (error) {
-    console.error('Get syllabus error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
-  }
-});
-
-// Update recommendation status
-router.put('/:id/recommendations/:recommendationId', auth, [
-  body('status')
-    .isIn(['accepted', 'rejected', 'pending'])
-    .withMessage('Status must be accepted, rejected, or pending')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const { status } = req.body;
-    const { id: syllabusId, recommendationId } = req.params;
-
-    const syllabus = await Syllabus.findById(syllabusId);
-    
-    if (!syllabus) {
-      return res.status(404).json({
-        message: 'Syllabus not found'
-      });
-    }
-
-    // Check ownership
-    if (syllabus.instructor.toString() !== req.user.userId) {
-      return res.status(403).json({
-        message: 'Access denied. You can only update your own syllabi.'
-      });
-    }
-
-    // Find and update the recommendation (support legacy custom id field)
-    let recommendation = syllabus.recommendations.id(recommendationId);
-    if (!recommendation) {
-      recommendation = syllabus.recommendations.find(r => r.id === recommendationId);
-    }
-    if (!recommendation) {
-      return res.status(404).json({
-        message: 'Recommendation not found'
-      });
-    }
-
-    recommendation.status = status;
-    recommendation.respondedAt = new Date();
-    
-    await syllabus.save();
-
-    res.json({
-      message: 'Recommendation updated successfully',
-      recommendation
-    });
-
-  } catch (error) {
-    console.error('Update recommendation error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
-  }
-});
-
-// Get syllabus analysis status
 router.get('/:id/status', auth, async (req, res) => {
   try {
-    const syllabus = await Syllabus.findById(req.params.id)
-      .select('status analysis.error instructor')
-      .populate('instructor', '_id');
-
+    const syllabus = await Syllabus.findById(req.params.id);
     if (!syllabus) {
-      return res.status(404).json({
-        message: 'Syllabus not found'
-      });
+      return res.status(404).json({ message: 'Syllabus not found' });
+    }
+    if (!isOwnerOrRole(req.user, syllabus)) {
+      return res.status(403).json({ message: 'Access denied' });
     }
 
-  // Check ownership
-  if (!isOwnerOrRole(req.user, syllabus)) {
-      return res.status(403).json({
-        message: 'Access denied'
-      });
-    }
-
-    res.json({
+    ensureWorkflow(syllabus);
+    return res.json({
       status: syllabus.status,
-      error: syllabus.analysis?.error
+      workspaceStatus: syllabus.workspaceStatus,
+      readinessPct: syllabus.workflow.readiness?.pct || 0,
     });
-
   } catch (error) {
     console.error('Get status error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
+    return res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Delete syllabus
-router.delete('/:id', auth, async (req, res) => {
+router.get('/:id', auth, async (req, res) => {
   try {
-    const syllabus = await Syllabus.findById(req.params.id);
-    
+    const syllabus = await Syllabus.findById(req.params.id).populate('instructor', 'firstName lastName email');
     if (!syllabus) {
-      return res.status(404).json({
-        message: 'Syllabus not found'
-      });
+      return res.status(404).json({ message: 'Syllabus not found' });
+    }
+    if (!isOwnerOrRole(req.user, syllabus)) {
+      return res.status(403).json({ message: 'Access denied' });
     }
 
-  // Check ownership or admin privileges
-  if (!isOwnerOrRole(req.user, syllabus, ['admin', 'manager'])) {
-      return res.status(403).json({
-        message: 'Access denied. You can only delete your own syllabi.'
-      });
-    }
-
-    // Delete associated files from filesystem (best-effort)
-    try { await syllabus.cleanupFiles(); } catch (e) { /* ignore */ }
-
-    await Syllabus.findByIdAndDelete(req.params.id);
-
-    res.json({
-      message: 'Syllabus deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('Delete syllabus error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
-  }
-});
-
-// Update syllabus (basic metadata)
-router.put('/:id', auth, [
-  body('title')
-    .optional()
-    .trim()
-    .notEmpty()
-    .withMessage('Title cannot be empty'),
-  body('courseCode')
-    .optional()
-    .trim(),
-  body('courseName')
-    .optional()
-    .trim(),
-  body('credits')
-    .optional()
-    .isInt({ min: 1, max: 10 })
-    .withMessage('Credits must be between 1 and 10'),
-  body('semester')
-    .optional()
-    .trim(),
-  body('year')
-    .optional()
-    .isInt({ min: 2020, max: 2030 })
-    .withMessage('Year must be between 2020 and 2030')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
-
-    const syllabus = await Syllabus.findById(req.params.id);
-    
-    if (!syllabus) {
-      return res.status(404).json({
-        message: 'Syllabus not found'
-      });
-    }
-
-  // Check ownership
-  if (!isOwnerOrRole(req.user, syllabus, ['admin'])) {
-      return res.status(403).json({
-        message: 'Access denied. You can only edit your own syllabi.'
-      });
-    }
-
-    const { title, courseCode, courseName, credits, semester, year } = req.body;
-
-    // Update syllabus
-    if (title) syllabus.title = title;
-    if (courseCode !== undefined) syllabus.course.code = courseCode;
-    if (courseName !== undefined) syllabus.course.name = courseName;
-    if (credits !== undefined) syllabus.course.credits = parseInt(credits);
-    if (semester !== undefined) syllabus.course.semester = semester;
-    if (year !== undefined) syllabus.course.year = parseInt(year);
-
+    ensureWorkflow(syllabus);
     await syllabus.save();
-
-    res.json({
-      message: 'Syllabus updated successfully',
-      syllabus
-    });
-
+    return res.json(buildWorkspacePayload(syllabus));
   } catch (error) {
-    console.error('Update syllabus error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
+    console.error('Get syllabus error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Trigger AI analysis
-router.post('/:id/analyze', auth, async (req, res) => {
-  try {
-    const syllabus = await Syllabus.findById(req.params.id);
-    
-    if (!syllabus) {
-      return res.status(404).json({
-        message: 'Syllabus not found'
-      });
-    }
-
-  // Check ownership
-  if (!isOwnerOrRole(req.user, syllabus)) {
-      return res.status(403).json({
-        message: 'Access denied'
-      });
-    }
-
-    // Update status to processing
-    syllabus.status = 'processing';
-    await syllabus.save();
-
-    // Start AI analysis in background
-    setImmediate(async () => {
-      try {
-        await aiService.analyzeSyllabus(syllabus._id);
-      } catch (error) {
-        console.error('AI analysis error for syllabus', syllabus._id, ':', error);
-        await Syllabus.findByIdAndUpdate(syllabus._id, { 
-          status: 'error',
-          'analysis.error': error.message 
-        });
-      }
-    });
-
-    res.json({
-      message: 'Analysis started successfully',
-      status: 'processing'
-    });
-
-  } catch (error) {
-    console.error('Start analysis error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
-  }
-});
-
-// Start LLM-powered PDF diff generation
-router.post('/:id/generate-diff-pdf', auth, async (req, res) => {
-  try {
-    const syllabus = await Syllabus.findById(req.params.id);
-    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
-    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
-
-    const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
-    if (!accepted.length) {
-      return res.status(400).json({ message: 'Спочатку прийміть принаймні одну рекомендацію' });
-    }
-
-    if (syllabus.editingStatus === 'processing') {
-      return res.status(409).json({ message: 'Генерація вже триває' });
-    }
-
-    syllabus.editingStatus = 'processing';
-    syllabus.editingError = undefined;
-    await syllabus.save();
-
-    setImmediate(async () => {
-      try {
-        await aiService.generateDiffPdf(syllabus._id);
-      } catch (err) {
-        console.error('Diff PDF generation error:', err);
-      }
-    });
-
-    return res.status(202).json({
-      message: 'Генерацію PDF розпочато',
-      status: syllabus.editingStatus
-    });
-  } catch (error) {
-    console.error('Start diff PDF error:', error);
-    return res.status(500).json({ message: 'Не вдалося розпочати генерацію PDF' });
-  }
-});
-
-// Poll current editing status
-router.get('/:id/editing-status', auth, async (req, res) => {
-  try {
-    const syllabus = await Syllabus.findById(req.params.id).select('editingStatus editingError editedPdf instructor title course');
-    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
-    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
-
-    const { editingStatus, editingError, editedPdf } = syllabus;
-    return res.json({
-      status: editingStatus,
-      error: editingError,
-      editedPdf: editedPdf ? {
-        filename: editedPdf.originalName,
-        generatedAt: editedPdf.generatedAt,
-        size: editedPdf.size
-      } : null
-    });
-  } catch (error) {
-    console.error('Get editing status error:', error);
-    return res.status(500).json({ message: 'Не вдалося отримати статус редагування' });
-  }
-});
-
-// Download generated PDF diff
-router.get('/:id/download-edited-pdf', auth, async (req, res) => {
-  try {
-    const syllabus = await Syllabus.findById(req.params.id);
-    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
-    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
-
-    if (!syllabus.editedPdf?.path || syllabus.editingStatus !== 'ready') {
-      return res.status(400).json({ message: 'PDF ще не згенеровано' });
-    }
-
+router.post(
+  '/:id/chat',
+  auth,
+  [body('message').trim().notEmpty().withMessage('Message is required')],
+  async (req, res) => {
     try {
-      await fs.access(syllabus.editedPdf.path);
-    } catch {
-      return res.status(404).json({ message: 'Файл PDF не знайдено' });
-    }
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+      }
 
-    res.download(syllabus.editedPdf.path, syllabus.editedPdf.originalName || 'syllabus-diff.pdf');
+      const syllabus = await Syllabus.findById(req.params.id);
+      if (!syllabus) {
+        return res.status(404).json({ message: 'Syllabus not found' });
+      }
+      if (!isOwnerOrRole(req.user, syllabus)) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+
+      const workflow = ensureWorkflow(syllabus);
+      workflow.messages.push(buildUserMessage(req.body.message));
+      const reply = await aiService.generateChatReply(syllabus._id, req.body.message);
+      workflow.messages.push(buildAssistantChatMessage(reply));
+      syllabus.workflow = workflow;
+      await syllabus.save();
+
+      return res.json(buildWorkspacePayload(syllabus));
+    } catch (error) {
+      console.error('Chat error:', error);
+      return res.status(500).json({ message: 'Internal server error' });
+    }
+  }
+);
+
+router.post('/:id/issues/:issueId/confirm', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id);
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+    const workflow = ensureWorkflow(syllabus);
+    const issue = ensureIssue(workflow, req.params.issueId);
+    confirmIssue(workflow, issue, req.body.note || '');
+    syllabus.workflow = workflow;
+    syllabus.workspaceStatus = workflow.readiness.canSubmit ? 'In Progress' : 'Draft';
+    await syllabus.save();
+    return res.json(buildWorkspacePayload(syllabus));
   } catch (error) {
-    console.error('Download edited pdf error:', error);
-    return res.status(500).json({ message: 'Не вдалося завантажити PDF' });
+    console.error('Confirm issue error:', error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
 });
 
-// Download syllabus file
+router.post('/:id/issues/:issueId/cancel', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id);
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+    const workflow = ensureWorkflow(syllabus);
+    const issue = ensureIssue(workflow, req.params.issueId);
+    cancelIssue(workflow, issue, req.body.note || '');
+    syllabus.workflow = workflow;
+    syllabus.workspaceStatus = workflow.readiness.canSubmit ? 'In Progress' : 'Draft';
+    await syllabus.save();
+    return res.json(buildWorkspacePayload(syllabus));
+  } catch (error) {
+    console.error('Cancel issue error:', error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
+  }
+});
+
+router.post(
+  '/:id/issues/:issueId/apply-choice',
+  auth,
+  [body('optionId').trim().notEmpty().withMessage('optionId is required')],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+      }
+
+      const syllabus = await Syllabus.findById(req.params.id);
+      if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+      if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+      const workflow = ensureWorkflow(syllabus);
+      const issue = ensureIssue(workflow, req.params.issueId);
+      if (issue.kind !== 'choice' || !issue.choice) {
+        return res.status(400).json({ message: 'Issue does not support structured choices' });
+      }
+
+      const option = issue.choice.options.find((candidate) => candidate.id === req.body.optionId);
+      if (!option) {
+        return res.status(404).json({ message: 'Option not found' });
+      }
+
+      issue.choice.selectedOptionId = option.id;
+      issue.choice.customNote = req.body.customNote || '';
+      issue.choice.appliedText = issue.choice.customNote
+        ? `${option.text}\n\nInstructor note: ${issue.choice.customNote}`
+        : option.text;
+      issue.afterText = issue.choice.appliedText;
+      issue.updatedAt = new Date();
+      markWorkflowDirty(workflow);
+      syllabus.workflow = workflow;
+      await syllabus.save();
+      return res.json(buildWorkspacePayload(syllabus));
+    } catch (error) {
+      console.error('Apply choice error:', error);
+      return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
+    }
+  }
+);
+
+router.post(
+  '/:id/issues/:issueId/add-case',
+  auth,
+  [body('cardId').trim().notEmpty().withMessage('cardId is required')],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ message: 'Validation failed', errors: errors.array() });
+      }
+
+      const syllabus = await Syllabus.findById(req.params.id);
+      if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+      if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+      const workflow = ensureWorkflow(syllabus);
+      const issue = ensureIssue(workflow, req.params.issueId);
+      if (issue.kind !== 'case_recommendation' || !issue.caseRecommendation) {
+        return res.status(400).json({ message: 'Issue does not support case cards' });
+      }
+
+      const card = issue.caseRecommendation.cards.find((candidate) => candidate.id === req.body.cardId);
+      if (!card) {
+        return res.status(404).json({ message: 'Case card not found' });
+      }
+
+      const selectedSet = new Set(issue.caseRecommendation.selectedCardIds || []);
+      selectedSet.add(card.id);
+      issue.caseRecommendation.selectedCardIds = Array.from(selectedSet);
+      issue.caseRecommendation.previewCardId = req.body.preview ? card.id : issue.caseRecommendation.previewCardId;
+      issue.afterText = issue.caseRecommendation.cards
+        .filter((candidate) => issue.caseRecommendation.selectedCardIds.includes(candidate.id))
+        .map((candidate) => candidate.afterText)
+        .join('\n\n');
+      issue.updatedAt = new Date();
+      markWorkflowDirty(workflow);
+      syllabus.workflow = workflow;
+      await syllabus.save();
+      return res.json(buildWorkspacePayload(syllabus));
+    } catch (error) {
+      console.error('Add case error:', error);
+      return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
+    }
+  }
+);
+
+router.get('/:id/preview', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id);
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+    const workflow = ensureWorkflow(syllabus);
+    if (!workflow.finalPdf?.path) {
+      await aiService.generateFinalPdf(syllabus._id);
+    }
+
+    const freshSyllabus = await Syllabus.findById(req.params.id);
+    const finalPdf = freshSyllabus.workflow?.finalPdf;
+    if (!finalPdf?.path) {
+      return res.status(500).json({ message: 'Preview generation failed' });
+    }
+
+    res.setHeader('Content-Type', finalPdf.mimetype || 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${finalPdf.originalName || 'final-syllabus.pdf'}"`);
+    return res.sendFile(path.resolve(finalPdf.path));
+  } catch (error) {
+    console.error('Preview error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+router.post('/:id/submit', auth, async (req, res) => {
+  try {
+    const syllabus = await Syllabus.findById(req.params.id);
+    if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
+    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
+
+    const workflow = ensureWorkflow(syllabus);
+    if (!workflow.readiness.canSubmit) {
+      return res.status(400).json({ message: 'Resolve all required issues before submission' });
+    }
+
+    if (!workflow.finalPdf?.path) {
+      await aiService.generateFinalPdf(syllabus._id);
+    }
+
+    const freshSyllabus = await Syllabus.findById(req.params.id);
+    const finalPdf = freshSyllabus.workflow?.finalPdf;
+    const academicDirectorEmail = await getAcademicDirectorEmail();
+    if (!academicDirectorEmail) {
+      return res.status(400).json({ message: 'Academic Director email is not configured' });
+    }
+
+    const reportText = buildSubmissionReport(freshSyllabus);
+    await sendSyllabusSubmissionEmail({
+      to: academicDirectorEmail,
+      syllabusTitle: freshSyllabus.title,
+      reportText,
+      pdfPath: finalPdf?.path,
+      pdfFilename: finalPdf?.originalName,
+    });
+
+    freshSyllabus.workflow.submission = {
+      submittedAt: new Date(),
+      submittedBy: req.user.userId,
+      academicDirectorEmail,
+      reportText,
+    };
+    freshSyllabus.workspaceStatus = 'Submitted';
+    await freshSyllabus.save();
+
+    return res.json(buildWorkspacePayload(freshSyllabus));
+  } catch (error) {
+    console.error('Submit error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 router.get('/:id/download', auth, async (req, res) => {
   try {
     const syllabus = await Syllabus.findById(req.params.id);
-    
-    if (!syllabus) {
-      return res.status(404).json({
-        message: 'Syllabus not found'
-      });
-    }
-
-  // Check ownership or admin/manager privileges
-  if (!isOwnerOrRole(req.user, syllabus)) {
-      return res.status(403).json({
-        message: 'Access denied'
-      });
-    }
-
-    const filePath = syllabus.originalFile.path;
-    
-    // Check if file exists
-    try {
-      await fs.access(filePath);
-    } catch (error) {
-      return res.status(404).json({
-        message: 'File not found on server'
-      });
-    }
-
-    res.download(filePath, syllabus.originalFile.originalName);
-
-  } catch (error) {
-    console.error('Download syllabus error:', error);
-    res.status(500).json({
-      message: 'Internal server error'
-    });
-  }
-});
-
-// Download modified syllabus (DOCX with inline comment markers) – generates once then caches metadata
-router.get('/:id/download-modified', auth, async (req, res) => {
-  try {
-    const syllabus = await Syllabus.findById(req.params.id);
-    if (!syllabus) return res.status(404).json({ message: 'Силабус не знайдено' });
-    if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Доступ заборонено' });
-
-    // Regenerate fresh TXT with inline angle-bracket comments: "...оригінальний текст... <КОМЕНТАР>"
-    const accepted = (syllabus.recommendations || []).filter(r => r.status === 'accepted');
-    const original = (syllabus.extractedText || '').trim();
-    const lines = original.split(/\n+/);
-    const keywordMap = {
-      structure: [/objective|ціл[ії]/i, /assessment|оцінюв/i, /schedule|розклад/i],
-      objectives: [/objective|ціл[ії]/i],
-      assessment: [/assessment|оцінюв/i],
-      cases: [/case|кейс|приклад/i],
-      methods: [/method|метод|активн|interactive|інтерактив/i],
-      content: [/course|module|модул/i]
-    };
-    const used = new Set();
-    function buildComment(rec, idx){
-      const base = `${rec.title || 'Рекомендація'}: ${(rec.description||'').replace(/\s+/g,' ').slice(0,220)}`;
-      return `<${idx+1}. ${base}>`;
-    }
-    const annotated = lines.map(line => {
-      let appended = line;
-      accepted.forEach((rec, i) => {
-        if (used.has(i)) return;
-        const pats = keywordMap[rec.category] || [];
-        if (pats.some(r => r.test(line))) {
-          appended = line + ' ' + buildComment(rec, i);
-          used.add(i);
-        }
-      });
-      return appended;
-    });
-    // Append any remaining accepted recs at end in a dedicated section
-    const remaining = accepted.filter((_, i) => !used.has(i));
-    if (remaining.length) {
-      annotated.push('', '=== ДОДАНІ КОМЕНТАРІ БЕЗ ПРИВ\'ЯЗКИ ДО РЯДКА ===');
-      remaining.forEach((rec, i) => {
-        const globalIndex = accepted.indexOf(rec);
-        annotated.push(buildComment(rec, globalIndex));
-      });
-    }
-    if (!accepted.length) {
-      annotated.push('', '<Немає прийнятих рекомендацій — змін не внесено>');
-    }
-    const merged = annotated.join('\n');
-    const outDir = require('path').join(__dirname, '../uploads/syllabi');
-    await fs.mkdir(outDir, { recursive: true });
-    const base = (syllabus.originalFile?.originalName || syllabus.title || 'syllabus').replace(/\.[^.]+$/, '');
-    const filename = `${base}-modified-${Date.now()}.txt`;
-    const fullPath = require('path').join(outDir, filename);
-    await fs.writeFile(fullPath, merged, 'utf8');
-    syllabus.modifiedFile = {
-      filename,
-      originalName: filename,
-      path: fullPath,
-      size: Buffer.byteLength(merged, 'utf8'),
-      generatedAt: new Date(),
-      mimetype: 'text/plain'
-    };
-    await syllabus.save();
-    return res.download(fullPath, filename);
-  } catch (error) {
-    console.error('Download modified syllabus error:', error);
-    res.status(500).json({ message: 'Внутрішня помилка сервера' });
-  }
-});
-
-// Direct download of edited plain text (uses editedText if exists, else fallback to generate on the fly without persisting)
-router.get('/:id/download-edited-txt', auth, async (req, res) => {
-  try {
-    const syllabus = await Syllabus.findById(req.params.id);
     if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
     if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
-    if (!syllabus.editedText) {
-      return res.status(400).json({ message: 'Edited text not generated yet' });
-    }
-    const base = (syllabus.originalFile?.originalName || syllabus.title || 'syllabus').replace(/\.[^.]+$/, '');
-    const filename = `${base}-edited.txt`;
-    res.setHeader('Content-Type','text/plain; charset=utf-8');
-    res.setHeader('Content-Disposition',`attachment; filename="${filename}"`);
-    return res.send(syllabus.editedText);
-  } catch (e) {
-    console.error('Download edited txt error:', e);
+    return res.download(syllabus.originalFile.path, syllabus.originalFile.originalName);
+  } catch (error) {
+    console.error('Download original error:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-// Generate editedText (inline comments) after accept/reject phase
-router.post('/:id/generate-edited-text', auth, async (req, res) => {
+router.delete('/:id', auth, async (req, res) => {
   try {
     const syllabus = await Syllabus.findById(req.params.id);
     if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
     if (!isOwnerOrRole(req.user, syllabus)) return res.status(403).json({ message: 'Access denied' });
-
-    const accepted = (syllabus.recommendations||[]).filter(r=> r.status==='accepted');
-    const original = (syllabus.extractedText||'').trim();
-    const lines = original.split(/\n+/);
-    const keywordMap = {
-      structure: [/objective|ціл[ії]/i, /assessment|оцінюв/i, /schedule|розклад/i],
-      objectives: [/objective|ціл[ії]/i],
-      assessment: [/assessment|оцінюв/i],
-      cases: [/case|кейс|приклад/i],
-      methods: [/method|метод|активн|interactive|інтерактив/i],
-      content: [/course|module|модул/i]
-    };
-    const used = new Set();
-    const buildComment = (rec, idx) => {
-      const changeText = (rec.description||'').replace(/\s+/g,' ').slice(0,240);
-      const recCore = `${rec.title || 'Рекомендація'} — ${changeText}`;
-      return `<${idx+1}. ${recCore}>`;
-    };
-    const annotated = lines.map(line => {
-      let out = line;
-      accepted.forEach((rec,i) => {
-        if (used.has(i)) return;
-        const pats = keywordMap[rec.category]||[];
-        if (pats.some(r=> r.test(line))) { out = line + ' ' + buildComment(rec,i); used.add(i); }
-      });
-      return out;
-    });
-    const remaining = accepted.filter((_,i)=> !used.has(i));
-    if (remaining.length) {
-      annotated.push('', '=== КОМЕНТАРІ БЕЗ ПРИВ\'ЯЗКИ ===');
-      remaining.forEach(r => annotated.push(buildComment(r, accepted.indexOf(r))));
-    }
-    if (!accepted.length) annotated.push('', '<Немає прийнятих рекомендацій – змін не внесено>');
-    syllabus.editedText = annotated.join('\n');
-    await syllabus.save();
-    return res.json({ message: 'Edited text generated', editedText: syllabus.editedText });
-  } catch (e) {
-    console.error('Generate edited text error:', e);
+    await syllabus.cleanupFiles();
+    await Syllabus.findByIdAndDelete(req.params.id);
+    return res.json({ message: 'Syllabus deleted successfully' });
+  } catch (error) {
+    console.error('Delete syllabus error:', error);
     return res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-// AI Challenge finalize endpoint removed during v2.0.0 refactoring
-// The AI Challenger feature has been removed to simplify the codebase
-
-// Admin: cleanup orphaned files under uploads/syllabi not referenced in DB
-router.post('/maintenance/cleanup-uploads', auth, admin, async (req, res) => {
-  try {
-    const dir = path.join(__dirname, '../uploads/syllabi');
-    let entries = [];
-    try { entries = await fs.readdir(dir); } catch { entries = []; }
-
-    // Collect all file paths referenced in DB
-    const docs = await Syllabus.find().select('originalFile.path editedPdf.path modifiedFile.path');
-    const referenced = new Set();
-    for (const d of docs) {
-      if (d.originalFile?.path) referenced.add(path.basename(d.originalFile.path));
-      if (d.editedPdf?.path) referenced.add(path.basename(d.editedPdf.path));
-      if (d.modifiedFile?.path) referenced.add(path.basename(d.modifiedFile.path));
-    }
-
-    let deleted = 0;
-    for (const name of entries) {
-      if (!referenced.has(name)) {
-        try { await fs.unlink(path.join(dir, name)); deleted++; } catch { /* ignore */ }
-      }
-    }
-    return res.json({ message: 'Cleanup completed', deleted });
-  } catch (e) {
-    console.error('Cleanup uploads error:', e);
-    return res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 

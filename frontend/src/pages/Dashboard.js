@@ -1,1014 +1,764 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Alert,
   Box,
-  Grid,
+  Button,
   Card,
   CardContent,
-  Typography,
-  Button,
-  Avatar,
   Chip,
-  LinearProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  IconButton,
-  Alert,
-  Badge,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Tooltip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Menu,
-  ListItemIcon,
-  ListItemText,
   CircularProgress,
+  Divider,
+  LinearProgress,
+  Paper,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
+  Stack,
+  Tab,
+  Tabs,
+  TextField,
+  Typography,
 } from '@mui/material';
 import {
-  Description,
-  Analytics,
+  Add,
+  AutoAwesome,
   CheckCircle,
-  Warning,
-  Error,
-  Visibility,
   CloudUpload,
-  Psychology,
-  Delete,
-  Search,
-  Edit,
-  Download,
-  MoreVert,
-  Schedule,
+  ExpandMore,
+  OpenInNew,
+  RadioButtonUnchecked,
+  Send,
+  WarningAmber,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { useAuth } from '../contexts/AuthContext';
+
 import api from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
-const Dashboard = () => {
-  const navigate = useNavigate();
+const programOptions = ['MBA', 'EMBA', 'Corporate', 'Intensive'];
+
+function Dashboard() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
-  const canUpload = ['instructor', 'manager'].includes(user?.role);
-
-  // Stats
-  const [stats, setStats] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  // Syllabi list
+  const location = useLocation();
   const [syllabi, setSyllabi] = useState([]);
-  const [pendingTotal, setPendingTotal] = useState(0);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [sortBy, setSortBy] = useState('createdAt');
-  const [deleteDialog, setDeleteDialog] = useState({ open: false, syllabus: null });
-  const [editDialog, setEditDialog] = useState({ open: false, syllabus: null });
-  const [menuAnchor, setMenuAnchor] = useState({ element: null, syllabus: null });
-  const [listError, setListError] = useState('');
-
-  // Upload
-  const [files, setFiles] = useState([]);
+  const [activeId, setActiveId] = useState('');
+  const [activeWorkspace, setActiveWorkspace] = useState(null);
+  const [composer, setComposer] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [loadingList, setLoadingList] = useState(true);
+  const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [error, setError] = useState('');
+  const [creatingNew, setCreatingNew] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({});
-  const [uploadResults, setUploadResults] = useState([]);
-  const [uploadError, setUploadError] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadForm, setUploadForm] = useState({
+    file: null,
+    courseName: '',
+    courseCode: '',
+    program: 'MBA',
+  });
+  const [choiceDrafts, setChoiceDrafts] = useState({});
 
-  const maxSize = 10 * 1024 * 1024;
-  const acceptedFormats = {
-    'application/pdf': ['.pdf'],
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-    'application/msword': ['.doc'],
-  };
+  const isInstructorWorkspace = user?.role !== 'admin';
 
-  useEffect(() => {
-    loadDashboardData();
+  const loadSyllabi = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoadingList(true);
+      const response = await api.syllabus.getMySyllabi();
+      const items = response.data.syllabi || [];
+      setSyllabi(items);
+      if (!activeId && items.length > 0) {
+        setActiveId(items[0]._id);
+      }
+      if (!items.length) {
+        setCreatingNew(true);
+      }
+    } catch (loadError) {
+      setError(loadError.response?.data?.message || 'Failed to load syllabi.');
+    } finally {
+      if (!silent) setLoadingList(false);
+    }
+  }, [activeId]);
+
+  const loadWorkspace = useCallback(async (id, silent = false) => {
+    try {
+      if (!silent) setLoadingWorkspace(true);
+      const response = await api.syllabus.getSyllabus(id);
+      setActiveWorkspace(response.data);
+      setError('');
+      setCreatingNew(false);
+    } catch (loadError) {
+      setError(loadError.response?.data?.message || 'Failed to load workspace.');
+    } finally {
+      if (!silent) setLoadingWorkspace(false);
+    }
   }, []);
 
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      const syllabiRequest = isAdmin
-        ? api.get('/reports/recent-syllabi', { params: { limit: 100 } })
-        : api.syllabus.getMySyllabi();
+  useEffect(() => {
+    if (!isInstructorWorkspace) return;
+    loadSyllabi();
+  }, [isInstructorWorkspace, loadSyllabi]);
 
-      const [statsResponse, syllabiResponse] = await Promise.all([
-        api.get('/users/stats'),
-        syllabiRequest,
-      ]);
-
-      setStats(statsResponse.data);
-      const list = syllabiResponse.data.syllabi || [];
-      setSyllabi(list);
-      const pending = isAdmin
-        ? 0
-        : list.reduce(
-            (acc, s) =>
-              acc +
-              (Array.isArray(s.recommendations)
-                ? s.recommendations.filter((r) => r.status === 'pending').length
-                : 0),
-            0
-          );
-      setPendingTotal(pending);
-    } catch (err) {
-      setError('Error loading dashboard data');
-      console.error('Dashboard error:', err);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const syllabusId = params.get('syllabus');
+    if (syllabusId) {
+      setActiveId(syllabusId);
+      setCreatingNew(false);
     }
-  };
+  }, [location.search]);
 
-  const reloadSyllabi = useCallback(async () => {
-    try {
-      const syllabiRequest = isAdmin
-        ? api.get('/reports/recent-syllabi', { params: { limit: 100 } })
-        : api.syllabus.getMySyllabi();
-      const response = await syllabiRequest;
-      const list = response.data.syllabi || [];
-      setSyllabi(list);
-      const pending = isAdmin
-        ? 0
-        : list.reduce(
-            (acc, s) =>
-              acc +
-              (Array.isArray(s.recommendations)
-                ? s.recommendations.filter((r) => r.status === 'pending').length
-                : 0),
-            0
-          );
-      setPendingTotal(pending);
-    } catch (err) {
-      setListError('Failed to reload syllabi');
-    }
-  }, [isAdmin]);
+  useEffect(() => {
+    if (!activeId) return;
+    loadWorkspace(activeId, true);
+  }, [activeId, loadWorkspace]);
 
-  // Upload handlers
-  const onDrop = (acceptedFiles, rejectedFiles) => {
-    setUploadError('');
-    if (rejectedFiles.length > 0) {
-      const reasons = rejectedFiles.map((file) =>
-        file.errors.map((err) => err.message).join(', ')
-      );
-      setUploadError(`Some files were rejected: ${reasons.join('; ')}`);
-    }
-    const newFiles = acceptedFiles.map((file) => ({
-      file,
-      id: Math.random().toString(36),
-      courseName: '',
-      courseCode: '',
-      uploadStatus: 'pending',
-    }));
-    setFiles((prev) => [...prev, ...newFiles]);
-  };
+  useEffect(() => {
+    if (activeWorkspace?.status !== 'processing' || !activeWorkspace?._id) return;
+    const timer = setInterval(() => {
+      loadWorkspace(activeWorkspace._id, true);
+      loadSyllabi(true);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [activeWorkspace, loadSyllabi, loadWorkspace]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: acceptedFormats,
-    maxSize,
-    multiple: true,
+  const dropzone = useDropzone({
+    accept: {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc'],
+    },
+    maxFiles: 1,
+    maxSize: 10 * 1024 * 1024,
+    onDrop: (acceptedFiles, rejectedFiles) => {
+      if (rejectedFiles.length) {
+        setError(rejectedFiles[0]?.errors?.[0]?.message || 'File was rejected.');
+        return;
+      }
+      const [file] = acceptedFiles;
+      setUploadForm((current) => ({
+        ...current,
+        file,
+        courseName: current.courseName || file.name.replace(/\.[^.]+$/, ''),
+      }));
+      setError('');
+    },
   });
 
-  const removeFile = (fileId) => {
-    setFiles(files.filter((f) => f.id !== fileId));
-  };
-
-  const updateFileMetadata = (fileId, field, value) => {
-    setFiles(files.map((f) => (f.id === fileId ? { ...f, [field]: value } : f)));
-  };
-
-  const uploadFiles = async () => {
-    if (files.length === 0) {
-      setUploadError('Please select files to upload');
-      return;
-    }
-    const invalidFiles = files.filter((f) => !f.courseName.trim());
-    if (invalidFiles.length > 0) {
-      setUploadError('Please enter a course name for all files');
+  async function handleUpload() {
+    if (!uploadForm.file || !uploadForm.courseName.trim()) {
+      setError('Add a syllabus file and course name before uploading.');
       return;
     }
 
-    setUploading(true);
-    setUploadResults([]);
-
-    for (const fileData of files) {
-      try {
-        setUploadProgress((prev) => ({ ...prev, [fileData.id]: 0 }));
-        const formData = new FormData();
-        formData.append('syllabus', fileData.file);
-        formData.append('courseName', fileData.courseName);
-        formData.append('courseCode', fileData.courseCode);
-
-        const response = await api.syllabus.upload(formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          onUploadProgress: (progressEvent) => {
-            const percentCompleted = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
-            setUploadProgress((prev) => ({ ...prev, [fileData.id]: percentCompleted }));
-          },
-        });
-
-        setUploadResults((prev) => [
-          ...prev,
-          {
-            ...fileData,
-            success: true,
-            syllabusId: response.data.syllabusId || response.data._id,
-          },
-        ]);
-      } catch (err) {
-        const errorMessage = err.response?.data?.message || err.message || 'Upload error';
-        setUploadResults((prev) => [
-          ...prev,
-          { ...fileData, success: false, error: errorMessage },
-        ]);
-      }
-    }
-
-    setUploading(false);
-    setFiles([]);
-    reloadSyllabi();
-  };
-
-  const formatFileSize = (bytes) => (bytes / 1024 / 1024).toFixed(2) + ' MB';
-
-  // Syllabi list handlers
-  const handleDelete = async () => {
     try {
-      await api.syllabus.deleteSyllabus(deleteDialog.syllabus._id);
-      setSyllabi(syllabi.filter((s) => s._id !== deleteDialog.syllabus._id));
-      setDeleteDialog({ open: false, syllabus: null });
-    } catch (err) {
-      setListError('Failed to delete syllabus');
-    }
-  };
+      setUploading(true);
+      setUploadProgress(0);
+      const formData = new FormData();
+      formData.append('syllabus', uploadForm.file);
+      formData.append('courseName', uploadForm.courseName.trim());
+      formData.append('courseCode', uploadForm.courseCode.trim());
+      formData.append('program', uploadForm.program);
 
-  const handleEdit = async (formData) => {
-    try {
-      const response = await api.put(`/syllabus/${editDialog.syllabus._id}`, formData);
-      setSyllabi(
-        syllabi.map((s) =>
-          s._id === editDialog.syllabus._id ? response.data.syllabus || response.data : s
-        )
-      );
-      setEditDialog({ open: false, syllabus: null });
-    } catch (err) {
-      setListError('Failed to update syllabus');
-    }
-  };
-
-  const handleDownload = async (syllabusId, filename) => {
-    try {
-      const response = await api.get(`/syllabus/${syllabusId}/download`, {
-        responseType: 'blob',
+      const response = await api.syllabus.upload(formData, {
+        onUploadProgress: (progressEvent) => {
+          const nextPct = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(nextPct);
+        },
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setListError('Failed to download file');
+
+      const uploaded = response.data.syllabus;
+      setUploadForm({ file: null, courseName: '', courseCode: '', program: 'MBA' });
+      setCreatingNew(false);
+      await loadSyllabi(true);
+      setActiveId(uploaded._id);
+      await loadWorkspace(uploaded._id);
+    } catch (uploadError) {
+      setError(uploadError.response?.data?.message || 'Upload failed.');
+    } finally {
+      setUploading(false);
     }
-  };
+  }
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'analyzed':
-        return <CheckCircle color="success" />;
-      case 'processing':
-        return <Schedule color="warning" />;
-      case 'error':
-        return <Error color="error" />;
-      default:
-        return <Warning color="action" />;
+  async function pushWorkspaceUpdate(requestPromise) {
+    try {
+      const response = await requestPromise;
+      setActiveWorkspace(response.data);
+      await loadSyllabi(true);
+      setError('');
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Something went wrong.');
     }
-  };
+  }
 
-  const getStatusText = (status) => {
-    switch (status) {
-      case 'analyzed':
-        return 'Analyzed';
-      case 'processing':
-        return 'Processing';
-      case 'error':
-        return 'Error';
-      default:
-        return 'Pending';
+  async function handleSendMessage() {
+    if (!composer.trim() || !activeWorkspace?._id) return;
+    setChatSending(true);
+    const message = composer.trim();
+    setComposer('');
+    await pushWorkspaceUpdate(api.syllabus.sendChatMessage(activeWorkspace._id, message));
+    setChatSending(false);
+  }
+
+  async function handlePreview() {
+    if (!activeWorkspace?._id) return;
+    try {
+      const response = await api.syllabus.previewFinal(activeWorkspace._id);
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (previewError) {
+      setError(previewError.response?.data?.message || 'Preview failed.');
     }
-  };
+  }
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'analyzed':
-        return 'success';
-      case 'processing':
-        return 'warning';
-      case 'error':
-        return 'error';
-      default:
-        return 'default';
-    }
-  };
+  const issues = useMemo(() => activeWorkspace?.workflow?.issues || [], [activeWorkspace]);
+  const readiness = activeWorkspace?.workflow?.readiness;
+  const issueMap = useMemo(
+    () => Object.fromEntries(issues.map((issue) => [issue.id, issue])),
+    [issues]
+  );
 
-  const filteredSyllabi = syllabi
-    .filter((syllabus) => {
-      const originalName =
-        syllabus.originalName || syllabus.originalFile?.originalName || '';
-      const courseName =
-        syllabus.courseName || syllabus.course?.name || syllabus.title || '';
-      const matchesSearch =
-        originalName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        courseName.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesStatus =
-        !statusFilter || (syllabus.status && syllabus.status === statusFilter);
-      return matchesSearch && matchesStatus;
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'name':
-          return (
-            (a.originalName || a.originalFile?.originalName || '')
-          ).localeCompare(b.originalName || b.originalFile?.originalName || '');
-        case 'course':
-          return (
-            (a.courseName || a.course?.name || a.title || '')
-          ).localeCompare(b.courseName || b.course?.name || b.title || '');
-        case 'status':
-          return (a.status || '').localeCompare(b.status || '');
-        default:
-          return new Date(b.createdAt) - new Date(a.createdAt);
-      }
-    });
-
-  if (loading) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <LinearProgress />
-        <Typography variant="h6" sx={{ mt: 2 }}>
-          Loading dashboard...
-        </Typography>
-      </Box>
-    );
+  if (!isInstructorWorkspace) {
+    return <Navigate to="/cabinet" replace />;
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Page title header with white text on primary background */}
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <WorkspaceTabs
+        syllabi={syllabi}
+        activeId={activeId}
+        onSelect={setActiveId}
+        onNew={() => {
+          setCreatingNew(true);
+          setActiveWorkspace(null);
+          setActiveId('');
+        }}
+        loading={loadingList}
+      />
+
+      {error && <Alert severity="error">{error}</Alert>}
+
       <Box
         sx={{
-          bgcolor: 'primary.main',
-          color: 'white',
-          mx: -3,
-          mt: -3,
-          px: 3,
-          pt: 3,
-          pb: 2,
-          mb: 3,
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: '280px minmax(0, 1fr)' },
+          gap: 3,
+          alignItems: 'start',
         }}
       >
-        <Typography variant="h4" gutterBottom sx={{ color: 'white' }}>
-          Hello, {user?.firstName}
-        </Typography>
-        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.85)' }}>
-          Welcome to AI Syllabus Analyzer. Review your syllabi and get AI recommendations.
-        </Typography>
-      </Box>
+        <IssuesSidebar readiness={readiness} issues={issues} />
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
+        <Stack spacing={3}>
+          <ProfessorHero />
 
-      {/* Stats Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <Avatar sx={{ bgcolor: 'primary.main', mr: 2 }}>
-                  <Description />
-                </Avatar>
-                <Box>
-                  <Typography variant="h4" fontWeight="bold">
-                    {stats.totalSyllabi || 0}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Syllabi
-                  </Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <Avatar sx={{ bgcolor: 'success.main', mr: 2 }}>
-                  <CheckCircle />
-                </Avatar>
-                <Box>
-                  <Typography variant="h4" fontWeight="bold">
-                    {stats.analyzedSyllabi || 0}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Analyzed
-                  </Typography>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {!isAdmin && (
-          <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <Avatar sx={{ bgcolor: 'secondary.main', mr: 2 }}>
-                    <Analytics />
-                  </Avatar>
-                  <Box>
-                    <Typography variant="h4" fontWeight="bold">
-                      {pendingTotal}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Pending Recommendations
-                    </Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
-      </Grid>
-
-      {/* Upload Section (instructors and managers only) */}
-      {canUpload && (
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h5" fontWeight="bold" gutterBottom>
-            Upload Syllabus
-          </Typography>
-
-          {uploadError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {uploadError}
-            </Alert>
+          {(creatingNew || !activeWorkspace) && (
+            <UploadComposer
+              dropzone={dropzone}
+              uploadForm={uploadForm}
+              setUploadForm={setUploadForm}
+              onUpload={handleUpload}
+              uploading={uploading}
+              uploadProgress={uploadProgress}
+            />
           )}
 
-          {/* Upload results */}
-          {uploadResults.length > 0 && (
-            <Box sx={{ mb: 2 }}>
-              {uploadResults.map((result) => (
-                <Paper key={result.id} variant="outlined" sx={{ p: 2, mb: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    {result.success ? (
-                      <CheckCircle color="success" />
-                    ) : (
-                      <Error color="error" />
-                    )}
-                    <Typography variant="subtitle2" sx={{ ml: 1 }}>
-                      {result.file.name}
-                    </Typography>
-                  </Box>
-                  {result.success ? (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip label="Successfully Uploaded" color="success" size="small" />
-                      <Button
-                        size="small"
-                        onClick={() => navigate(`/syllabi/${result.syllabusId}`)}
-                      >
-                        View Analysis
-                      </Button>
-                    </Box>
-                  ) : (
-                    <Alert severity="error" sx={{ mt: 1 }}>
-                      {result.error}
-                    </Alert>
-                  )}
-                </Paper>
+          {loadingWorkspace && (
+            <Paper sx={{ p: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
+              <CircularProgress size={24} />
+              <Typography>Loading workspace…</Typography>
+            </Paper>
+          )}
+
+          {activeWorkspace && (
+            <Paper
+              sx={{
+                p: 2,
+                borderRadius: 4,
+                border: '1px solid',
+                borderColor: 'divider',
+                background:
+                  'linear-gradient(180deg, rgba(244,248,246,1) 0%, rgba(255,255,255,1) 18%)',
+              }}
+            >
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Box>
+                  <Typography variant="h4">{activeWorkspace.title}</Typography>
+                  <Typography color="text.secondary">
+                    {activeWorkspace.program} · {activeWorkspace.course?.code || 'No course code'}
+                  </Typography>
+                </Box>
+                <Chip
+                  label={activeWorkspace.workspaceStatus}
+                  color={activeWorkspace.workspaceStatus === 'Submitted' ? 'success' : 'default'}
+                />
+              </Stack>
+
+              <ChatTimeline messages={activeWorkspace.workflow?.messages || []} issueMap={issueMap} onAction={async (action) => {
+                if (action.type === 'confirm') {
+                  await pushWorkspaceUpdate(api.syllabus.confirmIssue(activeWorkspace._id, action.issueId));
+                }
+                if (action.type === 'cancel') {
+                  await pushWorkspaceUpdate(api.syllabus.cancelIssue(activeWorkspace._id, action.issueId));
+                }
+                if (action.type === 'choice') {
+                  const draft = choiceDrafts[action.issueId] || {};
+                  await pushWorkspaceUpdate(
+                    api.syllabus.applyChoice(
+                      activeWorkspace._id,
+                      action.issueId,
+                      draft.optionId,
+                      draft.customNote || ''
+                    )
+                  );
+                }
+                if (action.type === 'case') {
+                  await pushWorkspaceUpdate(
+                    api.syllabus.addCaseCard(activeWorkspace._id, action.issueId, action.cardId, action.preview)
+                  );
+                }
+              }} choiceDrafts={choiceDrafts} setChoiceDrafts={setChoiceDrafts} />
+
+              {activeWorkspace.status === 'processing' && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  Professor&apos;s Tutor is analyzing your syllabus. This usually takes under two minutes.
+                </Alert>
+              )}
+
+              {readiness?.canSubmit && (
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 3 }}>
+                  <Button variant="outlined" startIcon={<OpenInNew />} onClick={handlePreview}>
+                    Preview final syllabus
+                  </Button>
+                  <Button
+                    variant="contained"
+                    endIcon={<CheckCircle />}
+                    onClick={() => pushWorkspaceUpdate(api.syllabus.submitFinal(activeWorkspace._id))}
+                    disabled={activeWorkspace.workspaceStatus === 'Submitted'}
+                  >
+                    {activeWorkspace.workspaceStatus === 'Submitted' ? 'Submitted' : 'Submit'}
+                  </Button>
+                </Stack>
+              )}
+
+              <Divider sx={{ my: 3 }} />
+
+              <Stack direction="row" spacing={1} alignItems="flex-end">
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  maxRows={5}
+                  value={composer}
+                  onChange={(event) => setComposer(event.target.value)}
+                  placeholder="Type a message..."
+                />
+                <Button
+                  variant="contained"
+                  endIcon={chatSending ? <CircularProgress size={16} color="inherit" /> : <Send />}
+                  onClick={handleSendMessage}
+                  disabled={!composer.trim() || chatSending || !activeWorkspace}
+                  sx={{ minWidth: 140, height: 56 }}
+                >
+                  Send
+                </Button>
+              </Stack>
+            </Paper>
+          )}
+        </Stack>
+      </Box>
+    </Box>
+  );
+}
+
+function WorkspaceTabs({ syllabi, activeId, onSelect, onNew, loading }) {
+  return (
+    <Paper sx={{ p: 1.5, borderRadius: 4 }}>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Tabs
+          value={activeId || false}
+          onChange={(_, value) => onSelect(value)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{ minHeight: 48, flex: 1 }}
+        >
+          {syllabi.map((syllabus) => (
+            <Tab
+              key={syllabus._id}
+              value={syllabus._id}
+              label={`${syllabus.title} · ${syllabus.readinessPct || 0}%`}
+              sx={{ alignItems: 'flex-start', textTransform: 'none', minHeight: 48 }}
+            />
+          ))}
+        </Tabs>
+        <Button variant="outlined" startIcon={<Add />} onClick={onNew}>
+          New
+        </Button>
+      </Stack>
+      {loading && <LinearProgress sx={{ mt: 1 }} />}
+    </Paper>
+  );
+}
+
+function ProfessorHero() {
+  return (
+    <Paper
+      sx={{
+        p: 3,
+        borderRadius: 4,
+        color: '#18322b',
+        background:
+          'radial-gradient(circle at top left, rgba(198,230,219,0.85), rgba(255,255,255,1) 60%), linear-gradient(135deg, #f0f6f4 0%, #ffffff 100%)',
+      }}
+    >
+      <Stack spacing={2}>
+        <Chip
+          label="Professor's Tutor"
+          icon={<AutoAwesome />}
+          sx={{ width: 'fit-content', backgroundColor: 'rgba(255,255,255,0.8)' }}
+        />
+        <Typography variant="h3" sx={{ maxWidth: 720 }}>
+          A chat-first workspace for getting your syllabus ready, one issue at a time.
+        </Typography>
+        <Typography sx={{ maxWidth: 760 }}>
+          Upload your draft, review AI guidance in sequence, confirm the changes you want, and submit a final PDF once everything required is resolved.
+        </Typography>
+      </Stack>
+    </Paper>
+  );
+}
+
+function UploadComposer({ dropzone, uploadForm, setUploadForm, onUpload, uploading, uploadProgress }) {
+  return (
+    <Card>
+      <CardContent sx={{ p: 3 }}>
+        <Stack spacing={3}>
+          <ChatBubble
+            role="assistant"
+            content="Hi! I'm here to help you build a syllabus that meets all KSE Graduate Business School standards. Upload your draft and I'll take it from there."
+          />
+
+          <Paper
+            {...dropzone.getRootProps()}
+            sx={{
+              p: 4,
+              border: '2px dashed',
+              borderColor: dropzone.isDragActive ? 'primary.main' : 'divider',
+              borderRadius: 4,
+              backgroundColor: dropzone.isDragActive ? 'rgba(0,102,90,0.05)' : 'background.paper',
+              cursor: 'pointer',
+              textAlign: 'center',
+            }}
+          >
+            <input {...dropzone.getInputProps()} />
+            <CloudUpload sx={{ fontSize: 56, color: 'primary.main', mb: 1 }} />
+            <Typography variant="h6">Drop your syllabus here or click to browse · PDF, DOCX</Typography>
+            <Typography color="text.secondary">
+              {uploadForm.file ? uploadForm.file.name : 'Maximum size: 10 MB'}
+            </Typography>
+          </Paper>
+
+          <Accordion disableGutters>
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <Typography fontWeight={600}>How does this work?</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={1.5}>
+                <Typography>1. Upload your syllabus draft.</Typography>
+                <Typography>2. Professor&apos;s Tutor checks it against KSE standards.</Typography>
+                <Typography>3. You fix issues together, one at a time.</Typography>
+                <Typography>4. Preview the final PDF and submit it to the Academic Director.</Typography>
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
+
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            <TextField
+              fullWidth
+              label="Course name"
+              value={uploadForm.courseName}
+              onChange={(event) => setUploadForm((current) => ({ ...current, courseName: event.target.value }))}
+            />
+            <TextField
+              fullWidth
+              label="Course code"
+              value={uploadForm.courseCode}
+              onChange={(event) => setUploadForm((current) => ({ ...current, courseCode: event.target.value }))}
+            />
+            <TextField
+              select
+              label="Program"
+              value={uploadForm.program}
+              onChange={(event) => setUploadForm((current) => ({ ...current, program: event.target.value }))}
+              SelectProps={{ native: true }}
+              sx={{ minWidth: 180 }}
+            >
+              {programOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
               ))}
-              <Button
-                variant="text"
-                size="small"
-                onClick={() => setUploadResults([])}
-                sx={{ mt: 1 }}
+            </TextField>
+          </Stack>
+
+          <Button variant="contained" onClick={onUpload} disabled={uploading} sx={{ alignSelf: 'flex-start' }}>
+            {uploading ? 'Uploading…' : 'Upload and analyze'}
+          </Button>
+          {uploading && <LinearProgress variant="determinate" value={uploadProgress} />}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+function IssuesSidebar({ readiness, issues }) {
+  return (
+    <Paper sx={{ p: 2.5, borderRadius: 4, position: { lg: 'sticky' }, top: { lg: 96 } }}>
+      <Typography variant="h6" gutterBottom>
+        Issues
+      </Typography>
+      <Typography color="text.secondary" sx={{ mb: 2 }}>
+        {readiness?.openIssues || 0} open · {readiness?.resolvedIssues || 0} resolved
+      </Typography>
+
+      <Stack spacing={1.25}>
+        {issues.map((issue) => (
+          <Stack key={issue.id} direction="row" spacing={1.25} alignItems="flex-start">
+            {issue.severity === 'critical' ? (
+              <WarningAmber color="warning" fontSize="small" sx={{ mt: 0.25 }} />
+            ) : (
+              <RadioButtonUnchecked color="disabled" fontSize="small" sx={{ mt: 0.25 }} />
+            )}
+            <Box sx={{ flex: 1, opacity: issue.state === 'resolved' ? 0.55 : 1 }}>
+              <Typography sx={{ textDecoration: issue.state === 'resolved' ? 'line-through' : 'none' }}>
+                {issue.title}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {issue.state === 'resolved' ? 'Resolved ✓' : 'Open'}
+              </Typography>
+            </Box>
+          </Stack>
+        ))}
+      </Stack>
+
+      <Divider sx={{ my: 2 }} />
+      <Typography fontWeight={600}>Readiness · {readiness?.pct || 0}%</Typography>
+      <LinearProgress
+        variant="determinate"
+        value={readiness?.pct || 0}
+        sx={{ mt: 1, mb: 1.5, height: 10, borderRadius: 999 }}
+      />
+      <Typography color="text.secondary">
+        {readiness?.canSubmit ? 'Ready to submit ✓' : readiness?.label || 'Needs work'}
+      </Typography>
+    </Paper>
+  );
+}
+
+function ChatTimeline({ messages, issueMap, onAction, choiceDrafts, setChoiceDrafts }) {
+  return (
+    <Stack spacing={2}>
+      {messages.map((message) => (
+        <Box key={message.id}>
+          <ChatBubble role={message.role} content={message.content} kind={message.kind} />
+          {message.issueId && issueMap[message.issueId] && (
+            <IssueMessageCard
+              issue={issueMap[message.issueId]}
+              onAction={onAction}
+              choiceDraft={choiceDrafts[message.issueId] || {}}
+              setChoiceDraft={(next) =>
+                setChoiceDrafts((current) => ({
+                  ...current,
+                  [message.issueId]: {
+                    ...(current[message.issueId] || {}),
+                    ...next,
+                  },
+                }))
+              }
+            />
+          )}
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
+function ChatBubble({ role, content, kind }) {
+  const isAssistant = role === 'assistant';
+  return (
+    <Box sx={{ display: 'flex', justifyContent: isAssistant ? 'flex-start' : 'flex-end', mb: 1 }}>
+      <Paper
+        sx={{
+          p: 1.75,
+          maxWidth: '85%',
+          borderRadius: 3,
+          backgroundColor: isAssistant ? '#f4f7fb' : '#dff2ed',
+          border: '1px solid',
+          borderColor: isAssistant ? '#d9e3ef' : '#badfd4',
+        }}
+      >
+        {kind && kind !== 'chat' && (
+          <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            {kind}
+          </Typography>
+        )}
+        <Typography sx={{ whiteSpace: 'pre-wrap' }}>{content}</Typography>
+      </Paper>
+    </Box>
+  );
+}
+
+function IssueMessageCard({ issue, onAction, choiceDraft, setChoiceDraft }) {
+  return (
+    <Card sx={{ mt: 1.5, borderRadius: 4 }}>
+      <CardContent>
+        <Stack spacing={2}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
+            <Box>
+              <Typography variant="h6">{issue.title}</Typography>
+              <Typography color="text.secondary">{issue.description}</Typography>
+            </Box>
+            <Chip
+              label={issue.state === 'resolved' ? issue.decision || 'resolved' : issue.severity}
+              color={issue.state === 'resolved' ? 'success' : issue.severity === 'critical' ? 'warning' : 'default'}
+            />
+          </Stack>
+
+          {issue.kind === 'diff' && (
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <Paper sx={{ p: 2, flex: 1, bgcolor: '#fff8f8', border: '1px solid #f1d1d1' }}>
+                <Typography variant="caption" color="error.main">
+                  BEFORE
+                </Typography>
+                <Typography sx={{ textDecoration: 'line-through', mt: 1 }}>{issue.beforeText || 'Missing or unclear content.'}</Typography>
+              </Paper>
+              <Paper sx={{ p: 2, flex: 1, bgcolor: '#f4fbf6', border: '1px solid #cde8d4' }}>
+                <Typography variant="caption" color="success.main">
+                  AFTER
+                </Typography>
+                <Typography sx={{ mt: 1 }}>{issue.afterText || 'AI will prepare improved wording here.'}</Typography>
+              </Paper>
+            </Stack>
+          )}
+
+          {issue.kind === 'choice' && issue.choice && (
+            <Box>
+              <Typography fontWeight={600} sx={{ mb: 1 }}>
+                {issue.choice.prompt}
+              </Typography>
+              <RadioGroup
+                value={choiceDraft.optionId || issue.choice.selectedOptionId || ''}
+                onChange={(event) => setChoiceDraft({ optionId: event.target.value })}
               >
-                Clear results
-              </Button>
+                {issue.choice.options.map((option) => (
+                  <FormControlLabel
+                    key={option.id}
+                    value={option.id}
+                    control={<Radio />}
+                    label={
+                      <Box>
+                        <Typography>
+                          {option.label}
+                          {option.isRecommended ? ' (Recommended)' : ''}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {option.description}
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                ))}
+              </RadioGroup>
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                label="Custom note"
+                value={choiceDraft.customNote || issue.choice.customNote || ''}
+                onChange={(event) => setChoiceDraft({ customNote: event.target.value })}
+                helperText={issue.choice.customPrompt}
+                sx={{ mt: 1.5 }}
+              />
+              {!!(issue.choice.appliedText || issue.afterText) && (
+                <Paper sx={{ mt: 1.5, p: 2, bgcolor: '#f4fbf6', border: '1px solid #cde8d4' }}>
+                  <Typography variant="caption" color="success.main">
+                    SELECTED TEXT
+                  </Typography>
+                  <Typography sx={{ mt: 1 }}>{issue.choice.appliedText || issue.afterText}</Typography>
+                </Paper>
+              )}
             </Box>
           )}
 
-          <Card>
-            <CardContent sx={{ p: 3 }}>
-              {/* Drop zone */}
-              <Paper
-                {...getRootProps()}
-                sx={{
-                  p: 4,
-                  textAlign: 'center',
-                  border: '2px dashed',
-                  borderColor: isDragActive ? 'primary.main' : 'grey.300',
-                  backgroundColor: isDragActive ? 'action.hover' : 'background.paper',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  '&:hover': {
-                    borderColor: 'primary.main',
-                    backgroundColor: 'action.hover',
-                  },
-                }}
-              >
-                <input {...getInputProps()} />
-                <CloudUpload sx={{ fontSize: 56, color: 'primary.main', mb: 1 }} />
-                <Typography variant="h6" gutterBottom>
-                  {isDragActive
-                    ? 'Drop files here...'
-                    : 'Drag and drop files here or click to select'}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Supported formats: PDF, DOC, DOCX (max 10MB)
-                </Typography>
-              </Paper>
-
-              {/* File list with inline metadata */}
-              {files.length > 0 && (
-                <Box sx={{ mt: 3 }}>
-                  <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                    Selected Files ({files.length})
-                  </Typography>
-                  {files.map((fileData) => (
-                    <Paper key={fileData.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                        <Description color="primary" />
-                        <Typography variant="body2" sx={{ ml: 1, flex: 1 }}>
-                          {fileData.file.name}
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{ ml: 1 }}
-                          >
-                            ({formatFileSize(fileData.file.size)})
-                          </Typography>
-                        </Typography>
-                        <IconButton size="small" onClick={() => removeFile(fileData.id)}>
-                          <Delete fontSize="small" />
-                        </IconButton>
-                      </Box>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12} sm={6}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            label="Course Name *"
-                            value={fileData.courseName}
-                            onChange={(e) =>
-                              updateFileMetadata(fileData.id, 'courseName', e.target.value)
-                            }
-                            placeholder="e.g., Microeconomics"
-                          />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <TextField
-                            fullWidth
-                            size="small"
-                            label="Course Code"
-                            value={fileData.courseCode}
-                            onChange={(e) =>
-                              updateFileMetadata(fileData.id, 'courseCode', e.target.value)
-                            }
-                            placeholder="e.g., ECON101"
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-                  ))}
-
-                  <Box sx={{ textAlign: 'right', mt: 2 }}>
-                    <Button
-                      variant="contained"
-                      size="large"
-                      onClick={uploadFiles}
-                      disabled={uploading}
-                      startIcon={
-                        uploading ? (
-                          <CircularProgress size={18} color="inherit" />
-                        ) : (
-                          <Psychology />
-                        )
-                      }
-                    >
-                      {uploading ? 'Uploading...' : 'Upload and Analyze'}
-                    </Button>
-                  </Box>
-
-                  {uploading && (
-                    <Box sx={{ mt: 2 }}>
-                      {files.map(
-                        (f) =>
-                          uploadProgress[f.id] !== undefined && (
-                            <Box key={f.id} sx={{ mb: 1 }}>
-                              <Typography variant="caption">{f.file.name}</Typography>
-                              <LinearProgress
-                                variant="determinate"
-                                value={uploadProgress[f.id]}
-                                sx={{ mt: 0.5 }}
-                              />
-                            </Box>
-                          )
-                      )}
-                    </Box>
-                  )}
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Box>
-      )}
-
-      {/* Syllabi List */}
-      <Typography variant="h5" fontWeight="bold" gutterBottom>
-        {isAdmin ? 'All Syllabi' : 'My Syllabi'}
-      </Typography>
-
-      {listError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {listError}
-        </Alert>
-      )}
-
-      {/* Filters */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={4}>
-              <TextField
-                fullWidth
-                placeholder="Search syllabi..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                InputProps={{
-                  startAdornment: <Search sx={{ mr: 1, color: 'action.active' }} />,
-                }}
-              />
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  label="Status"
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="processing">Processing</MenuItem>
-                  <MenuItem value="analyzed">Analyzed</MenuItem>
-                  <MenuItem value="error">Error</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <FormControl fullWidth>
-                <InputLabel>Sort by</InputLabel>
-                <Select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  label="Sort by"
-                >
-                  <MenuItem value="createdAt">Creation date</MenuItem>
-                  <MenuItem value="name">File name</MenuItem>
-                  <MenuItem value="course">Course name</MenuItem>
-                  <MenuItem value="status">Status</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <Typography variant="body2" color="text.secondary">
-                Found: {filteredSyllabi.length}
+          {issue.kind === 'case_recommendation' && issue.caseRecommendation && (
+            <Box>
+              <Typography fontWeight={600} sx={{ mb: 1.5 }}>
+                Case Recommendations — {issue.caseRecommendation.weekLabel}
               </Typography>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
+              <Stack spacing={1.5}>
+                {issue.caseRecommendation.cards.map((card) => {
+                  const selected = (issue.caseRecommendation.selectedCardIds || []).includes(card.id);
+                  return (
+                    <Paper key={card.id} sx={{ p: 2, border: '1px solid', borderColor: selected ? 'success.main' : 'divider' }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.5}>
+                        <Box>
+                          <Typography fontWeight={600}>{card.title}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {card.source} · {card.fitLabel}
+                          </Typography>
+                          <Typography sx={{ mt: 1 }}>{card.previewText}</Typography>
+                        </Box>
+                        <Stack direction={{ xs: 'row', sm: 'column' }} spacing={1}>
+                          <Button variant="outlined" onClick={() => onAction({ type: 'case', issueId: issue.id, cardId: card.id, preview: true })}>
+                            Preview
+                          </Button>
+                          <Button variant={selected ? 'contained' : 'outlined'} onClick={() => onAction({ type: 'case', issueId: issue.id, cardId: card.id, preview: false })}>
+                            {selected ? 'Added' : 'Add'}
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+            </Box>
+          )}
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>File</TableCell>
-              {isAdmin && <TableCell>Instructor</TableCell>}
-              <TableCell>Course</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Recommendations</TableCell>
-              <TableCell>Date</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredSyllabi.length > 0 ? (
-              filteredSyllabi.map((syllabus) => (
-                <TableRow key={syllabus._id} hover>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Avatar sx={{ bgcolor: 'primary.main', mr: 2, width: 32, height: 32 }}>
-                        <Description fontSize="small" />
-                      </Avatar>
-                      <Typography variant="body2" fontWeight="600">
-                        {syllabus.originalName ||
-                          syllabus.originalFile?.originalName ||
-                          syllabus.title ||
-                          'Untitled'}
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                  {isAdmin && (
-                    <TableCell>
-                      {syllabus.instructor
-                        ? `${syllabus.instructor.firstName || ''} ${syllabus.instructor.lastName || ''}`.trim()
-                        : '—'}
-                    </TableCell>
-                  )}
-                  <TableCell>
-                    {syllabus.courseName ||
-                      syllabus.course?.name ||
-                      syllabus.title ||
-                      'N/A'}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      icon={getStatusIcon(syllabus.status)}
-                      label={getStatusText(syllabus.status)}
-                      color={getStatusColor(syllabus.status)}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {Array.isArray(syllabus.recommendations) &&
-                    syllabus.recommendations.length > 0 ? (
-                      (() => {
-                        const pending = syllabus.recommendations.filter(
-                          (r) => r.status === 'pending'
-                        ).length;
-                        const total = syllabus.recommendations.length;
-                        return pending > 0 ? (
-                          <Chip
-                            label={`Pending: ${pending}`}
-                            color="warning"
-                            size="small"
-                          />
-                        ) : (
-                          <Chip
-                            label={`Processed (${total})`}
-                            color="success"
-                            size="small"
-                          />
-                        );
-                      })()
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        —
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {new Date(syllabus.createdAt).toLocaleDateString('en-US')}
-                  </TableCell>
-                  <TableCell align="right">
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      <Tooltip title="View analysis">
-                        <IconButton
-                          size="small"
-                          onClick={() => navigate(`/syllabi/${syllabus._id}`)}
-                        >
-                          {Array.isArray(syllabus.recommendations) ? (
-                            (() => {
-                              const pending = syllabus.recommendations.filter(
-                                (r) => r.status === 'pending'
-                              ).length;
-                              return (
-                                <Badge
-                                  color="warning"
-                                  badgeContent={pending}
-                                  invisible={pending === 0}
-                                  overlap="circular"
-                                >
-                                  <Visibility />
-                                </Badge>
-                              );
-                            })()
-                          ) : (
-                            <Visibility />
-                          )}
-                        </IconButton>
-                      </Tooltip>
-
-                      {!isAdmin && (
-                        <Tooltip title="More actions">
-                          <IconButton
-                            size="small"
-                            onClick={(e) =>
-                              setMenuAnchor({ element: e.currentTarget, syllabus })
-                            }
-                          >
-                            <MoreVert />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={isAdmin ? 7 : 6} align="center">
-                  <Box sx={{ py: 4 }}>
-                    <Description sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                    <Typography variant="h6" color="text.secondary" gutterBottom>
-                      No syllabi found
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {searchTerm || statusFilter
-                        ? 'Try adjusting your search criteria'
-                        : canUpload
-                        ? 'Upload your first syllabus above to get started'
-                        : 'No syllabi available for this account'}
-                    </Typography>
-                  </Box>
-                </TableCell>
-              </TableRow>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            {issue.kind === 'choice' && (
+              <Button
+                variant="contained"
+                disabled={issue.state === 'resolved' && issue.decision === 'confirmed'}
+                onClick={() => onAction({ type: 'choice', issueId: issue.id })}
+              >
+                Apply selected
+              </Button>
             )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      {/* Context Menu */}
-      <Menu
-        anchorEl={menuAnchor.element}
-        open={Boolean(menuAnchor.element)}
-        onClose={() => setMenuAnchor({ element: null, syllabus: null })}
-      >
-        <MenuItem
-          onClick={() => {
-            setEditDialog({ open: true, syllabus: menuAnchor.syllabus });
-            setMenuAnchor({ element: null, syllabus: null });
-          }}
-        >
-          <ListItemIcon>
-            <Edit />
-          </ListItemIcon>
-          <ListItemText>Edit</ListItemText>
-        </MenuItem>
-
-        <MenuItem
-          onClick={() => {
-            const fileName =
-              menuAnchor.syllabus.originalName ||
-              menuAnchor.syllabus.originalFile?.originalName ||
-              menuAnchor.syllabus.title ||
-              'syllabus';
-            handleDownload(menuAnchor.syllabus._id, fileName);
-            setMenuAnchor({ element: null, syllabus: null });
-          }}
-        >
-          <ListItemIcon>
-            <Download />
-          </ListItemIcon>
-          <ListItemText>Download</ListItemText>
-        </MenuItem>
-
-        <MenuItem
-          onClick={() => {
-            navigate(`/syllabi/${menuAnchor.syllabus._id}`);
-            setMenuAnchor({ element: null, syllabus: null });
-          }}
-        >
-          <ListItemIcon>
-            <Analytics />
-          </ListItemIcon>
-          <ListItemText>Reports</ListItemText>
-        </MenuItem>
-
-        <MenuItem
-          onClick={() => {
-            setDeleteDialog({ open: true, syllabus: menuAnchor.syllabus });
-            setMenuAnchor({ element: null, syllabus: null });
-          }}
-          sx={{ color: 'error.main' }}
-        >
-          <ListItemIcon>
-            <Delete color="error" />
-          </ListItemIcon>
-          <ListItemText>Delete</ListItemText>
-        </MenuItem>
-      </Menu>
-
-      {/* Delete Dialog */}
-      <Dialog
-        open={deleteDialog.open}
-        onClose={() => setDeleteDialog({ open: false, syllabus: null })}
-      >
-        <DialogTitle>Confirm deletion</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete syllabus "
-            {deleteDialog.syllabus?.originalName}"? This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialog({ open: false, syllabus: null })}>
-            Cancel
-          </Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <EditSyllabusDialog
-        open={editDialog.open}
-        syllabus={editDialog.syllabus}
-        onClose={() => setEditDialog({ open: false, syllabus: null })}
-        onSave={handleEdit}
-      />
-    </Box>
+            <Button
+              variant="contained"
+              color="success"
+              disabled={issue.state === 'resolved' && issue.decision === 'confirmed'}
+              onClick={() => onAction({ type: 'confirm', issueId: issue.id })}
+            >
+              Confirm change
+            </Button>
+            <Button
+              variant="outlined"
+              color="inherit"
+              onClick={() => onAction({ type: 'cancel', issueId: issue.id })}
+            >
+              Cancel
+            </Button>
+          </Stack>
+        </Stack>
+      </CardContent>
+    </Card>
   );
-};
-
-const EditSyllabusDialog = ({ open, syllabus, onClose, onSave }) => {
-  const [formData, setFormData] = useState({
-    courseName: '',
-    courseCode: '',
-    description: '',
-  });
-
-  useEffect(() => {
-    if (syllabus) {
-      setFormData({
-        courseName: syllabus.courseName || '',
-        courseCode: syllabus.courseCode || '',
-        description: syllabus.description || '',
-      });
-    }
-  }, [syllabus]);
-
-  const handleSubmit = () => {
-    onSave(formData);
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Edit syllabus</DialogTitle>
-      <DialogContent>
-        <TextField
-          fullWidth
-          label="Course name"
-          value={formData.courseName}
-          onChange={(e) => setFormData({ ...formData, courseName: e.target.value })}
-          margin="normal"
-        />
-        <TextField
-          fullWidth
-          label="Course code"
-          value={formData.courseCode}
-          onChange={(e) => setFormData({ ...formData, courseCode: e.target.value })}
-          margin="normal"
-        />
-        <TextField
-          fullWidth
-          label="Description"
-          value={formData.description}
-          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-          margin="normal"
-          multiline
-          rows={3}
-        />
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSubmit} variant="contained">
-          Save
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-};
+}
 
 export default Dashboard;

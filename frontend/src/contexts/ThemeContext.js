@@ -9,7 +9,7 @@ const ThemeModeContext = createContext();
 const base = {
   palette: {
     primary: { main: '#00665a', light: '#33998a', dark: '#004d43', contrastText: '#ffffff' },
-    secondary: { main: '#9c27b0', light: '#ba68c8', dark: '#7b1fa2', contrastText: '#ffffff' },
+    secondary: { main: '#b46a2a', light: '#cf8a52', dark: '#8d4f1d', contrastText: '#ffffff' },
   },
   shape: { borderRadius: 8 },
   components: {
