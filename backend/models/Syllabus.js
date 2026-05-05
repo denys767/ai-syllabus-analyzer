@@ -18,6 +18,10 @@ const syllabusSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  programId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Program'
+  },
   originalFile: {
     filename: String,
     originalName: String,
@@ -29,10 +33,9 @@ const syllabusSchema = new mongoose.Schema({
       default: Date.now
     }
   },
-  // Auto-generated updated version of syllabus that incorporates accepted AI recommendations
   modifiedFile: {
     filename: String,
-    originalName: String, // base name + "-modified"
+    originalName: String,
     mimetype: { type: String, default: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
     size: Number,
     path: String,
@@ -46,11 +49,24 @@ const syllabusSchema = new mongoose.Schema({
     path: String,
     generatedAt: Date
   },
+  // Cached preview of the clean final syllabus PDF; invalidated when conversation has new decisions after generatedAt
+  previewPdf: {
+    path: String,
+    generatedAt: Date
+  },
+  // Final PDF persisted at submission time — audit artifact attached to the AD email
+  submittedPdfPath: String,
+  submittedAt: Date,
+  submissionEmailStatus: {
+    type: String,
+    enum: ['pending', 'sent', 'failed'],
+    default: 'pending'
+  },
   extractedText: {
     type: String,
     required: true
   },
-  // Generated annotated version with inline comments after applying accepted recommendations
+  // Running edited version mutated by per-issue Confirm; initialized from extractedText on first decision
   editedText: {
     type: String
   },
@@ -82,8 +98,8 @@ const syllabusSchema = new mongoose.Schema({
         cluster: String,
         description: String,
         relevance: Number
-  }],
-  adaptationRecommendations: [String]
+      }],
+      adaptationRecommendations: [String]
     },
     plagiarismCheck: {
       similarSyllabi: [{
@@ -97,9 +113,7 @@ const syllabusSchema = new mongoose.Schema({
         type: String,
         enum: ['none', 'low', 'medium', 'high', 'unknown']
       }
-  },
-  // Optional survey insights snapshot used for grouped recommendations
-  surveyInsights: mongoose.Schema.Types.Mixed
+    }
   },
   recommendations: [{
     id: {
@@ -109,17 +123,18 @@ const syllabusSchema = new mongoose.Schema({
     category: {
       type: String,
       enum: [
-        // Legacy categories (backward compatibility)
-        'structure', 'content', 'objectives', 'assessment', 'cases', 'methods', 'plagiarism',
-        // New v2.0.0 categories
-        'template-compliance', 'learning-objectives', 'content-quality', 'student-clusters', 'policy', 'other',
-        // AI Challenger category
-        'practicality'
+        'template-compliance',
+        'learning-objectives',
+        'content-quality',
+        'cases',
+        'student-clusters',
+        'policy',
+        'plagiarism',
+        'other'
       ],
       required: true
     },
-  // UI grouping tag (UA labels) — NOT enforced enum to allow future expansion
-  groupTag: { type: String }, // e.g. "Відповідність до шаблону"
+    groupTag: { type: String },
     title: String,
     description: String,
     priority: {
@@ -127,10 +142,25 @@ const syllabusSchema = new mongoose.Schema({
       enum: ['low', 'medium', 'high', 'critical'],
       default: 'medium'
     },
-    status: {
+    decision: {
       type: String,
-      enum: ['pending', 'accepted', 'rejected'],
+      enum: ['pending', 'accepted', 'rejected', 'skipped'],
       default: 'pending'
+    },
+    decidedVia: {
+      type: String,
+      enum: ['chat', 'admin-override'],
+      default: null
+    },
+    // Pre-generated chat payload to avoid live LLM calls per Confirm
+    beforeAfter: {
+      kind: {
+        type: String,
+        enum: ['before-after', 'choice', 'case-cards']
+      },
+      before: String,
+      after: String,
+      payload: mongoose.Schema.Types.Mixed
     },
     createdAt: {
       type: Date,
@@ -138,38 +168,7 @@ const syllabusSchema = new mongoose.Schema({
     },
     respondedAt: Date
   }],
-  practicalChallenge: {
-    initialQuestion: String,
-    instructorResponse: String,
-    discussion: [{
-      instructorResponse: String,
-      aiResponse: String,
-      respondedAt: { type: Date, default: Date.now }
-    }],
-    aiSuggestions: [{
-      title: String,
-      suggestion: String,
-      category: String, // e.g., 'case-study', 'group-activity', 'interactive-method'
-      priority: {
-        type: String,
-        enum: ['low', 'medium', 'high', 'critical'],
-        default: 'medium'
-      },
-      createdAt: { type: Date, default: Date.now }
-    }],
-    practicalityScore: {
-      type: Number,
-      min: 0,
-      max: 100
-    },
-    practicalityCritique: String,
-    status: {
-      type: String,
-      enum: ['pending', 'in-progress', 'completed'],
-      default: 'pending'
-    }
-  },
-  vectorEmbedding: [Number], // For similarity comparison
+  vectorEmbedding: [Number],
   editingStatus: {
     type: String,
     enum: ['idle', 'processing', 'ready', 'error'],
@@ -180,8 +179,8 @@ const syllabusSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['processing', 'analyzed', 'reviewed', 'approved', 'error'],
-    default: 'processing'
+    enum: ['analyzing', 'in_progress', 'submitted', 'error'],
+    default: 'analyzing'
   },
   version: {
     type: Number,
@@ -191,17 +190,11 @@ const syllabusSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Indexes for performance
 syllabusSchema.index({ instructor: 1, createdAt: -1 });
 syllabusSchema.index({ 'course.code': 1, 'course.year': 1 });
 syllabusSchema.index({ status: 1 });
-// Removed uniquenessScore index (numeric scoring deprecated)
+syllabusSchema.index({ programId: 1, status: 1 });
 
-// Method to calculate overall quality score
-// Deprecated: quality score removed per new simplified spec (no percentage scoring)
-syllabusSchema.methods.calculateQualityScore = function() { return 0; };
-
-// Helper to remove associated files from disk
 syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
   const fs = fsPromises || require('fs').promises;
   const tryUnlink = async (p) => {
@@ -212,15 +205,16 @@ syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
     await tryUnlink(this.originalFile?.path);
     await tryUnlink(this.editedPdf?.path);
     await tryUnlink(this.modifiedFile?.path);
+    await tryUnlink(this.previewPdf?.path);
+    await tryUnlink(this.submittedPdfPath);
   } catch (e) {
-    // swallow errors; cleanup is best-effort
+    // best-effort
   }
 };
 
-// Static helper to cleanup multiple syllabi files by filter
 syllabusSchema.statics.cleanupFilesByFilter = async function(filter = {}) {
   const fs = require('fs').promises;
-  const docs = await this.find(filter).select('originalFile.path editedPdf.path modifiedFile.path');
+  const docs = await this.find(filter).select('originalFile.path editedPdf.path modifiedFile.path previewPdf.path submittedPdfPath');
   for (const doc of docs) {
     await doc.cleanupFiles(fs);
   }

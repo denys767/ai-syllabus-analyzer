@@ -146,9 +146,30 @@ async function sendEmailChangeConfirmation(newEmail, token) {
   return sendMail({ to: newEmail, subject, html });
 }
 
+async function sendSubmissionToAdEmail({ adEmail, syllabusMeta, summaryText, pdfBuffer, pdfFilename }) {
+  const courseTitle = syllabusMeta?.course?.name || syllabusMeta?.title || 'Syllabus';
+  const instructor = `${syllabusMeta?.instructor?.firstName || ''} ${syllabusMeta?.instructor?.lastName || ''}`.trim() || 'Instructor';
+  const subject = `Syllabus submitted for review — ${courseTitle}`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#333">
+      <h2>Syllabus ready for review</h2>
+      <p><strong>${courseTitle}</strong> has been submitted by ${instructor} after walking through the AI review.</p>
+      <p>The full final syllabus is attached as a PDF. A short summary of the AI review is below.</p>
+      <pre style="background:#f6f8fa;padding:12px;border-radius:6px;white-space:pre-wrap;font-family:'Segoe UI',Roboto,sans-serif;font-size:14px">${(summaryText || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</pre>
+    </div>
+  `;
+  return sendMail({
+    to: adEmail,
+    subject,
+    html,
+    attachments: pdfBuffer ? [{ filename: pdfFilename || `${courseTitle}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }] : undefined,
+  });
+}
+
 module.exports = {
   sendInvitationEmail,
   sendPasswordResetEmail,
   sendAccountDeletionEmail,
   sendEmailChangeConfirmation,
+  sendSubmissionToAdEmail,
 };

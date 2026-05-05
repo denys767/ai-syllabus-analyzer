@@ -19,19 +19,19 @@ router.get('/stats', auth, async (req, res) => {
     // Get user's syllabi count
     const totalSyllabi = await Syllabus.countDocuments({ instructor: userId });
     
-    // Get analyzed syllabi count
-    const analyzedSyllabi = await Syllabus.countDocuments({ 
-      instructor: userId, 
-      status: 'analyzed' 
+    const inProgressSyllabi = await Syllabus.countDocuments({
+      instructor: userId,
+      status: 'in_progress'
     });
-    
-    
-    // Deprecated AI score removed (numeric scoring no longer used)
+    const submittedSyllabi = await Syllabus.countDocuments({
+      instructor: userId,
+      status: 'submitted'
+    });
 
     const stats = {
       totalSyllabi,
-      analyzedSyllabi,
-      // aiScore removed
+      inProgressSyllabi,
+      submittedSyllabi
     };
     
     res.json(stats);

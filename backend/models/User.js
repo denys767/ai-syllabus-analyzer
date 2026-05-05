@@ -27,9 +27,13 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['instructor', 'admin', 'manager'],
+    enum: ['instructor', 'admin'],
     default: 'instructor'
   },
+  openSyllabusIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Syllabus'
+  }],
   avatarUrl: {
     type: String,
     trim: true

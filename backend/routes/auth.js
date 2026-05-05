@@ -26,8 +26,8 @@ router.post('/create-user', auth, admin, [
     .notEmpty()
     .withMessage('Last name is required'),
   body('role')
-    .isIn(['instructor', 'admin', 'manager'])
-    .withMessage('Role must be instructor, admin, or manager')
+    .isIn(['instructor', 'admin'])
+    .withMessage('Role must be instructor or admin')
 ], async (req, res) => {
   try {
     // Check validation errors

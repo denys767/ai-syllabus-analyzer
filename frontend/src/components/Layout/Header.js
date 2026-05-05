@@ -161,9 +161,8 @@ const Header = ({ onMenuClick, drawerOpen }) => {
               {user?.email}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {user?.role === 'instructor' ? 'Instructor' : 
-               user?.role === 'admin' ? 'Administrator' : 
-               user?.role === 'manager' ? 'Manager' : user?.role}
+              {user?.role === 'instructor' ? 'Instructor' :
+               user?.role === 'admin' ? 'Administrator' : user?.role}
             </Typography>
           </Box>
           
