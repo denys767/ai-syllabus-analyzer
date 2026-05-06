@@ -114,11 +114,18 @@ async function nextIssueMessage(conversation) {
     return null;
   }
 
-  // Already showed this issue? Don't double-post.
-  if (conversation.currentIssueId === issue.id) return issue;
+  const alreadyCurrent = conversation.currentIssueId === issue.id;
 
   // Cache miss → backfill via live LLM call.
-  if (!issue.beforeAfter || (!issue.beforeAfter.before && !issue.beforeAfter.after)) {
+  const currentSyllabusText = aiService.getEditableSyllabusText(syllabus);
+  const missingPreview = !issue.beforeAfter || (!issue.beforeAfter.before && !issue.beforeAfter.after);
+  const previewKind = issue.beforeAfter?.kind || 'before-after';
+  const stalePreview = previewKind === 'before-after'
+    && !aiService.isBeforeAfterApplicable(currentSyllabusText, issue.beforeAfter);
+
+  if (alreadyCurrent && !missingPreview && !stalePreview) return issue;
+
+  if (missingPreview || stalePreview) {
     try {
       const ba = await aiService.generateIssueMessage(syllabus, issue);
       issue.beforeAfter = ba;
@@ -137,7 +144,7 @@ async function nextIssueMessage(conversation) {
     }
   }
 
-  await Message.create({
+  const issueMessage = {
     conversationId: conversation._id,
     role: 'ai',
     kind: issue.beforeAfter.kind || 'before-after',
@@ -148,7 +155,20 @@ async function nextIssueMessage(conversation) {
       ...(issue.beforeAfter.payload || {}),
     },
     relatedIssueId: issue.id,
-  });
+  };
+
+  if (alreadyCurrent) {
+    const updated = await Message.findOneAndUpdate(
+      { conversationId: conversation._id, relatedIssueId: issue.id, role: 'ai' },
+      { $set: issueMessage },
+      { sort: { createdAt: -1 }, new: true }
+    );
+    if (!updated) await Message.create(issueMessage);
+    await conversation.save();
+    return issue;
+  }
+
+  await Message.create(issueMessage);
 
   conversation.currentIssueId = issue.id;
   await conversation.save();
@@ -156,32 +176,40 @@ async function nextIssueMessage(conversation) {
 }
 
 async function applyDecision(conversation, issueId, decision) {
-  const syllabus = await Syllabus.findOneAndUpdate(
-    { _id: conversation.syllabusId, 'recommendations.id': issueId, 'recommendations.decision': 'pending' },
-    {
-      $set: {
-        'recommendations.$.decision': decision,
-        'recommendations.$.decidedVia': 'chat',
-        'recommendations.$.respondedAt': new Date(),
-      },
-    },
-    { new: true }
-  );
+  const syllabus = await Syllabus.findById(conversation.syllabusId);
   if (!syllabus) {
+    const e = new Error('Syllabus not found');
+    e.statusCode = 404;
+    throw e;
+  }
+
+  const issue = findIssue(syllabus, issueId);
+  if (!issue || issue.decision !== 'pending') {
     const e = new Error('Issue not pending or not found');
     e.statusCode = 409;
     throw e;
   }
 
-  // On accept, append the AFTER text to editedText (initialise from extractedText on first decision).
   if (decision === 'accepted') {
-    const issue = findIssue(syllabus, issueId);
-    const afterText = issue?.beforeAfter?.after;
-    if (afterText) {
-      syllabus.editedText = (syllabus.editedText || syllabus.extractedText || '') + `\n\n[${issue.title}]\n${afterText}`;
-      await syllabus.save();
+    if (!issue.beforeAfter || (issue.beforeAfter.kind && issue.beforeAfter.kind !== 'before-after')) {
+      const e = new Error('Issue does not have a Before/After preview to apply');
+      e.statusCode = 409;
+      throw e;
+    }
+    const currentText = aiService.getEditableSyllabusText(syllabus);
+    try {
+      syllabus.editedText = aiService.applyBeforeAfterToText(currentText, issue.beforeAfter);
+    } catch (err) {
+      err.statusCode = err.code === 'STALE_BEFORE_AFTER' ? 409 : 500;
+      err.retryable = err.code === 'STALE_BEFORE_AFTER';
+      throw err;
     }
   }
+
+  issue.decision = decision;
+  issue.decidedVia = 'chat';
+  issue.respondedAt = new Date();
+  await syllabus.save();
 
   conversation.lastDecisionAt = new Date();
   await recomputeReadiness(conversation, syllabus);
@@ -208,7 +236,7 @@ async function cancelIssue(conversation, issueId) {
     conversationId: conversation._id,
     role: 'user',
     kind: 'text',
-    content: 'Skipped.',
+    content: 'Cancelled.',
     relatedIssueId: issueId,
   });
   await nextIssueMessage(conversation);

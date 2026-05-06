@@ -74,7 +74,7 @@ const BeforeAfter = ({ message, onConfirm, onCancel, busy, isCurrent }) => {
             disabled={busy}
             onClick={() => onCancel(message.relatedIssueId)}
           >
-            Skip
+            Cancel
           </Button>
         </Stack>
       )}
