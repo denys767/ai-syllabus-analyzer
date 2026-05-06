@@ -5,14 +5,15 @@ const { auth, admin } = require('../middleware/auth');
 const Program = require('../models/Program');
 const User = require('../models/User');
 const Syllabus = require('../models/Syllabus');
+const Conversation = require('../models/Conversation');
+const { getIssueCounts } = require('../services/workspaceService');
 const { sendInvitationEmail } = require('../services/emailService');
 const crypto = require('crypto');
 
-router.use(auth, admin);
 
 // ─── Programs ────────────────────────────────────────────────────────────────
 
-router.get('/programs', async (req, res) => {
+router.get('/programs', auth, async (req, res) => {
   try {
     const programs = await Program.find().sort({ name: 1 });
     res.json(programs);
@@ -20,6 +21,8 @@ router.get('/programs', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+router.use(auth, admin);
 
 router.post('/programs', async (req, res) => {
   try {
@@ -90,7 +93,24 @@ router.get('/syllabi', async (req, res) => {
         .populate('programId', 'name code'),
       Syllabus.countDocuments(filter),
     ]);
-    res.json({ syllabi, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+    const syllabusIds = syllabi.map((item) => item._id);
+    const conversations = await Conversation.find({ syllabusId: { $in: syllabusIds } })
+      .select('syllabusId readiness')
+      .lean();
+    const conversationBySyllabus = new Map(conversations.map((conversation) => [
+      String(conversation.syllabusId),
+      conversation,
+    ]));
+    const enriched = syllabi.map((syllabus) => {
+      const plain = syllabus.toObject();
+      const conversation = conversationBySyllabus.get(String(plain._id));
+      return {
+        ...plain,
+        readiness: conversation?.readiness || { score: 0, breakdown: {} },
+        issueCounts: getIssueCounts(plain),
+      };
+    });
+    res.json({ syllabi: enriched, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -98,29 +118,45 @@ router.get('/syllabi', async (req, res) => {
 
 router.post('/syllabi/:id/resend-submission', async (req, res) => {
   try {
-    const syllabus = await Syllabus.findById(req.params.id).populate('programId');
+    const syllabus = await Syllabus.findById(req.params.id)
+      .populate('programId')
+      .populate('instructor', 'firstName lastName email');
     if (!syllabus) return res.status(404).json({ message: 'Syllabus not found' });
     if (syllabus.status !== 'submitted') return res.status(400).json({ message: 'Syllabus not submitted yet' });
     const adEmail = syllabus.programId?.academicDirectorEmail;
     if (!adEmail) return res.status(400).json({ message: 'No Academic Director email for this program' });
 
     const { sendSubmissionToAdEmail } = require('../services/emailService');
-    const { generateSubmissionReport } = require('../services/aiService');
+    const aiService = require('../services/aiService');
 
     let pdfBuffer;
+    const fs = require('fs');
     if (syllabus.submittedPdfPath) {
-      const fs = require('fs');
       try { pdfBuffer = fs.readFileSync(syllabus.submittedPdfPath); } catch { /* pdf may have been cleaned up */ }
     }
+    if (!pdfBuffer) {
+      const path = require('path');
+      const outDir = path.join(__dirname, '../uploads/pdfs');
+      fs.mkdirSync(outDir, { recursive: true });
+      const pdfPath = syllabus.submittedPdfPath || path.join(outDir, `submitted_${syllabus._id}.pdf`);
+      await aiService.renderFinalSyllabusPdf(syllabus, pdfPath);
+      pdfBuffer = fs.readFileSync(pdfPath);
+      if (!syllabus.submittedPdfPath) {
+        await Syllabus.findByIdAndUpdate(req.params.id, { submittedPdfPath: pdfPath });
+      }
+    }
 
-    const summaryText = await generateSubmissionReport(syllabus);
-    await sendSubmissionToAdEmail({
+    const summaryText = aiService.generateSubmissionReport(syllabus);
+    const info = await sendSubmissionToAdEmail({
       adEmail,
       syllabusMeta: syllabus,
       summaryText,
       pdfBuffer,
       pdfFilename: `${syllabus.course?.name || 'syllabus'}.pdf`,
     });
+    if (info?.skipped) {
+      return res.status(503).json({ message: 'Email transporter is not configured' });
+    }
 
     await Syllabus.findByIdAndUpdate(req.params.id, { submissionEmailStatus: 'sent' });
     res.json({ message: 'Email resent' });

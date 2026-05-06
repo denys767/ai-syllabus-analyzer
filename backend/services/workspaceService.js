@@ -14,9 +14,7 @@ const CATEGORY_TO_BLOCK = {
   'other': 'templateCompliance',
   'learning-objectives': 'learningOutcomes',
   'cases': 'cases',
-  'student-clusters': 'cases',
   'policy': 'policies',
-  'plagiarism': 'policies',
 };
 
 const BLOCK_KEYS = ['templateCompliance', 'learningOutcomes', 'cases', 'policies'];
@@ -30,10 +28,44 @@ function findIssue(syllabus, issueId) {
 }
 
 function nextPendingIssue(syllabus) {
-  const PRIORITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 };
+  const priorityRank = { critical: 4, high: 3, medium: 2, low: 1 };
   const pending = (syllabus.recommendations || []).filter((r) => r.decision === 'pending');
-  pending.sort((a, b) => (PRIORITY_RANK[b.priority] || 0) - (PRIORITY_RANK[a.priority] || 0));
+  pending.sort((a, b) => (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0));
   return pending[0] || null;
+}
+
+function isBlockingRejectedIssue(rec) {
+  return rec?.decision === 'rejected' && ['critical', 'high'].includes(rec.priority);
+}
+
+function getIssueCounts(syllabus) {
+  const recs = syllabus.recommendations || [];
+  return {
+    open: recs.filter((r) => r.decision === 'pending').length,
+    resolved: recs.filter((r) => r.decision === 'accepted').length,
+    rejected: recs.filter((r) => r.decision === 'rejected').length,
+    blockers: recs.filter(isBlockingRejectedIssue).length,
+  };
+}
+
+function getFinalGateError(syllabus) {
+  const pending = (syllabus.recommendations || []).filter((r) => r.decision === 'pending');
+  const blockers = (syllabus.recommendations || []).filter(isBlockingRejectedIssue);
+  if (!pending.length && !blockers.length) return null;
+
+  const parts = [];
+  if (pending.length) parts.push(`${pending.length} open issue${pending.length === 1 ? '' : 's'}`);
+  if (blockers.length) parts.push(`${blockers.length} declined critical/high blocker${blockers.length === 1 ? '' : 's'}`);
+  const err = new Error(`Syllabus is not ready for final preview or submission: ${parts.join(', ')}`);
+  err.statusCode = 409;
+  err.pendingIssues = pending.map((r) => ({ id: r.id, title: r.title, priority: r.priority }));
+  err.blockers = blockers.map((r) => ({ id: r.id, title: r.title, priority: r.priority }));
+  return err;
+}
+
+function assertReadyForFinal(syllabus) {
+  const err = getFinalGateError(syllabus);
+  if (err) throw err;
 }
 
 async function recomputeReadiness(conversation, syllabus) {
@@ -43,7 +75,7 @@ async function recomputeReadiness(conversation, syllabus) {
   for (const rec of recs) {
     const block = blockOf(rec.category);
     totals[block] += 1;
-    if (rec.decision && rec.decision !== 'pending') resolved[block] += 1;
+    if (rec.decision === 'accepted') resolved[block] += 1;
   }
   const breakdown = {};
   for (const k of BLOCK_KEYS) {
@@ -95,13 +127,37 @@ async function nextIssueMessage(conversation) {
   const syllabus = await Syllabus.findById(conversation.syllabusId);
   if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
 
-  const issue = nextPendingIssue(syllabus);
+  const activeIssue = conversation.currentIssueId ? findIssue(syllabus, conversation.currentIssueId) : null;
+  const issue = activeIssue?.decision === 'pending' ? activeIssue : nextPendingIssue(syllabus);
   if (!issue) {
     // All decisions made — surface the submission CTA.
     if (conversation.currentIssueId !== null) {
       conversation.currentIssueId = null;
       await conversation.save();
     }
+
+    const blockers = (syllabus.recommendations || []).filter(isBlockingRejectedIssue);
+    if (blockers.length) {
+      await Message.deleteMany({ conversationId: conversation._id, kind: 'submission-cta' });
+      const blockerTitles = blockers.map((rec) => `- ${rec.title} (${rec.priority})`).join('\n');
+      const content = `Syllabus is not ready for submission yet. The following critical/high issues were declined and must be resolved before preview or submission:\n${blockerTitles}`;
+      const existingWarning = await Message.findOne({
+        conversationId: conversation._id,
+        role: 'ai',
+        kind: 'text',
+        content: /^Syllabus is not ready for submission yet\./,
+      }).sort({ createdAt: -1 });
+      if (!existingWarning) {
+        await Message.create({
+          conversationId: conversation._id,
+          role: 'ai',
+          kind: 'text',
+          content,
+        });
+      }
+      return null;
+    }
+
     const existingCta = await Message.findOne({ conversationId: conversation._id, kind: 'submission-cta' }).sort({ createdAt: -1 });
     if (!existingCta) {
       await Message.create({
@@ -175,7 +231,7 @@ async function nextIssueMessage(conversation) {
   return issue;
 }
 
-async function applyDecision(conversation, issueId, decision) {
+async function applyDecision(conversation, issueId, decision, selection = null) {
   const syllabus = await Syllabus.findById(conversation.syllabusId);
   if (!syllabus) {
     const e = new Error('Syllabus not found');
@@ -191,16 +247,33 @@ async function applyDecision(conversation, issueId, decision) {
   }
 
   if (decision === 'accepted') {
-    if (!issue.beforeAfter || (issue.beforeAfter.kind && issue.beforeAfter.kind !== 'before-after')) {
+    if (!issue.beforeAfter) {
       const e = new Error('Issue does not have a Before/After preview to apply');
       e.statusCode = 409;
       throw e;
     }
     const currentText = aiService.getEditableSyllabusText(syllabus);
     try {
-      syllabus.editedText = aiService.applyBeforeAfterToText(currentText, issue.beforeAfter);
+      const applied = aiService.applyIssuePreviewToTextWithTrace(currentText, issue.beforeAfter, selection);
+      syllabus.editedText = applied.text;
+      syllabus.revisionMarkup = aiService.applyBeforeAfterToRevisionMarkup(
+        syllabus.revisionMarkup || currentText,
+        applied.trace
+      );
+      if (issue.beforeAfter.kind && issue.beforeAfter.kind !== 'before-after') {
+        issue.beforeAfter.payload = {
+          ...(issue.beforeAfter.payload || {}),
+          appliedSelection: selection || {},
+          appliedText: applied.appliedText,
+        };
+      }
+      if (syllabus.previewPdf?.path) {
+        try { await fs.promises.unlink(syllabus.previewPdf.path); } catch { /* best-effort stale preview cleanup */ }
+      }
+      syllabus.previewPdf = undefined;
+      syllabus.editingStatus = 'ready';
     } catch (err) {
-      err.statusCode = err.code === 'STALE_BEFORE_AFTER' ? 409 : 500;
+      err.statusCode = ['STALE_BEFORE_AFTER', 'INVALID_SELECTION', 'INVALID_BEFORE_AFTER'].includes(err.code) ? 409 : 500;
       err.retryable = err.code === 'STALE_BEFORE_AFTER';
       throw err;
     }
@@ -217,8 +290,8 @@ async function applyDecision(conversation, issueId, decision) {
   return syllabus;
 }
 
-async function confirmIssue(conversation, issueId) {
-  const syllabus = await applyDecision(conversation, issueId, 'accepted');
+async function confirmIssue(conversation, issueId, selection = null) {
+  const syllabus = await applyDecision(conversation, issueId, 'accepted', selection);
   await Message.create({
     conversationId: conversation._id,
     role: 'user',
@@ -286,6 +359,7 @@ async function freeChatMessage(conversation, userText) {
 async function previewFinalPdf(syllabusId) {
   const syllabus = await Syllabus.findById(syllabusId).populate('programId', 'name').lean();
   if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  assertReadyForFinal(syllabus);
 
   const conversation = await Conversation.findOne({ syllabusId });
   const lastDecision = conversation?.lastDecisionAt;
@@ -318,6 +392,7 @@ async function submitSyllabus(syllabusId) {
   if (syllabus.status === 'submitted') {
     throw Object.assign(new Error('Already submitted'), { statusCode: 409 });
   }
+  assertReadyForFinal(syllabus);
 
   // Render final PDF (always fresh on submit — ignore preview cache).
   const outDir = path.join(__dirname, '../uploads/pdfs');
@@ -334,13 +409,14 @@ async function submitSyllabus(syllabusId) {
     let pdfBuffer;
     try { pdfBuffer = fs.readFileSync(pdfPath); } catch { /* skip attachment if unreadable */ }
     try {
-      await sendSubmissionToAdEmail({
+      const info = await sendSubmissionToAdEmail({
         adEmail,
         syllabusMeta: syllabus,
         summaryText,
         pdfBuffer,
         pdfFilename: `${syllabus.course?.name || 'syllabus'}.pdf`,
       });
+      if (info?.skipped) emailStatus = 'failed';
     } catch (err) {
       console.error('Submission email failed:', err.message);
       emailStatus = 'failed';
@@ -356,6 +432,7 @@ async function submitSyllabus(syllabusId) {
     submittedPdfPath: pdfPath,
     submissionEmailStatus: emailStatus,
   });
+  await Conversation.findOneAndUpdate({ syllabusId }, { status: 'submitted', currentIssueId: null });
 }
 
 async function getConversationView(syllabusId, { limit = 200 } = {}) {
@@ -379,4 +456,5 @@ module.exports = {
   getConversationView,
   recomputeReadiness,
   blockOf,
+  getIssueCounts,
 };

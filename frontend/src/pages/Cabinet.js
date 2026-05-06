@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  LinearProgress,
   MenuItem,
   Paper,
   Select,
@@ -57,14 +58,34 @@ const MetricsRow = ({ metrics }) => (
 
 // ─── Status chip ──────────────────────────────────────────────────────────────
 
-const statusColor = { submitted: 'success', in_progress: 'warning', analyzing: 'info', error: 'error' };
+const statusColor = { submitted: 'success', in_progress: 'warning', analyzing: 'default', error: 'error' };
+const statusLabel = { submitted: 'Submitted', in_progress: 'In progress', analyzing: 'Draft', error: 'Error' };
 const StatusChip = ({ status }) => (
-  <Chip label={status} size="small" color={statusColor[status] || 'default'} />
+  <Chip label={statusLabel[status] || 'Draft'} size="small" color={statusColor[status] || 'default'} />
 );
+
+const ReadinessCell = ({ syllabus }) => {
+  const score = Number(syllabus.readiness?.score || 0);
+  const blockers = Number(syllabus.issueCounts?.blockers || 0);
+  return (
+    <Box sx={{ minWidth: 130 }}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>{score}%</Typography>
+        {blockers > 0 && <Chip size="small" color="error" label={`${blockers} blocker${blockers === 1 ? '' : 's'}`} />}
+      </Stack>
+      <LinearProgress
+        variant="determinate"
+        value={Math.max(0, Math.min(100, score))}
+        color={blockers > 0 ? 'error' : score >= 100 ? 'success' : 'primary'}
+        sx={{ height: 6, borderRadius: 1 }}
+      />
+    </Box>
+  );
+};
 
 // ─── Syllabi tab ─────────────────────────────────────────────────────────────
 
-const SyllabiTab = ({ programs }) => {
+const SyllabiTab = ({ programs, onChanged }) => {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -72,6 +93,7 @@ const SyllabiTab = ({ programs }) => {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState('');
   const [snack, setSnack] = useState('');
 
   const load = useCallback(async () => {
@@ -99,6 +121,27 @@ const SyllabiTab = ({ programs }) => {
     }
   };
 
+  const deleteSyllabus = async (syllabus) => {
+    const courseTitle = syllabus.course?.name || syllabus.title || 'this syllabus';
+    if (!window.confirm(`Delete "${courseTitle}"? This cannot be undone.`)) return;
+
+    setDeletingId(syllabus._id);
+    try {
+      await api.cabinet.deleteSyllabus(syllabus._id);
+      setSnack('Syllabus deleted');
+      onChanged?.();
+      if (rows.length === 1 && page > 1) {
+        setPage((p) => p - 1);
+      } else {
+        load();
+      }
+    } catch (err) {
+      setSnack(err.response?.data?.message || 'Delete failed');
+    } finally {
+      setDeletingId('');
+    }
+  };
+
   return (
     <Box>
       <Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'center' }}>
@@ -108,7 +151,7 @@ const SyllabiTab = ({ programs }) => {
         </Select>
         <Select size="small" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} displayEmpty sx={{ minWidth: 140 }}>
           <MenuItem value="">All statuses</MenuItem>
-          {['analyzing', 'in_progress', 'submitted', 'error'].map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+          {['analyzing', 'in_progress', 'submitted', 'error'].map((s) => <MenuItem key={s} value={s}>{statusLabel[s] || s}</MenuItem>)}
         </Select>
         <IconButton onClick={load} disabled={loading}><Refresh /></IconButton>
         <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>{total} total</Typography>
@@ -121,6 +164,7 @@ const SyllabiTab = ({ programs }) => {
               <TableCell>Course</TableCell>
               <TableCell>Instructor</TableCell>
               <TableCell>Program</TableCell>
+              <TableCell>Readiness</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Updated</TableCell>
               <TableCell align="right">Actions</TableCell>
@@ -132,6 +176,7 @@ const SyllabiTab = ({ programs }) => {
                 <TableCell>{s.course?.name || s.title || '—'}</TableCell>
                 <TableCell>{`${(s.instructor || s.instructorId)?.firstName || ''} ${(s.instructor || s.instructorId)?.lastName || ''}`.trim() || '—'}</TableCell>
                 <TableCell>{s.programId?.name || '—'}</TableCell>
+                <TableCell><ReadinessCell syllabus={s} /></TableCell>
                 <TableCell><StatusChip status={s.status} /></TableCell>
                 <TableCell>{new Date(s.updatedAt).toLocaleDateString()}</TableCell>
                 <TableCell align="right">
@@ -143,11 +188,23 @@ const SyllabiTab = ({ programs }) => {
                       <IconButton size="small" onClick={() => resend(s._id)}><Email fontSize="small" /></IconButton>
                     </Tooltip>
                   )}
+                  <Tooltip title="Delete syllabus">
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        disabled={deletingId === s._id}
+                        onClick={() => deleteSyllabus(s)}
+                      >
+                        {deletingId === s._id ? <CircularProgress size={16} color="inherit" /> : <Delete fontSize="small" />}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                 </TableCell>
               </TableRow>
             ))}
             {!loading && rows.length === 0 && (
-              <TableRow><TableCell colSpan={6} align="center" sx={{ py: 3, color: 'text.secondary' }}>No syllabi found</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.secondary' }}>No syllabi found</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -385,10 +442,14 @@ const Cabinet = () => {
     }
   }, []);
 
+  const loadMetrics = useCallback(() => {
+    api.cabinet.getMetrics().then(({ data }) => setMetrics(data)).catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadPrograms();
-    api.cabinet.getMetrics().then(({ data }) => setMetrics(data)).catch(() => {});
-  }, [loadPrograms]);
+    loadMetrics();
+  }, [loadPrograms, loadMetrics]);
 
   return (
     <Box sx={{ p: 3, maxWidth: 1100, mx: 'auto' }}>
@@ -400,7 +461,7 @@ const Cabinet = () => {
         <Tab label="Users" />
         <Tab label="Programs" />
       </Tabs>
-      {tab === 0 && <SyllabiTab programs={programs} />}
+      {tab === 0 && <SyllabiTab programs={programs} onChanged={loadMetrics} />}
       {tab === 1 && <UsersTab />}
       {tab === 2 && <ProgramsTab programs={programs} reload={loadPrograms} />}
     </Box>

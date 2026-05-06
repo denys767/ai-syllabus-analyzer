@@ -1,19 +1,25 @@
 const path = require('path');
 const fs = require('fs');
 const Syllabus = require('../models/Syllabus');
-const StudentCluster = require('../models/StudentCluster');
-const natural = require('natural');
 const OpenAI = require('openai');
+const DiffMatchPatch = require('diff-match-patch');
 
 const MISSING_SECTION_TEXT = '(missing section)';
 const MAX_BEFORE_AFTER_CHARS = 1800;
 const MAX_SOURCE_EXCERPT_CHARS = 1400;
 const SOURCE_EXCERPT_COUNT = 12;
+const BATCH_CANDIDATES_PER_RECOMMENDATION = 5;
+const BATCH_MAX_SHARED_EXCERPTS = 30;
+const REV_DEL_OPEN = '[[KSE_DEL]]';
+const REV_DEL_CLOSE = '[[/KSE_DEL]]';
+const REV_ADD_OPEN = '[[KSE_ADD]]';
+const REV_ADD_CLOSE = '[[/KSE_ADD]]';
 
 class AIService {
   constructor() {
-    this.stemmer = natural.PorterStemmer;
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    this.diffMatchPatch = new DiffMatchPatch();
+    this.aiRequestTimeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS || 130000);
 
     const envModel = (process.env.LLM_MODEL || '').trim();
     this.llmModel = envModel && envModel.startsWith('gpt-') ? envModel : 'gpt-5-nano';
@@ -54,6 +60,10 @@ class AIService {
     ];
   }
 
+  async createResponse(params) {
+    return this.openai.responses.create(params, { timeout: this.aiRequestTimeoutMs });
+  }
+
   async analyzeSyllabus(syllabusId) {
     try {
       console.log('Starting syllabus analysis:', syllabusId);
@@ -87,7 +97,6 @@ class AIService {
           plagiarismCheck: plagiarismCheck
         },
         recommendations: recsWithPayloads,
-        vectorEmbedding: this.generateVectorEmbedding(syllabus.extractedText),
         status: 'in_progress'
       });
 
@@ -146,7 +155,7 @@ Return JSON with this exact structure:
   ]
 }`;
 
-    const response = await this.openai.responses.create({
+    const response = await this.createResponse({
       model: this.llmModel,
       input: [
         { role: 'system', content: 'You are an expert MBA syllabus analyzer for KSE Business School. Always return valid JSON.' },
@@ -172,46 +181,16 @@ Return JSON with this exact structure:
   }
 
   async checkPlagiarism(currentSyllabus) {
-    try {
-      const otherSyllabi = await Syllabus.find({
-        _id: { $ne: currentSyllabus._id },
-        status: { $in: ['in_progress', 'submitted'] },
-        vectorEmbedding: { $exists: true }
-      }).select('title course extractedText vectorEmbedding instructor');
-
-      if (otherSyllabi.length === 0) {
-        return { riskLevel: 'none', similarSyllabi: [], overallSimilarity: 0 };
-      }
-
-      const currentVector = this.generateVectorEmbedding(currentSyllabus.extractedText);
-      const similarities = [];
-
-      for (const other of otherSyllabi) {
-        const similarity = this.calculateCosineSimilarity(currentVector, other.vectorEmbedding);
-        if (similarity > 0.5) {
-          similarities.push({
-            syllabusId: other._id,
-            title: other.title || other.course?.name || 'Untitled',
-            instructor: other.instructor,
-            similarity: Math.round(similarity * 100),
-            excerpts: this.findSimilarExcerpts(currentSyllabus.extractedText, other.extractedText)
-          });
-        }
-      }
-
-      similarities.sort((a, b) => b.similarity - a.similarity);
-      const maxSimilarity = similarities.length > 0 ? similarities[0].similarity : 0;
-      let riskLevel = 'low';
-      if (maxSimilarity >= 80) riskLevel = 'high';
-      else if (maxSimilarity >= 60) riskLevel = 'medium';
-
-      return { riskLevel, similarSyllabi: similarities.slice(0, 5), overallSimilarity: maxSimilarity };
-    } catch (error) {
-      return { riskLevel: 'unknown', similarSyllabi: [], overallSimilarity: 0, error: error.message };
-    }
+    return {
+      riskLevel: 'none',
+      similarSyllabi: [],
+      overallSimilarity: 0,
+      skipped: true,
+      reason: 'Similarity check is disabled for the Professor Tutor MVP'
+    };
   }
 
-  async generateAntiPlagiarismRecommendations(syllabus, plagiarismCheck) {
+  async generateDisabledAntiPlagiarismRecommendations(syllabus, plagiarismCheck) {
     const recommendations = [];
     for (let i = 0; i < Math.min(plagiarismCheck.similarSyllabi.length, 3); i++) {
       const similar = plagiarismCheck.similarSyllabi[i];
@@ -268,37 +247,12 @@ Return JSON with this exact structure:
       'content-quality': 'Content Quality',
       'cases': 'Case Recommendations',
       'policy': 'Course Policies',
-      'plagiarism': 'Match with Previous Syllabi',
-      'student-clusters': 'Student Cluster Integration',
       'other': 'Other'
     };
     return labels[category] || 'Other';
   }
 
-  generateVectorEmbedding(text) {
-    const words = text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2).map(w => this.stemmer.stem(w));
-    const freq = {};
-    words.forEach(w => freq[w] = (freq[w] || 0) + 1);
-    const topWords = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 50).map(e => e[0]);
-    const vector = topWords.map(w => freq[w] || 0);
-    const mag = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
-    return vector.map(val => mag > 0 ? val / mag : 0);
-  }
-
-  calculateCosineSimilarity(vectorA, vectorB) {
-    if (vectorA.length !== vectorB.length) return 0;
-    let dot = 0, magA = 0, magB = 0;
-    for (let i = 0; i < vectorA.length; i++) {
-      dot += vectorA[i] * vectorB[i];
-      magA += vectorA[i] * vectorA[i];
-      magB += vectorB[i] * vectorB[i];
-    }
-    magA = Math.sqrt(magA);
-    magB = Math.sqrt(magB);
-    return (magA === 0 || magB === 0) ? 0 : dot / (magA * magB);
-  }
-
-  async getStudentClusterContext() {
+  async getDisabledStudentClusterContext() {
     try {
       const clusterDoc = await StudentCluster.getCurrentClusters();
       if (!clusterDoc) return null;
@@ -432,7 +386,6 @@ Return JSON with this exact structure:
       'learning-objectives': ['learning', 'outcomes', 'objectives', 'lo', 'mba', 'competencies', 'alignment'],
       'content-quality': ['description', 'clarity', 'topics', 'readings', 'assessment', 'workload', 'course'],
       'cases': ['case', 'cases', 'schedule', 'week', 'session', 'readings', 'materials'],
-      'student-clusters': ['case', 'cases', 'students', 'cluster', 'audience', 'schedule'],
       'policy': ['policy', 'policies', 'attendance', 'academic', 'integrity', 'ai', 'artificial', 'intelligence'],
       'other': ['course', 'syllabus', 'section']
     };
@@ -573,6 +526,156 @@ Return JSON with this exact structure:
     }));
   }
 
+  buildBatchPreviewContext(syllabusText, recommendations) {
+    const sources = [];
+    const sourceByRange = new Map();
+    const candidatesByRecommendationId = new Map();
+
+    const addSource = (candidate) => {
+      const key = `${candidate.start}:${candidate.end}`;
+      const existing = sourceByRange.get(key);
+      if (existing) return existing;
+
+      const source = {
+        id: `s${sources.length + 1}`,
+        start: candidate.start,
+        end: candidate.end,
+        text: candidate.text
+      };
+      sourceByRange.set(key, source);
+      sources.push(source);
+      return source;
+    };
+
+    for (const recommendation of recommendations) {
+      const recommendationId = String(recommendation.id || '').trim();
+      if (!recommendationId) continue;
+
+      const localCandidates = this.buildCandidateExcerpts(syllabusText, recommendation);
+      const selected = [];
+      const selectedIds = new Set();
+
+      const pushCandidate = (candidate, force = false) => {
+        if (!candidate) return;
+        const key = `${candidate.start}:${candidate.end}`;
+        if (!force && sources.length >= BATCH_MAX_SHARED_EXCERPTS && !sourceByRange.has(key)) return;
+        const source = addSource(candidate);
+        if (!selectedIds.has(source.id)) {
+          selectedIds.add(source.id);
+          selected.push(source);
+        }
+      };
+
+      // Always include the top local source for each recommendation, then fill
+      // the shared source catalog up to the batch cap.
+      pushCandidate(localCandidates[0], true);
+      for (const candidate of localCandidates.slice(1, BATCH_CANDIDATES_PER_RECOMMENDATION)) {
+        pushCandidate(candidate);
+      }
+
+      if (selected.length) {
+        candidatesByRecommendationId.set(recommendationId, selected);
+      }
+    }
+
+    return { sources, candidatesByRecommendationId };
+  }
+
+  async generateIssueMessagesBatch(syllabus, recommendations) {
+    const recs = (recommendations || []).filter((recommendation) => recommendation?.id);
+    if (!recs.length) return new Map();
+
+    const syllabusText = this.getEditableSyllabusText(syllabus);
+    const { sources, candidatesByRecommendationId } = this.buildBatchPreviewContext(syllabusText, recs);
+    if (!sources.length) {
+      throw new Error('Cannot generate Before/After previews without syllabus text');
+    }
+
+    const issueLines = recs.map((recommendation, idx) => {
+      const recommendationId = String(recommendation.id);
+      const candidateIds = (candidatesByRecommendationId.get(recommendationId) || []).map((source) => source.id);
+      return [
+        `ISSUE ${idx + 1}`,
+        `recommendationId: ${recommendationId}`,
+        `candidateSourceIds: ${candidateIds.join(', ') || 'missing only if truly absent'}`,
+        `category: ${recommendation.category || 'other'}`,
+        `priority: ${recommendation.priority || 'medium'}`,
+        `title: ${recommendation.title || 'Untitled recommendation'}`,
+        `description: ${recommendation.description || ''}`
+      ].join('\n');
+    }).join('\n\n');
+
+    const prompt = `You are Professor's Tutor, helping an MBA instructor revise a syllabus.
+
+Create grounded Before/After previews for EVERY recommendation below using this shared source catalog.
+
+Rules:
+- Return exactly one preview object for each recommendationId.
+- Choose sourceId only from that issue's candidateSourceIds, or "missing" only when the section does not exist in the syllabus.
+- BEFORE must be an exact contiguous quote copied from the chosen source excerpt.
+- If sourceId is "missing", set before to "${MISSING_SECTION_TEXT}" and after to the new drop-in section text.
+- AFTER must be the revised syllabus text that directly replaces BEFORE, or the text to insert when the section is missing.
+- Do not invent facts such as dates, grading weights, instructor names, required readings, or case titles unless they are present in the source or recommendation.
+- Keep AFTER concise and drop-in ready, usually 1-3 paragraphs.
+
+SHARED CURRENT SYLLABUS SOURCE EXCERPTS:
+${sources.map((source) => `SOURCE ${source.id}:\n"""${source.text}"""`).join('\n\n')}
+
+RECOMMENDATIONS:
+${issueLines}
+
+Return only JSON:
+{
+  "previews": [
+    {
+      "recommendationId": "same id from the input",
+      "sourceId": "one candidate source id or missing",
+      "before": "exact old text copied from the source, or ${MISSING_SECTION_TEXT}",
+      "after": "replacement or insertion text",
+      "editAction": "replace or append or insert_after",
+      "insertAfterSourceId": "source id to insert after when missing, otherwise null"
+    }
+  ]
+}`;
+
+    const resp = await this.createResponse({
+      model: this.llmModel,
+      input: [
+        { role: 'system', content: 'You create grounded syllabus Before/After previews in one batch. Return only valid JSON.' },
+        { role: 'user', content: prompt },
+      ],
+      text: { format: { type: 'json_object' } },
+    });
+
+    const parsed = this.safeParseJSON(resp.output_text || '{}') || {};
+    const rawPreviews = Array.isArray(parsed)
+      ? parsed
+      : (parsed.previews || parsed.items || parsed.beforeAfter || []);
+    if (!Array.isArray(rawPreviews)) {
+      throw new Error('Batch Before/After generation returned invalid JSON');
+    }
+
+    const result = new Map();
+    for (const raw of rawPreviews) {
+      const recommendationId = String(raw.recommendationId || raw.recommendation_id || raw.issueId || raw.id || '').trim();
+      if (!recommendationId || result.has(recommendationId)) continue;
+
+      const candidates = candidatesByRecommendationId.get(recommendationId);
+      if (!candidates?.length) continue;
+
+      try {
+        result.set(
+          recommendationId,
+          this.normalizeIssuePreview(raw, candidates, syllabusText)
+        );
+      } catch (err) {
+        console.error(`Batch Before/After validation failed for ${recommendationId}:`, err.message);
+      }
+    }
+
+    return result;
+  }
+
   normalizeIssuePreview(parsed, candidates, syllabusText) {
     const sourceId = String(parsed.sourceId || parsed.source_id || '').trim();
     const insertAfterSourceId = String(parsed.insertAfterSourceId || parsed.insert_after_source_id || '').trim();
@@ -631,6 +734,187 @@ Return JSON with this exact structure:
     };
   }
 
+  normalizePolicyOptions(rawOptions, recommendation) {
+    const baseId = String(recommendation?.id || 'policy');
+    const fallbackText = String(recommendation?.description || 'Add a clear policy that meets KSE Graduate Business School standards.').trim();
+    const fallback = [
+      {
+        id: `${baseId}_standard`,
+        label: 'Standard policy',
+        text: fallbackText,
+        rationale: 'Directly addresses the missing or weak policy requirement.'
+      },
+      {
+        id: `${baseId}_flexible`,
+        label: 'Flexible policy',
+        text: `${fallbackText}\n\nThe instructor may adapt implementation details to the course format while keeping expectations transparent.`,
+        rationale: 'Keeps the requirement explicit while leaving room for instructor judgment.'
+      },
+      {
+        id: `${baseId}_strict`,
+        label: 'Strict policy',
+        text: `${fallbackText}\n\nNon-compliance should be handled according to KSE Graduate Business School academic rules.`,
+        rationale: 'Makes the compliance consequence explicit.'
+      }
+    ];
+
+    const options = (Array.isArray(rawOptions) ? rawOptions : [])
+      .slice(0, 3)
+      .map((option, index) => ({
+        id: String(option.id || `${baseId}_option_${index + 1}`).trim(),
+        label: String(option.label || `Option ${index + 1}`).trim(),
+        text: this.clipGeneratedText(option.text || option.policyText || option.content),
+        rationale: String(option.rationale || '').trim()
+      }))
+      .filter((option) => option.id && option.label && option.text);
+
+    return options.length >= 3 ? options : fallback;
+  }
+
+  async generatePolicyChoicePreview(syllabus, recommendation) {
+    const syllabusText = this.getEditableSyllabusText(syllabus);
+    const candidates = this.buildCandidateExcerpts(syllabusText, recommendation);
+    const prompt = `Create three policy choices for one MBA syllabus issue.
+
+Issue:
+Title: ${recommendation.title || 'Policy issue'}
+Description: ${recommendation.description || ''}
+Priority: ${recommendation.priority || 'medium'}
+
+Relevant syllabus excerpts:
+${candidates.slice(0, 5).map((candidate) => `SOURCE ${candidate.id}:\n"""${candidate.text}"""`).join('\n\n') || '(no relevant excerpt found)'}
+
+Rules:
+- Return three distinct options the instructor can choose from.
+- Do not invent instructor names, dates, grading weights, or institutional rules not implied by the issue.
+- Each option text must be drop-in ready syllabus text.
+
+Return JSON only:
+{
+  "options": [
+    { "id": "option_1", "label": "Short label", "text": "Drop-in policy text", "rationale": "Why this option fits" }
+  ],
+  "insertAfterSourceId": "source id to insert after, or null"
+}`;
+
+    const resp = await this.createResponse({
+      model: this.llmModel,
+      input: [
+        { role: 'system', content: 'You create structured policy choices for an MBA syllabus assistant. Return only valid JSON.' },
+        { role: 'user', content: prompt },
+      ],
+      text: { format: { type: 'json_object' } },
+    });
+
+    const parsed = this.safeParseJSON(resp.output_text || '{}') || {};
+    const insertAfter = candidates.find((candidate) => candidate.id === String(parsed.insertAfterSourceId || '').trim()) || candidates[0] || null;
+    return {
+      kind: 'choice',
+      before: MISSING_SECTION_TEXT,
+      after: '',
+      payload: {
+        source: 'policy-choice',
+        editAction: insertAfter ? 'insert_after' : 'append',
+        insertAfterSourceId: insertAfter?.id || null,
+        insertAfterText: insertAfter?.text || null,
+        options: this.normalizePolicyOptions(parsed.options || parsed.choices, recommendation),
+        generatedAt: new Date().toISOString(),
+        grounded: true
+      }
+    };
+  }
+
+  normalizeCaseCards(rawCards, recommendation) {
+    const cards = (Array.isArray(rawCards) ? rawCards : [])
+      .slice(0, 5)
+      .map((card, index) => ({
+        id: String(card.id || `case_${index + 1}`).trim(),
+        title: String(card.title || '').trim(),
+        sourceLabel: String(card.sourceLabel || card.source || '').trim(),
+        sourceUrl: String(card.sourceUrl || card.url || '').trim(),
+        fitLabel: String(card.fitLabel || 'Good fit').trim(),
+        summary: String(card.summary || '').trim(),
+        insertText: this.clipGeneratedText(card.insertText || card.syllabusText || card.text),
+        previewText: this.clipGeneratedText(card.previewText || card.summary || card.insertText)
+      }))
+      .filter((card) => card.id && card.title && card.insertText);
+
+    if (!cards.length) {
+      const err = new Error(`Case-card generation returned no usable cards for ${recommendation?.id || recommendation?.title || 'issue'}`);
+      err.retryable = true;
+      throw err;
+    }
+    return cards;
+  }
+
+  async generateCaseCardsPreview(syllabus, recommendation) {
+    const syllabusText = this.getEditableSyllabusText(syllabus);
+    const candidates = this.buildCandidateExcerpts(syllabusText, recommendation);
+    const prompt = `Find practical business case recommendations for one MBA syllabus issue using live web search.
+
+Course context:
+Title: ${syllabus.title || syllabus.course?.name || 'Untitled course'}
+
+Issue:
+Title: ${recommendation.title || 'Case recommendation'}
+Description: ${recommendation.description || ''}
+Priority: ${recommendation.priority || 'medium'}
+
+Relevant syllabus excerpts:
+${candidates.slice(0, 5).map((candidate) => `SOURCE ${candidate.id}:\n"""${candidate.text}"""`).join('\n\n') || '(no relevant excerpt found)'}
+
+Rules:
+- Prefer credible sources such as Harvard Business Publishing, Ivey, INSEAD, Stanford, MIT Sloan, Berkeley Haas, or reputable open business school collections.
+- Return cards with a concrete case title and a source URL when available.
+- insertText must be concise syllabus-ready text for adding the case to a relevant week/session.
+
+Return JSON only:
+{
+  "week": "Week/session label if implied, otherwise null",
+  "insertAfterSourceId": "source id to insert after, or null",
+  "cards": [
+    {
+      "id": "case_1",
+      "title": "Case title",
+      "sourceLabel": "Publisher or source",
+      "sourceUrl": "https://...",
+      "fitLabel": "Good fit",
+      "summary": "Why this case fits",
+      "insertText": "Syllabus-ready insertion",
+      "previewText": "Readable preview"
+    }
+  ]
+}`;
+
+    const resp = await this.createResponse({
+      model: this.llmModel,
+      tools: [{ type: 'web_search_preview' }],
+      input: [
+        { role: 'system', content: 'You create grounded case recommendation cards for MBA syllabi. Use web search and return only valid JSON.' },
+        { role: 'user', content: prompt },
+      ],
+      text: { format: { type: 'json_object' } },
+    });
+
+    const parsed = this.safeParseJSON(resp.output_text || '{}') || {};
+    const insertAfter = candidates.find((candidate) => candidate.id === String(parsed.insertAfterSourceId || '').trim()) || candidates[0] || null;
+    return {
+      kind: 'case-cards',
+      before: MISSING_SECTION_TEXT,
+      after: '',
+      payload: {
+        source: 'case-cards',
+        editAction: insertAfter ? 'insert_after' : 'append',
+        insertAfterSourceId: insertAfter?.id || null,
+        insertAfterText: insertAfter?.text || null,
+        week: parsed.week || null,
+        cards: this.normalizeCaseCards(parsed.cards || parsed.cases || parsed.recommendations, recommendation),
+        generatedAt: new Date().toISOString(),
+        grounded: true
+      }
+    };
+  }
+
   isBeforeAfterApplicable(syllabusOrText, beforeAfter) {
     const text = typeof syllabusOrText === 'string'
       ? syllabusOrText
@@ -643,6 +927,10 @@ Return JSON with this exact structure:
   }
 
   applyBeforeAfterToText(text, beforeAfter) {
+    return this.applyBeforeAfterToTextWithTrace(text, beforeAfter).text;
+  }
+
+  applyBeforeAfterToTextWithTrace(text, beforeAfter) {
     const source = String(text || '');
     const after = String(beforeAfter?.after || '').trim();
     if (!after) {
@@ -658,10 +946,32 @@ Return JSON with this exact structure:
       if (action === 'insert_after' && anchorText) {
         const anchorRange = this.findTextRange(source, anchorText);
         if (anchorRange) {
-          return `${source.slice(0, anchorRange.end).trimEnd()}\n\n${after}${source.slice(anchorRange.end)}`;
+          const prefix = source.slice(0, anchorRange.end).trimEnd();
+          const inserted = `\n\n${after}`;
+          return {
+            text: `${prefix}${inserted}${source.slice(anchorRange.end)}`,
+            trace: {
+              action: 'insert',
+              start: prefix.length,
+              end: prefix.length,
+              before: '',
+              after: inserted
+            }
+          };
         }
       }
-      return `${source.trimEnd()}${source.trim() ? '\n\n' : ''}${after}`;
+      const prefix = source.trimEnd();
+      const inserted = `${source.trim() ? '\n\n' : ''}${after}`;
+      return {
+        text: `${prefix}${inserted}`,
+        trace: {
+          action: 'insert',
+          start: prefix.length,
+          end: prefix.length,
+          before: '',
+          after: inserted
+        }
+      };
     }
 
     const range = this.findTextRange(source, before, beforeAfter?.payload?.beforeStart);
@@ -671,23 +981,253 @@ Return JSON with this exact structure:
       throw err;
     }
 
-    return `${source.slice(0, range.start)}${after}${source.slice(range.end)}`;
+    return {
+      text: `${source.slice(0, range.start)}${after}${source.slice(range.end)}`,
+      trace: {
+        action: 'replace',
+        start: range.start,
+        end: range.end,
+        before: source.slice(range.start, range.end),
+        after
+      }
+    };
+  }
+
+  resolveStructuredIssueText(beforeAfter, selection = null) {
+    const payload = beforeAfter?.payload || {};
+    const appliedSelection = selection || payload.appliedSelection || {};
+    if (payload.appliedText) return this.clipGeneratedText(payload.appliedText);
+
+    if (beforeAfter?.kind === 'choice') {
+      const customText = String(appliedSelection.customText || '').trim();
+      if (customText) return this.clipGeneratedText(customText);
+
+      const option = (payload.options || []).find((item) => (
+        String(item.id) === String(appliedSelection.optionId || '')
+      ));
+      const optionText = this.clipGeneratedText(option?.text);
+      if (!optionText) {
+        const err = new Error('No policy option was selected');
+        err.code = 'INVALID_SELECTION';
+        throw err;
+      }
+      const customNote = String(appliedSelection.customNote || '').trim();
+      return customNote
+        ? this.clipGeneratedText(`${optionText}\n\nInstructor note: ${customNote}`)
+        : optionText;
+    }
+
+    if (beforeAfter?.kind === 'case-cards') {
+      const card = (payload.cards || []).find((item) => (
+        String(item.id) === String(appliedSelection.caseId || '')
+      ));
+      const caseText = this.clipGeneratedText(card?.insertText || card?.previewText || card?.summary);
+      if (!caseText) {
+        const err = new Error('No case card was selected');
+        err.code = 'INVALID_SELECTION';
+        throw err;
+      }
+      return caseText;
+    }
+
+    return this.clipGeneratedText(beforeAfter?.after);
+  }
+
+  applyIssuePreviewToTextWithTrace(text, beforeAfter, selection = null) {
+    if (!beforeAfter || !beforeAfter.kind || beforeAfter.kind === 'before-after') {
+      const applied = this.applyBeforeAfterToTextWithTrace(text, beforeAfter);
+      return { ...applied, appliedText: String(beforeAfter?.after || '').trim() };
+    }
+
+    const after = this.resolveStructuredIssueText(beforeAfter, selection);
+    const structuredBeforeAfter = {
+      kind: 'before-after',
+      before: MISSING_SECTION_TEXT,
+      after,
+      payload: {
+        source: 'missing-section',
+        editAction: beforeAfter.payload?.editAction || (beforeAfter.payload?.insertAfterText ? 'insert_after' : 'append'),
+        insertAfterText: beforeAfter.payload?.insertAfterText || null,
+      }
+    };
+    const applied = this.applyBeforeAfterToTextWithTrace(text, structuredBeforeAfter);
+    return { ...applied, appliedText: after };
+  }
+
+  markerAt(markup, index) {
+    for (const marker of [REV_DEL_OPEN, REV_DEL_CLOSE, REV_ADD_OPEN, REV_ADD_CLOSE]) {
+      if (markup.startsWith(marker, index)) return marker;
+    }
+    return null;
+  }
+
+  plainIndexToRevisionIndex(markup, plainIndex) {
+    const target = Math.max(0, Number(plainIndex) || 0);
+    let plain = 0;
+    let i = 0;
+    let inDeleted = false;
+
+    while (i < markup.length) {
+      const marker = this.markerAt(markup, i);
+      if (marker) {
+        if (marker === REV_DEL_OPEN) inDeleted = true;
+        if (marker === REV_DEL_CLOSE) inDeleted = false;
+        i += marker.length;
+        continue;
+      }
+
+      if (!inDeleted) {
+        if (plain === target) return i;
+        plain += 1;
+      }
+      i += 1;
+    }
+
+    return plain === target ? markup.length : null;
+  }
+
+  revisionDiffToMarkup(before, after) {
+    const oldText = String(before || '');
+    const newText = String(after || '');
+
+    if (!oldText) return newText ? `${REV_ADD_OPEN}${newText}${REV_ADD_CLOSE}` : '';
+    if (!newText) return oldText ? `${REV_DEL_OPEN}${oldText}${REV_DEL_CLOSE}` : '';
+
+    const diffs = this.diffMatchPatch.diff_main(oldText, newText);
+    this.diffMatchPatch.diff_cleanupSemantic(diffs);
+
+    return diffs.map(([op, value]) => {
+      if (!value) return '';
+      if (op === -1) return `${REV_DEL_OPEN}${value}${REV_DEL_CLOSE}`;
+      if (op === 1) return `${REV_ADD_OPEN}${value}${REV_ADD_CLOSE}`;
+      return value;
+    }).join('');
+  }
+
+  refineRevisionMarkup(markup) {
+    const source = String(markup || '');
+    if (!source) return source;
+
+    const replacementPair = new RegExp(
+      `${this.escapeRegExp(REV_DEL_OPEN)}([\\s\\S]*?)${this.escapeRegExp(REV_DEL_CLOSE)}` +
+      `${this.escapeRegExp(REV_ADD_OPEN)}([\\s\\S]*?)${this.escapeRegExp(REV_ADD_CLOSE)}`,
+      'g'
+    );
+
+    return source.replace(replacementPair, (_match, before, after) => this.revisionDiffToMarkup(before, after));
+  }
+
+  applyBeforeAfterToRevisionMarkup(markup, trace) {
+    const sourceMarkup = String(markup || '');
+    if (!trace) return sourceMarkup;
+
+    const start = this.plainIndexToRevisionIndex(sourceMarkup, trace.start);
+    const end = this.plainIndexToRevisionIndex(sourceMarkup, trace.end);
+    if (start === null || end === null || end < start) {
+      const err = new Error('Cannot map accepted change to revision markup');
+      err.code = 'STALE_REVISION_MARKUP';
+      throw err;
+    }
+
+    const replacement = trace.action === 'replace'
+      ? this.revisionDiffToMarkup(trace.before, trace.after)
+      : `${REV_ADD_OPEN}${trace.after || ''}${REV_ADD_CLOSE}`;
+
+    return `${sourceMarkup.slice(0, start)}${replacement}${sourceMarkup.slice(end)}`;
+  }
+
+  escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  revisionMarkupToHtml(markup) {
+    const source = String(markup || '');
+    let html = '';
+    let i = 0;
+
+    while (i < source.length) {
+      const marker = this.markerAt(source, i);
+      if (marker) {
+        if (marker === REV_DEL_OPEN) html += '<span class="rev-del">';
+        else if (marker === REV_DEL_CLOSE) html += '</span>';
+        else if (marker === REV_ADD_OPEN) html += '<span class="rev-add">';
+        else if (marker === REV_ADD_CLOSE) html += '</span>';
+        i += marker.length;
+        continue;
+      }
+      html += this.escapeHtml(source[i]);
+      i += 1;
+    }
+
+    return html;
+  }
+
+  buildRevisionMarkupFromAcceptedChanges(syllabus) {
+    let cleanText = String(syllabus?.extractedText || '');
+    let revisionMarkup = cleanText;
+    let appliedCount = 0;
+
+    for (const recommendation of syllabus?.recommendations || []) {
+      if (recommendation?.decision !== 'accepted' || !recommendation.beforeAfter) continue;
+
+      try {
+        const applied = this.applyIssuePreviewToTextWithTrace(cleanText, recommendation.beforeAfter);
+        revisionMarkup = this.applyBeforeAfterToRevisionMarkup(revisionMarkup, applied.trace);
+        cleanText = applied.text;
+        appliedCount += 1;
+      } catch (err) {
+        console.warn(`buildRevisionMarkupFromAcceptedChanges skipped ${recommendation.id || recommendation.title}:`, err.message);
+      }
+    }
+
+    return appliedCount ? { revisionMarkup, editedText: cleanText } : null;
   }
 
   /**
-   * Generate grounded Before/After payloads for every recommendation using the same
-   * single-issue path the chat uses for cache misses.
+   * Generate grounded Before/After payloads for all recommendations in one shared
+   * model call. The chat still has a single-issue fallback for stale legacy data,
+   * but fresh analyses should not spend one request per recommendation.
    */
   async pregenIssueMessages(syllabus, recommendations) {
     if (!Array.isArray(recommendations) || !recommendations.length) return recommendations;
 
-    for (const recommendation of recommendations) {
+    const beforeAfterRecommendations = recommendations.filter((recommendation) => (
+      recommendation.category !== 'policy' && recommendation.category !== 'cases'
+    ));
+
+    if (beforeAfterRecommendations.length) {
       try {
-        recommendation.beforeAfter = await this.generateIssueMessage(syllabus, recommendation);
+        const generated = await this.generateIssueMessagesBatch(syllabus, beforeAfterRecommendations);
+        for (const recommendation of beforeAfterRecommendations) {
+          const beforeAfter = generated.get(String(recommendation.id || ''));
+          if (beforeAfter) {
+            recommendation.beforeAfter = beforeAfter;
+          } else {
+            console.warn(`pregenIssueMessages: no grounded preview returned for ${recommendation.id || recommendation.title}`);
+          }
+        }
       } catch (err) {
-        console.error(`pregenIssueMessages failed for ${recommendation.id || recommendation.title}:`, err.message);
+        console.error('pregenIssueMessages batch failed:', err.message);
       }
     }
+
+    for (const recommendation of recommendations) {
+      if (recommendation.beforeAfter) continue;
+      try {
+        if (recommendation.category === 'policy') {
+          recommendation.beforeAfter = await this.generatePolicyChoicePreview(syllabus, recommendation);
+        } else if (recommendation.category === 'cases') {
+          recommendation.beforeAfter = await this.generateCaseCardsPreview(syllabus, recommendation);
+        }
+      } catch (err) {
+        console.error(`pregenIssueMessages structured preview failed for ${recommendation.id || recommendation.title}:`, err.message);
+      }
+    }
+
     return recommendations;
   }
 
@@ -696,6 +1236,13 @@ Return JSON with this exact structure:
    * BEFORE is accepted only if it maps back to a real excerpt from the syllabus.
    */
   async generateIssueMessage(syllabus, recommendation) {
+    if (recommendation.category === 'policy') {
+      return this.generatePolicyChoicePreview(syllabus, recommendation);
+    }
+    if (recommendation.category === 'cases') {
+      return this.generateCaseCardsPreview(syllabus, recommendation);
+    }
+
     const syllabusText = this.getEditableSyllabusText(syllabus);
     const candidates = this.buildCandidateExcerpts(syllabusText, recommendation);
     if (!candidates.length) {
@@ -733,7 +1280,7 @@ Return only JSON:
 }`;
 
     try {
-      const resp = await this.openai.responses.create({
+      const resp = await this.createResponse({
         model: this.llmModel,
         input: [
           { role: 'system', content: 'You create grounded syllabus Before/After previews. Return only valid JSON.' },
@@ -774,7 +1321,7 @@ Instructor just said: ${userText}
 
 Reply directly to the instructor.`;
 
-    const resp = await this.openai.responses.create({
+    const resp = await this.createResponse({
       model: this.llmModel,
       input: [
         { role: 'system', content: 'You are a focused, encouraging syllabus coach. Be brief and concrete.' },
@@ -785,7 +1332,9 @@ Reply directly to the instructor.`;
   }
 
   /**
-   * Render a clean (non-diff) final PDF of the syllabus for preview and submission.
+   * Render the syllabus PDF for preview and submission. When accepted changes
+   * exist, the PDF uses track-changes markup: deletions in red strikethrough
+   * and additions in green.
    * Returns the absolute file path. Caller is responsible for cleanup of preview PDFs.
    */
   async renderFinalSyllabusPdf(syllabus, destPath) {
@@ -796,14 +1345,15 @@ Reply directly to the instructor.`;
       throw new Error('puppeteer is not installed');
     }
 
-    const text = syllabus.editedText || syllabus.extractedText || '';
+    const reconstructed = syllabus.revisionMarkup ? null : this.buildRevisionMarkupFromAcceptedChanges(syllabus);
+    const revisionMarkup = this.refineRevisionMarkup(syllabus.revisionMarkup || reconstructed?.revisionMarkup || '');
+    const text = revisionMarkup || syllabus.editedText || reconstructed?.editedText || syllabus.extractedText || '';
     const course = syllabus.course?.name || syllabus.title || 'Untitled Course';
     const instructor = `${syllabus.instructor?.firstName || ''} ${syllabus.instructor?.lastName || ''}`.trim();
     const program = syllabus.programId?.name || '';
-    const escHtml = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const paragraphs = text.split(/\n{2,}/).map((p) =>
-      `<p style="margin:0 0 10px">${escHtml(p.replace(/\n/g, '<br>'))}</p>`
-    ).join('');
+    const bodyHtml = revisionMarkup
+      ? this.revisionMarkupToHtml(text)
+      : this.escapeHtml(text);
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -814,12 +1364,14 @@ Reply directly to the instructor.`;
   h1 { font-size: 16pt; margin-bottom: 4px; }
   .meta { font-size: 10pt; color: #555; margin-bottom: 24px; }
   .body { white-space: pre-wrap; }
+  .rev-del { color: #b42318; text-decoration: line-through; text-decoration-thickness: 1.5px; background: #fff1f0; }
+  .rev-add { color: #067647; background: #ecfdf3; font-weight: 600; }
 </style>
 </head>
 <body>
-<h1>${escHtml(course)}</h1>
-<div class="meta">${escHtml(instructor)}${program ? ` &mdash; ${escHtml(program)}` : ''}</div>
-<div class="body">${paragraphs}</div>
+<h1>${this.escapeHtml(course)}</h1>
+<div class="meta">${this.escapeHtml(instructor)}${program ? ` &mdash; ${this.escapeHtml(program)}` : ''}</div>
+<div class="body">${bodyHtml}</div>
 </body>
 </html>`;
 
@@ -847,36 +1399,30 @@ Reply directly to the instructor.`;
    * Short text report sent to the Academic Director on submission.
    */
   generateSubmissionReport(syllabus) {
-    const recs = syllabus.recommendations || [];
-    const accepted = recs.filter((r) => r.decision === 'accepted');
-    const rejected = recs.filter((r) => r.decision === 'rejected');
-    const skipped = recs.filter((r) => r.decision === 'skipped' || r.decision === 'pending');
-    const lines = [
+    const recsForReport = syllabus.recommendations || [];
+    const acceptedForReport = recsForReport.filter((r) => r.decision === 'accepted');
+    const rejectedForReport = recsForReport.filter((r) => r.decision === 'rejected');
+    const skippedForReport = recsForReport.filter((r) => r.decision === 'skipped' || r.decision === 'pending');
+    const criticalForReport = recsForReport.filter((r) => r.priority === 'critical' || r.priority === 'high');
+    const acceptedCriticalForReport = acceptedForReport.filter((r) => r.priority === 'critical' || r.priority === 'high');
+    const formatReportItem = (r) => `  - ${r.title}${r.category ? ` (${this.getCategoryLabel(r.category)})` : ''}`;
+    const reportLines = [
       `Course: ${syllabus.course?.name || syllabus.title}`,
       `Instructor: ${syllabus.instructor?.firstName || ''} ${syllabus.instructor?.lastName || ''}`.trim(),
+      `Final PDF source: ${syllabus.editedText ? 'confirmed edited syllabus text' : 'original extracted syllabus text'}`,
       '',
-      `Issues addressed: ${accepted.length} accepted, ${rejected.length} rejected, ${skipped.length} skipped/pending`,
+      `Issues addressed: ${acceptedForReport.length} accepted, ${rejectedForReport.length} rejected, ${skippedForReport.length} skipped/pending`,
       '',
-      'Critical items resolved:',
-      ...accepted.filter((r) => r.priority === 'critical' || r.priority === 'high').map((r) => `  ✓ ${r.title}`),
+      'Critical/high items found:',
+      ...(criticalForReport.length ? criticalForReport.map(formatReportItem) : ['  - None']),
+      '',
+      'Critical/high items fixed:',
+      ...(acceptedCriticalForReport.length ? acceptedCriticalForReport.map(formatReportItem) : ['  - None']),
     ];
-    if (rejected.length) {
-      lines.push('', 'Items the instructor declined:', ...rejected.map((r) => `  ✗ ${r.title}`));
+    if (rejectedForReport.length) {
+      reportLines.push('', 'Items the instructor declined:', ...rejectedForReport.map(formatReportItem));
     }
-    return lines.join('\n');
-  }
-
-  getDefaultClusterDetails() {
-    return {
-      summary: [
-        '- Technology Leaders (25%): Focus on digital transformation and product scaling.',
-        '- Finance & Banking (25%): Emphasize risk management and fintech innovation.',
-        '- Military & Public Sector (25%): Highlight adaptive leadership and crisis response.',
-        '- Business Operations (25%): Stress operational excellence and market expansion.'
-      ].join('\n'),
-      nameList: 'Technology Leaders, Finance & Banking, Military & Public Sector, Business Operations',
-      quarter: 'current cohort'
-    };
+    return reportLines.join('\n');
   }
 }
 

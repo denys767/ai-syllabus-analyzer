@@ -119,11 +119,12 @@ const ProfessorTutorWorkspace = () => {
     navigate(`/workspace/${id}`);
   };
 
-  const handleConfirm = async (issueId) => {
+  const handleConfirm = async (issueId, selection = null) => {
     setBusy(true);
     setError('');
     try {
-      const { data } = await api.chat.confirm(syllabusId, { issueId });
+      const payload = selection ? { issueId, selection } : { issueId };
+      const { data } = await api.chat.confirm(syllabusId, payload);
       setConversation(data?.conversation || null);
       setMessages(data?.messages || []);
       // Refresh syllabus.recommendations for the IssuesPanel

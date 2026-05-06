@@ -14,7 +14,6 @@ const syllabusRoutes = require('./routes/syllabus');
 const chatRoutes = require('./routes/chat');
 const cabinetRoutes = require('./routes/cabinet');
 const userRoutes = require('./routes/users');
-const googleFormsRoutes = require('./routes/googleForms');
 const policiesRoutes = require('./routes/policies');
 
 const Program = require('./models/Program');
@@ -79,7 +78,7 @@ const limiter = rateLimit({
     const p = req.path || '';
     if (req.method === 'OPTIONS') return true; // never rate-limit preflight
     if (req.headers.authorization) return true; // skip global limiter for authenticated traffic
-    return p === '/health' || p.startsWith('/api/google-forms');
+    return p === '/health';
   }
 });
 app.use(limiter);
@@ -169,7 +168,7 @@ mongoose.connection.on('error', (err) => {
 app.use((req, res, next) => {
   const p = req.path || '';
   if (req.method === 'OPTIONS') return next(); // let CORS preflight pass
-  if (!dbConnected && p !== '/health' && !p.startsWith('/api/google-forms')) {
+  if (!dbConnected && p !== '/health') {
     return res.status(503).json({ message: 'Service temporarily unavailable (database)' });
   }
   next();
@@ -215,7 +214,6 @@ app.use('/api/syllabus', syllabusRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/cabinet', cabinetRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/google-forms', googleFormsRoutes);
 app.use('/api/policies', policiesRoutes);
 
 // Health check endpoint

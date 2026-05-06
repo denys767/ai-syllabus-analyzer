@@ -109,7 +109,9 @@ router.post('/upload', auth, upload.single('syllabus'), [
   body('credits').optional().isInt({ min: 1, max: 10 }).withMessage('Credits must be between 1 and 10'),
   body('semester').optional().trim(),
   body('year').optional().isInt({ min: 2020, max: 2030 }).withMessage('Year must be between 2020 and 2030'),
-  body('programId').optional().isMongoId().withMessage('programId must be a valid id')
+  body('programId').trim().notEmpty().withMessage('Program is required')
+    .bail()
+    .isMongoId().withMessage('programId must be a valid id')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -142,7 +144,7 @@ router.post('/upload', auth, upload.single('syllabus'), [
         year: year ? parseInt(year) : new Date().getFullYear()
       },
       instructor: req.user.userId,
-      programId: programId || undefined,
+      programId,
       originalFile: {
         filename: req.file.filename,
         originalName: req.file.originalname,

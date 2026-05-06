@@ -120,6 +120,7 @@ class ApiService {
     createProgram: (data) => this.client.post('/cabinet/programs', data),
     updateProgram: (id, data) => this.client.put(`/cabinet/programs/${id}`, data),
     deleteProgram: (id) => this.client.delete(`/cabinet/programs/${id}`),
+    deleteSyllabus: (id) => this.client.delete(`/syllabus/${id}`),
     resendSubmission: (syllabusId) => this.client.post(`/cabinet/syllabi/${syllabusId}/resend-submission`),
   };
 

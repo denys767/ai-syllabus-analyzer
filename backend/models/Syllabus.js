@@ -70,6 +70,11 @@ const syllabusSchema = new mongoose.Schema({
   editedText: {
     type: String
   },
+  // Track-changes version used by Preview/Submit PDFs. Deleted text is retained
+  // with internal markers while editedText remains the clean accepted text.
+  revisionMarkup: {
+    type: String
+  },
   structure: {
     hasObjectives: Boolean,
     hasAssessment: Boolean,

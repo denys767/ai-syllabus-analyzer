@@ -95,12 +95,13 @@ router.post('/:syllabusId/start', auth, gateMutate, async (req, res) => {
 // POST /api/chat/:syllabusId/confirm — accept the current issue's suggested change
 router.post('/:syllabusId/confirm', auth, gateMutate, [
   body('issueId').notEmpty().withMessage('issueId is required'),
+  body('selection').optional().isObject().withMessage('selection must be an object'),
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
   try {
     const conversation = await workspaceService.getOrCreateConversation(req.params.syllabusId, req.user.userId);
-    await workspaceService.confirmIssue(conversation, req.body.issueId);
+    await workspaceService.confirmIssue(conversation, req.body.issueId, req.body.selection || null);
     const view = await workspaceService.getConversationView(req.params.syllabusId);
     res.json(view);
   } catch (err) {

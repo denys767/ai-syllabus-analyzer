@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Typography,
@@ -8,6 +8,10 @@ import {
   TextField,
   CircularProgress,
   Alert,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
 } from '@mui/material';
 import { CloudUpload, ExpandMore, ExpandLess, Description } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
@@ -32,6 +36,34 @@ const EmptyState = ({ onUploaded }) => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [pendingFile, setPendingFile] = useState(null);
+  const [programs, setPrograms] = useState([]);
+  const [programId, setProgramId] = useState('');
+  const [programsLoading, setProgramsLoading] = useState(true);
+  const [programsError, setProgramsError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+
+    const loadPrograms = async () => {
+      try {
+        const { data } = await api.cabinet.listPrograms();
+        if (!active) return;
+        setPrograms(Array.isArray(data) ? data : []);
+        setProgramsError('');
+      } catch (err) {
+        if (!active) return;
+        setPrograms([]);
+        setProgramsError(err.response?.data?.message || err.message || 'Failed to load programs');
+      } finally {
+        if (active) setProgramsLoading(false);
+      }
+    };
+
+    loadPrograms();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const onDrop = (accepted) => {
     setError('');
@@ -56,12 +88,25 @@ const EmptyState = ({ onUploaded }) => {
       setError('Please name the course before uploading.');
       return;
     }
+    if (programsLoading) {
+      setError('Programs are still loading. Please wait a moment and try again.');
+      return;
+    }
+    if (programsError || programs.length === 0) {
+      setError('A program must be available before uploading a syllabus.');
+      return;
+    }
+    if (!programId) {
+      setError('Please choose a program before uploading.');
+      return;
+    }
     setUploading(true);
     setError('');
     try {
       const fd = new FormData();
       fd.append('syllabus', pendingFile);
       fd.append('courseName', courseName.trim());
+      if (programId) fd.append('programId', programId);
       const { data } = await api.syllabus.upload(fd);
       onUploaded?.(data.syllabusId);
     } catch (err) {
@@ -109,7 +154,15 @@ const EmptyState = ({ onUploaded }) => {
       </Paper>
 
       {pendingFile && (
-        <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+        <Box
+          sx={{
+            mt: 2,
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) minmax(180px, 240px) auto' },
+            gap: 2,
+            alignItems: 'center',
+          }}
+        >
           <TextField
             fullWidth
             size="small"
@@ -117,18 +170,37 @@ const EmptyState = ({ onUploaded }) => {
             value={courseName}
             onChange={(e) => setCourseName(e.target.value)}
           />
+          <FormControl size="small" fullWidth disabled={programsLoading || programs.length === 0}>
+            <InputLabel id="syllabus-program-label">Program</InputLabel>
+            <Select
+              labelId="syllabus-program-label"
+              label="Program"
+              value={programId}
+              onChange={(e) => setProgramId(e.target.value)}
+            >
+              <MenuItem value="" disabled>
+                {programsLoading ? 'Loading programs' : programs.length ? 'Choose program' : 'No programs available'}
+              </MenuItem>
+              {programs.map((program) => (
+                <MenuItem key={program._id} value={program._id}>
+                  {program.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <Button
             variant="contained"
             onClick={upload}
-            disabled={uploading}
+            disabled={uploading || programsLoading}
             startIcon={uploading ? <CircularProgress size={16} color="inherit" /> : <Description />}
-            sx={{ minWidth: 160 }}
+            sx={{ minWidth: 160, width: { xs: '100%', md: 'auto' } }}
           >
             {uploading ? 'Uploading' : 'Upload & analyze'}
           </Button>
         </Box>
       )}
 
+      {programsError && <Alert severity="warning" sx={{ mt: 2 }}>{programsError}</Alert>}
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
 
       <Box sx={{ mt: 4 }}>

@@ -50,7 +50,7 @@ try {
 const getFromAddress = () =>
   process.env.EMAIL_FROM || process.env.GMAIL_USER || 'no-reply@ai-syllabus-analyzer.local';
 
-async function sendMail({ to, subject, html, text }) {
+async function sendMail({ to, subject, html, text, attachments }) {
   if (!transporter) {
     console.warn('sendMail skipped: transporter not configured');
     return { skipped: true };
@@ -64,6 +64,7 @@ async function sendMail({ to, subject, html, text }) {
       subject,
       text: text || html?.replace(/<[^>]+>/g, ''),
       html,
+      attachments,
     });
     console.log(`Email sent successfully to ${to}: ${info.messageId}`);
     return info;
