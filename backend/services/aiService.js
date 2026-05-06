@@ -115,7 +115,7 @@ class AIService {
 ${this.syllabusTemplate}
 
 **MBA-27 LEARNING OUTCOMES (ALL COURSES MUST ALIGN):**
-${this.learningObjectives.map((lo, idx) => `LO${idx + 1}: ${lo.text}`).join('\n')}
+${this.learningObjectives.map((lo, idx) => `Learning Outcome ${idx + 1}: ${lo.text}`).join('\n')}
 
 **SYLLABUS TO ANALYZE:**
 ${syllabusText}
@@ -123,7 +123,7 @@ ${syllabusText}
 **TASK:**
 Analyze the syllabus and provide recommendations in the following categories:
 1. **template-compliance** - Missing sections, formatting issues compared to template
-2. **learning-objectives** - Which learning outcomes are covered/missing, how to improve alignment. Specify which LO is covered by this recommendation
+2. **learning-objectives** - Which learning outcomes are covered/missing, how to improve alignment. Specify which learning outcome is covered by this recommendation
 3. **content-quality** - Content depth, relevance, clarity improvements
 4. **cases** - Case study additions or improvements relevant to the course
 5. **policy** - Attendance, academic integrity, AI use policies
@@ -401,7 +401,7 @@ Return JSON with this exact structure:
     const blockStart = start + trimStart;
     const blockEnd = start + trimEnd;
     const text = source.slice(blockStart, blockEnd);
-    if (text.trim().length < 20) return;
+    if (text.trim().length < 80) return;
     blocks.push({ start: blockStart, end: blockEnd, text });
   }
 
@@ -497,6 +497,18 @@ Return JSON with this exact structure:
     if (/learning outcomes?|course objectives?/i.test(text)) score += 2;
     if (/attendance|academic integrity|use of ai|artificial intelligence/i.test(text)) score += 3;
     if (/schedule|week|session|case/i.test(text)) score += 2;
+
+    // Prefer longer, coherent blocks — penalise PPTX-style fragments.
+    const len = text.length;
+    if (len >= 600) score += 4;
+    else if (len >= 300) score += 2;
+    else if (len >= 150) score += 1;
+    else score -= 2; // short block is probably a stray PPTX fragment
+
+    // Penalise blocks that look like slide metadata (very short first line).
+    const firstLine = text.split('\n')[0].trim();
+    if (firstLine.length < 30 && len < 200) score -= 2;
+
     return score;
   }
 
@@ -676,6 +688,18 @@ Return only JSON:
     return result;
   }
 
+  resolveInsertAfterAnchor(candidates, insertAfterSourceId, syllabusText) {
+    const specified = candidates.find((c) => c.id === String(insertAfterSourceId || '').trim()) || null;
+    const syllabusLen = String(syllabusText || '').length;
+    // Only anchor if the candidate is in the second half of the document to avoid
+    // inserting new sections in the middle of existing content (common with
+    // PPTX-extracted text where high-scoring fragments sit in the wrong position).
+    if (specified && (syllabusLen === 0 || specified.start / syllabusLen >= 0.4)) {
+      return specified;
+    }
+    return null;
+  }
+
   normalizeIssuePreview(parsed, candidates, syllabusText) {
     const sourceId = String(parsed.sourceId || parsed.source_id || '').trim();
     const insertAfterSourceId = String(parsed.insertAfterSourceId || parsed.insert_after_source_id || '').trim();
@@ -686,7 +710,7 @@ Return only JSON:
     const selected = candidates.find((candidate) => candidate.id === sourceId);
     const missing = sourceId.toLowerCase() === 'missing' || this.isMissingBefore(parsedBefore);
     if (missing) {
-      const insertAfter = candidates.find((candidate) => candidate.id === insertAfterSourceId) || null;
+      const insertAfter = this.resolveInsertAfterAnchor(candidates, insertAfterSourceId, syllabusText);
       return {
         kind: 'before-after',
         before: MISSING_SECTION_TEXT,
@@ -709,6 +733,10 @@ Return only JSON:
       if (beforeRange) before = parsedBefore;
     }
 
+    // Prefer the source the LLM named; if it didn't find an exact quote, fall back
+    // to the candidate with the highest relevance score (candidates[0]).  Do NOT
+    // silently use a candidate whose position is very far from where the LLM anchor
+    // was located — that would cause the replacement to happen at the wrong spot.
     const source = selected || (beforeRange ? null : candidates[0]);
     if (!before && source) {
       before = source.text;
@@ -807,7 +835,7 @@ Return JSON only:
     });
 
     const parsed = this.safeParseJSON(resp.output_text || '{}') || {};
-    const insertAfter = candidates.find((candidate) => candidate.id === String(parsed.insertAfterSourceId || '').trim()) || candidates[0] || null;
+    const insertAfter = this.resolveInsertAfterAnchor(candidates, parsed.insertAfterSourceId, syllabusText);
     return {
       kind: 'choice',
       before: MISSING_SECTION_TEXT,
@@ -890,14 +918,13 @@ Return JSON only:
       model: this.llmModel,
       tools: [{ type: 'web_search_preview' }],
       input: [
-        { role: 'system', content: 'You create grounded case recommendation cards for MBA syllabi. Use web search and return only valid JSON.' },
+        { role: 'system', content: 'You create grounded case recommendation cards for MBA syllabi. Use web search and return only valid JSON. Wrap your entire response in a JSON object — no markdown, no explanation.' },
         { role: 'user', content: prompt },
       ],
-      text: { format: { type: 'json_object' } },
     });
 
     const parsed = this.safeParseJSON(resp.output_text || '{}') || {};
-    const insertAfter = candidates.find((candidate) => candidate.id === String(parsed.insertAfterSourceId || '').trim()) || candidates[0] || null;
+    const insertAfter = this.resolveInsertAfterAnchor(candidates, parsed.insertAfterSourceId, syllabusText);
     return {
       kind: 'case-cards',
       before: MISSING_SECTION_TEXT,
@@ -1187,44 +1214,148 @@ Return JSON only:
     return appliedCount ? { revisionMarkup, editedText: cleanText } : null;
   }
 
+  async generatePolicyChoicesBatch(syllabus, recommendations) {
+    const recs = (recommendations || []).filter((r) => r?.id);
+    if (!recs.length) return new Map();
+
+    const syllabusText = this.getEditableSyllabusText(syllabus);
+    const candidatesByRecId = new Map();
+    for (const rec of recs) {
+      candidatesByRecId.set(String(rec.id), this.buildCandidateExcerpts(syllabusText, rec).slice(0, 5));
+    }
+
+    const issueBlocks = recs.map((rec, idx) => {
+      const candidates = candidatesByRecId.get(String(rec.id)) || [];
+      const excerptLines = candidates.map((c) => `SOURCE ${c.id}:\n"""${c.text}"""`).join('\n\n');
+      return [
+        `POLICY ISSUE ${idx + 1}`,
+        `recommendationId: ${rec.id}`,
+        `title: ${rec.title || 'Policy issue'}`,
+        `description: ${rec.description || ''}`,
+        `priority: ${rec.priority || 'medium'}`,
+        '',
+        excerptLines || '(no relevant excerpt found)',
+      ].join('\n');
+    }).join('\n\n---\n\n');
+
+    const prompt = `Create three policy choices for each MBA syllabus policy issue below.
+
+Rules:
+- Return exactly one entry per recommendationId.
+- Return three distinct options per issue.
+- Do not invent instructor names, dates, grading weights, or institutional rules not implied by the issue.
+- Each option text must be drop-in ready syllabus text.
+
+${issueBlocks}
+
+Return JSON only:
+{
+  "policies": [
+    {
+      "recommendationId": "same id from input",
+      "insertAfterSourceId": "source id to insert after, or null",
+      "options": [
+        { "id": "option_1", "label": "Short label", "text": "Drop-in policy text", "rationale": "Why this option fits" }
+      ]
+    }
+  ]
+}`;
+
+    const resp = await this.createResponse({
+      model: this.llmModel,
+      input: [
+        { role: 'system', content: 'You create structured policy choices for an MBA syllabus assistant. Return only valid JSON.' },
+        { role: 'user', content: prompt },
+      ],
+      text: { format: { type: 'json_object' } },
+    });
+
+    const parsed = this.safeParseJSON(resp.output_text || '{}') || {};
+    const rawPolicies = Array.isArray(parsed.policies) ? parsed.policies : [];
+
+    const result = new Map();
+    for (const raw of rawPolicies) {
+      const recId = String(raw.recommendationId || '').trim();
+      if (!recId || result.has(recId)) continue;
+
+      const candidates = candidatesByRecId.get(recId) || [];
+      const insertAfter = this.resolveInsertAfterAnchor(candidates, raw.insertAfterSourceId, syllabusText);
+
+      result.set(recId, {
+        kind: 'choice',
+        before: MISSING_SECTION_TEXT,
+        after: '',
+        payload: {
+          source: 'policy-choice',
+          editAction: insertAfter ? 'insert_after' : 'append',
+          insertAfterSourceId: insertAfter?.id || null,
+          insertAfterText: insertAfter?.text || null,
+          options: this.normalizePolicyOptions(raw.options || raw.choices, { id: recId }),
+          generatedAt: new Date().toISOString(),
+          grounded: true
+        }
+      });
+    }
+
+    return result;
+  }
+
   /**
-   * Generate grounded Before/After payloads for all recommendations in one shared
-   * model call. The chat still has a single-issue fallback for stale legacy data,
-   * but fresh analyses should not spend one request per recommendation.
+   * Generate grounded Before/After payloads for all recommendations using two
+   * batch calls (one for before-after, one for policy choices). Only `cases`
+   * recommendations get individual requests because they require web search.
    */
   async pregenIssueMessages(syllabus, recommendations) {
     if (!Array.isArray(recommendations) || !recommendations.length) return recommendations;
 
-    const beforeAfterRecommendations = recommendations.filter((recommendation) => (
-      recommendation.category !== 'policy' && recommendation.category !== 'cases'
-    ));
+    const beforeAfterRecs = recommendations.filter((r) => r.category !== 'policy' && r.category !== 'cases');
+    const policyRecs = recommendations.filter((r) => r.category === 'policy');
 
-    if (beforeAfterRecommendations.length) {
+    if (beforeAfterRecs.length) {
       try {
-        const generated = await this.generateIssueMessagesBatch(syllabus, beforeAfterRecommendations);
-        for (const recommendation of beforeAfterRecommendations) {
-          const beforeAfter = generated.get(String(recommendation.id || ''));
+        const generated = await this.generateIssueMessagesBatch(syllabus, beforeAfterRecs);
+        for (const rec of beforeAfterRecs) {
+          const beforeAfter = generated.get(String(rec.id || ''));
           if (beforeAfter) {
-            recommendation.beforeAfter = beforeAfter;
+            rec.beforeAfter = beforeAfter;
           } else {
-            console.warn(`pregenIssueMessages: no grounded preview returned for ${recommendation.id || recommendation.title}`);
+            console.warn(`pregenIssueMessages: no grounded preview returned for ${rec.id || rec.title}`);
           }
         }
       } catch (err) {
-        console.error('pregenIssueMessages batch failed:', err.message);
+        console.error('pregenIssueMessages before-after batch failed:', err.message);
       }
     }
 
-    for (const recommendation of recommendations) {
-      if (recommendation.beforeAfter) continue;
+    if (policyRecs.length) {
       try {
-        if (recommendation.category === 'policy') {
-          recommendation.beforeAfter = await this.generatePolicyChoicePreview(syllabus, recommendation);
-        } else if (recommendation.category === 'cases') {
-          recommendation.beforeAfter = await this.generateCaseCardsPreview(syllabus, recommendation);
+        const generated = await this.generatePolicyChoicesBatch(syllabus, policyRecs);
+        for (const rec of policyRecs) {
+          const beforeAfter = generated.get(String(rec.id || ''));
+          if (beforeAfter) {
+            rec.beforeAfter = beforeAfter;
+          } else {
+            console.warn(`pregenIssueMessages: no policy preview returned for ${rec.id || rec.title}`);
+          }
         }
       } catch (err) {
-        console.error(`pregenIssueMessages structured preview failed for ${recommendation.id || recommendation.title}:`, err.message);
+        console.error('pregenIssueMessages policy batch failed:', err.message);
+      }
+    }
+
+    // Fallback: individual calls for anything that failed above, plus cases (web search required)
+    for (const rec of recommendations) {
+      if (rec.beforeAfter) continue;
+      try {
+        if (rec.category === 'policy') {
+          rec.beforeAfter = await this.generatePolicyChoicePreview(syllabus, rec);
+        } else if (rec.category === 'cases') {
+          rec.beforeAfter = await this.generateCaseCardsPreview(syllabus, rec);
+        } else {
+          rec.beforeAfter = await this.generateIssueMessage(syllabus, rec);
+        }
+      } catch (err) {
+        console.error(`pregenIssueMessages fallback failed for ${rec.id || rec.title}:`, err.message);
       }
     }
 

@@ -11,12 +11,14 @@
     "clean": "rm -rf node_modules package-lock.json && npm install"
   },
   "dependencies": {
+    "adm-zip": "^0.5.17",
     "bcryptjs": "latest",
     "cors": "latest",
     "csv-parser": "latest",
     "csv-writer": "latest",
-  "exceljs": "latest",
+    "diff-match-patch": "latest",
     "dotenv": "latest",
+    "exceljs": "latest",
     "express": "^4.21.2",
     "express-rate-limit": "^7.4.1",
     "express-validator": "latest",
@@ -30,10 +32,9 @@
     "natural": "latest",
     "nodemailer": "latest",
     "openai": "latest",
-  "pdf-parse": "latest",
-  "pdfkit": "latest",
-  "diff-match-patch": "latest",
-  "puppeteer": "latest"
+    "pdf-parse": "latest",
+    "pdfkit": "latest",
+    "puppeteer": "latest"
   },
   "optionalDependencies": {
     "docx": "^9.0.3"

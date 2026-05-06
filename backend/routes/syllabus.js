@@ -70,32 +70,44 @@ const upload = multer({
   }
 });
 
+// Strip any revision markup tokens that may be embedded in the source document
+// (e.g. from a previously-reviewed export). DEL spans are removed entirely;
+// ADD spans are unwrapped so only their content remains.
+function sanitizeExtractedText(text) {
+  return text
+    .replace(/\[\[KSE_DEL\]\][\s\S]*?\[\[\/KSE_DEL\]\]/g, '')
+    .replace(/\[\[KSE_ADD\]\]([\s\S]*?)\[\[\/KSE_ADD\]\]/g, '$1')
+    .replace(/\[\[\/?KSE_(?:DEL|ADD)\]\]/g, '');
+}
+
 async function extractTextFromFile(filePath, mimetype) {
   try {
+    let text;
     if (mimetype === 'application/pdf') {
       const dataBuffer = await fs.readFile(filePath);
       if (typeof legacyPdfParse === 'function') {
         const data = await legacyPdfParse(dataBuffer);
-        return data.text;
-      }
-      if (typeof PdfParseClass === 'function') {
+        text = data.text;
+      } else if (typeof PdfParseClass === 'function') {
         const parser = new PdfParseClass({ data: dataBuffer });
         try {
           const result = await parser.getText();
-          return result?.text || '';
+          text = result?.text || '';
         } finally {
           if (typeof parser.destroy === 'function') {
             await parser.destroy().catch(() => {});
           }
         }
+      } else {
+        throw new Error('PDF parser is unavailable');
       }
-      throw new Error('PDF parser is unavailable');
     } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || mimetype === 'application/msword') {
       const result = await mammoth.extractRawText({ path: filePath });
-      return result.value;
+      text = result.value;
     } else {
       throw new Error('Unsupported file type');
     }
+    return sanitizeExtractedText(text);
   } catch (error) {
     console.error('Text extraction error:', error);
     throw new Error('Failed to extract text from file');
