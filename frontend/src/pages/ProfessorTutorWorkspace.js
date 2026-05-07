@@ -9,20 +9,30 @@ import {
   CircularProgress,
   Typography,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Stack,
 } from '@mui/material';
 import { Add, Close } from '@mui/icons-material';
 import api from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import EmptyState from '../components/Workspace/EmptyState';
 import IssuesPanel from '../components/Workspace/IssuesPanel';
-import MessageBubble from '../components/Workspace/MessageBubble';
+import MessageBubble, { MarkdownText } from '../components/Workspace/MessageBubble';
 import ChatInput from '../components/Workspace/ChatInput';
 
 // Per-user key so a different user signed in on the same browser cannot
 // see the previous user's syllabus tabs.
 const OPEN_TABS_KEY_PREFIX = 'pt.openTabs.v1.';
+const LAST_CHAT_KEY_PREFIX = 'pt.lastChat.v1.';
 function tabsKeyFor(userId) {
   return `${OPEN_TABS_KEY_PREFIX}${userId || 'anon'}`;
+}
+function lastChatKeyFor(userId) {
+  return `${LAST_CHAT_KEY_PREFIX}${userId || 'anon'}`;
 }
 function readOpenTabs(key) {
   try {
@@ -35,11 +45,71 @@ function writeOpenTabs(key, tabs) {
   localStorage.setItem(key, JSON.stringify(tabs));
 }
 
+const REV_DEL_OPEN = '[[KSE_DEL]]';
+const REV_DEL_CLOSE = '[[/KSE_DEL]]';
+const REV_ADD_OPEN = '[[KSE_ADD]]';
+const REV_ADD_CLOSE = '[[/KSE_ADD]]';
+
+function splitRevisionMarkup(markup) {
+  const source = String(markup || '');
+  const parts = [];
+  let mode = 'same';
+  let buffer = '';
+  for (let i = 0; i < source.length;) {
+    const nextMarker = [REV_DEL_OPEN, REV_DEL_CLOSE, REV_ADD_OPEN, REV_ADD_CLOSE]
+      .find((marker) => source.startsWith(marker, i));
+    if (nextMarker) {
+      if (buffer) parts.push({ mode, text: buffer });
+      buffer = '';
+      if (nextMarker === REV_DEL_OPEN) mode = 'del';
+      if (nextMarker === REV_ADD_OPEN) mode = 'add';
+      if (nextMarker === REV_DEL_CLOSE || nextMarker === REV_ADD_CLOSE) mode = 'same';
+      i += nextMarker.length;
+    } else {
+      buffer += source[i];
+      i += 1;
+    }
+  }
+  if (buffer) parts.push({ mode, text: buffer });
+  return parts;
+}
+
+const RevisionPreview = ({ markup }) => (
+  <Box
+    component="pre"
+    sx={{
+      m: 0,
+      whiteSpace: 'pre-wrap',
+      overflowWrap: 'anywhere',
+      fontFamily: 'inherit',
+      fontSize: '0.875rem',
+      lineHeight: 1.6,
+    }}
+  >
+    {splitRevisionMarkup(markup).map((part, index) => (
+      <Box
+        key={`${part.mode}-${index}`}
+        component="span"
+        sx={{
+          bgcolor: part.mode === 'add' ? 'success.light' : part.mode === 'del' ? 'error.light' : 'transparent',
+          color: part.mode === 'del' ? 'error.dark' : 'inherit',
+          textDecoration: part.mode === 'del' ? 'line-through' : 'none',
+          px: part.mode === 'same' ? 0 : 0.25,
+          borderRadius: part.mode === 'same' ? 0 : 0.5,
+        }}
+      >
+        {part.text}
+      </Box>
+    ))}
+  </Box>
+);
+
 const ProfessorTutorWorkspace = () => {
   const { syllabusId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const tabsKey = useMemo(() => tabsKeyFor(user?.id || user?._id), [user]);
+  const lastChatKey = useMemo(() => lastChatKeyFor(user?.id || user?._id), [user]);
   const [openTabs, setOpenTabs] = useState(() => readOpenTabs(tabsKey));
   const [syllabus, setSyllabus] = useState(null);
   const [conversation, setConversation] = useState(null);
@@ -47,6 +117,8 @@ const ProfessorTutorWorkspace = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [issuePreview, setIssuePreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const pollRef = useRef(null);
   const threadEndRef = useRef(null);
   const lastTabsKeyRef = useRef(tabsKey);
@@ -61,6 +133,12 @@ const ProfessorTutorWorkspace = () => {
     }
     writeOpenTabs(tabsKey, openTabs);
   }, [tabsKey, openTabs]);
+
+  useEffect(() => {
+    if (syllabusId) {
+      localStorage.setItem(lastChatKey, syllabusId);
+    }
+  }, [lastChatKey, syllabusId]);
 
   const closeTab = useCallback((id) => {
     setOpenTabs((tabs) => {
@@ -196,14 +274,15 @@ const ProfessorTutorWorkspace = () => {
   };
 
   const handleIssuePreview = async (issueId, selection = null) => {
+    setPreviewLoading(true);
     setError('');
     try {
-      const { data: blob } = await api.chat.issuePreview(syllabusId, issueId, selection);
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      const { data } = await api.chat.issuePreview(syllabusId, issueId, selection);
+      setIssuePreview(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Issue preview failed. Please try again.');
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -223,7 +302,12 @@ const ProfessorTutorWorkspace = () => {
     }
   };
 
-  const issues = syllabus?.recommendations || [];
+  const issues = useMemo(() => syllabus?.recommendations || [], [syllabus?.recommendations]);
+  const issueById = useMemo(() => {
+    const map = new Map();
+    issues.forEach((issue) => map.set(issue.id, issue));
+    return map;
+  }, [issues]);
   const currentIssueId = conversation?.currentIssueId;
 
   const tabHeader = useMemo(() => (
@@ -301,13 +385,14 @@ const ProfessorTutorWorkspace = () => {
                   <MessageBubble
                     key={m._id}
                     message={m}
+                    issue={m.relatedIssueId ? issueById.get(m.relatedIssueId) : null}
                     currentIssueId={currentIssueId}
                     onConfirm={handleConfirm}
                     onCancel={handleCancel}
                     onPreview={handlePreview}
                     onIssuePreview={handleIssuePreview}
                     onSubmit={handleSubmit}
-                    busy={busy}
+                    busy={busy || previewLoading}
                   />
                 ))}
                 <div ref={threadEndRef} />
@@ -317,6 +402,28 @@ const ProfessorTutorWorkspace = () => {
           <ChatInput onSend={handleSend} disabled={syllabus?.status === 'analyzing'} />
         </Box>
       </Box>
+      <Dialog open={!!issuePreview} onClose={() => setIssuePreview(null)} fullWidth maxWidth="lg">
+        <DialogTitle>{issuePreview?.title || 'Issue preview'}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Tracked changes</Typography>
+              <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.default', maxHeight: 360, overflow: 'auto' }}>
+                <RevisionPreview markup={issuePreview?.revisionMarkup || issuePreview?.previewText || ''} />
+              </Box>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Clean preview</Typography>
+              <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper', maxHeight: 360, overflow: 'auto' }}>
+                <MarkdownText>{issuePreview?.previewText || ''}</MarkdownText>
+              </Box>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIssuePreview(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

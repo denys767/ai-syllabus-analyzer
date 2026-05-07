@@ -13,6 +13,20 @@ import {
 import { Warning, RadioButtonUnchecked, CheckCircle } from '@mui/icons-material';
 
 const IssuesPanel = ({ issues = [], readiness = { score: 0 }, currentIssueId }) => {
+  const priorityRank = { critical: 4, high: 3, medium: 2, low: 1 };
+  const sortedIssues = issues
+    .map((issue, index) => ({ issue, index }))
+    .sort((a, b) => {
+      const aPending = a.issue.decision === 'pending';
+      const bPending = b.issue.decision === 'pending';
+      if (aPending !== bPending) return aPending ? -1 : 1;
+      if (aPending && bPending) {
+        const priorityDelta = (priorityRank[b.issue.priority] || 0) - (priorityRank[a.issue.priority] || 0);
+        if (priorityDelta) return priorityDelta;
+      }
+      return a.index - b.index;
+    })
+    .map(({ issue }) => issue);
   const open = issues.filter((i) => i.decision === 'pending');
   const resolved = issues.filter((i) => i.decision && i.decision !== 'pending');
   const score = readiness?.score ?? 0;
@@ -29,7 +43,7 @@ const IssuesPanel = ({ issues = [], readiness = { score: 0 }, currentIssueId }) 
 
       <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
         <List dense disablePadding>
-          {issues.map((issue) => {
+          {sortedIssues.map((issue) => {
             const isResolved = issue.decision && issue.decision !== 'pending';
             const isCurrent = issue.id === currentIssueId;
             const isCritical = issue.priority === 'critical';

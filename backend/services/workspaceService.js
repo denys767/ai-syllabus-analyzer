@@ -4,6 +4,7 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Syllabus = require('../models/Syllabus');
 const aiService = require('./aiService');
+const { toLineDoc, sliceLines } = require('./ai/lineDoc');
 
 const MAX_CONSECUTIVE_FAILURES = 3;
 
@@ -61,6 +62,30 @@ function getFinalGateError(syllabus) {
   err.pendingIssues = pending.map((r) => ({ id: r.id, title: r.title, priority: r.priority }));
   err.blockers = blockers.map((r) => ({ id: r.id, title: r.title, priority: r.priority }));
   return err;
+}
+
+function buildEditBlocks(syllabus, issue) {
+  if (!issue?.beforeAfter?.payload || issue.beforeAfter.kind !== 'before-after') return undefined;
+  const doc = toLineDoc(String(syllabus.extractedText || ''));
+  const edits = aiService.resolveEditsForRec(issue);
+  if (edits.length <= 1) return undefined;
+  return edits.map((edit, index) => {
+    let before = '';
+    if (edit.action === 'replace' || edit.action === 'delete') {
+      before = sliceLines(doc, edit.fromLine, edit.toLine);
+    } else if (edit.action === 'insertAfter') {
+      before = `Insertion after line ${edit.afterLine}`;
+    } else if (edit.action === 'insertBefore') {
+      before = `Insertion before line ${edit.beforeLine}`;
+    } else {
+      before = 'Append to end of syllabus';
+    }
+    return {
+      index: index + 1,
+      before,
+      after: edit.action === 'delete' ? '' : String(edit.newText || ''),
+    };
+  });
 }
 
 function assertReadyForFinal(syllabus) {
@@ -128,7 +153,7 @@ async function nextIssueMessage(conversation) {
   if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
 
   const activeIssue = conversation.currentIssueId ? findIssue(syllabus, conversation.currentIssueId) : null;
-  const issue = activeIssue?.decision === 'pending' ? activeIssue : nextPendingIssue(syllabus);
+  let issue = activeIssue?.decision === 'pending' ? activeIssue : nextPendingIssue(syllabus);
   if (!issue) {
     // All decisions made — surface the submission CTA.
     if (conversation.currentIssueId !== null) {
@@ -138,36 +163,25 @@ async function nextIssueMessage(conversation) {
 
     const blockers = (syllabus.recommendations || []).filter(isBlockingRejectedIssue);
     if (blockers.length) {
+      issue = blockers[0];
+      issue.decision = 'pending';
+      issue.decidedVia = null;
+      issue.respondedAt = undefined;
+      await syllabus.save();
+      await recomputeReadiness(conversation, syllabus);
       await Message.deleteMany({ conversationId: conversation._id, kind: 'submission-cta' });
-      const blockerTitles = blockers.map((rec) => `- ${rec.title} (${rec.priority})`).join('\n');
-      const content = `Syllabus is not ready for submission yet. The following critical/high issues were declined and must be resolved before preview or submission:\n${blockerTitles}`;
-      const existingWarning = await Message.findOne({
-        conversationId: conversation._id,
-        role: 'ai',
-        kind: 'text',
-        content: /^Syllabus is not ready for submission yet\./,
-      }).sort({ createdAt: -1 });
-      if (!existingWarning) {
+    } else {
+      const existingCta = await Message.findOne({ conversationId: conversation._id, kind: 'submission-cta' }).sort({ createdAt: -1 });
+      if (!existingCta) {
         await Message.create({
           conversationId: conversation._id,
           role: 'ai',
-          kind: 'text',
-          content,
+          kind: 'submission-cta',
+          content: 'Syllabus ready for submission. All required criteria are met. The Academic Director will receive a summary report automatically.',
         });
       }
       return null;
     }
-
-    const existingCta = await Message.findOne({ conversationId: conversation._id, kind: 'submission-cta' }).sort({ createdAt: -1 });
-    if (!existingCta) {
-      await Message.create({
-        conversationId: conversation._id,
-        role: 'ai',
-        kind: 'submission-cta',
-        content: 'Syllabus ready for submission. All required criteria are met. The Academic Director will receive a summary report automatically.',
-      });
-    }
-    return null;
   }
 
   const alreadyCurrent = conversation.currentIssueId === issue.id;
@@ -204,6 +218,8 @@ async function nextIssueMessage(conversation) {
     payload: {
       before: issue.beforeAfter.before,
       after: issue.beforeAfter.after,
+      priority: issue.priority,
+      editBlocks: buildEditBlocks(syllabus, issue),
       ...(issue.beforeAfter.payload || {}),
     },
     relatedIssueId: issue.id,
@@ -238,6 +254,12 @@ async function applyDecision(conversation, issueId, decision, selection = null) 
   const issue = findIssue(syllabus, issueId);
   if (!issue || issue.decision !== 'pending') {
     const e = new Error('Issue not pending or not found');
+    e.statusCode = 409;
+    throw e;
+  }
+
+  if (decision === 'rejected' && ['critical', 'high'].includes(issue.priority)) {
+    const e = new Error('Critical and high-priority issues must be resolved before submission and cannot be cancelled.');
     e.statusCode = 409;
     throw e;
   }
@@ -363,6 +385,28 @@ async function previewIssueChange(syllabusId, issueId, selection = null) {
   return aiService.renderIssuePreviewPdf(syllabus, issueId, selection);
 }
 
+async function previewIssueChangeText(syllabusId, issueId, selection = null) {
+  const syllabus = await Syllabus.findById(syllabusId)
+    .populate('programId', 'name')
+    .populate('instructor', 'firstName lastName');
+  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  const issue = (syllabus.recommendations || []).find((r) => r.id === issueId);
+  if (!issue) throw Object.assign(new Error('Issue not found'), { statusCode: 404 });
+  if (!issue.beforeAfter || !issue.beforeAfter.payload) {
+    throw Object.assign(new Error('Issue has no preview to render'), { statusCode: 409 });
+  }
+  const preview = aiService.buildIssuePreview(syllabus, issueId, selection);
+  return {
+    issueId,
+    title: issue.title || 'Preview',
+    kind: issue.beforeAfter.kind || 'before-after',
+    originalText: preview.originalText,
+    previewText: preview.previewText,
+    revisionMarkup: preview.revisionMarkup,
+    selection: preview.selection,
+  };
+}
+
 async function previewFinalPdf(syllabusId) {
   const syllabus = await Syllabus.findById(syllabusId).populate('programId', 'name').lean();
   if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
@@ -480,6 +524,7 @@ module.exports = {
   freeChatMessage,
   previewFinalPdf,
   previewIssueChange,
+  previewIssueChangeText,
   submitSyllabus,
   getConversationView,
   recomputeReadiness,

@@ -111,7 +111,7 @@ class ApiService {
       this.client.post(
         `/chat/${syllabusId}/issues/${issueId}/preview`,
         selection ? { selection } : {},
-        { responseType: 'blob', timeout: 60000 }
+        { timeout: 60000 }
       ),
     submit: (syllabusId) => this.client.post(`/chat/${syllabusId}/submit`),
   };

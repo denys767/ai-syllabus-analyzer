@@ -28,10 +28,19 @@ function resolveEditsForRec(rec, selection) {
     const optionId = sel.optionId || (ba.payload.options || [])[0]?.id;
     const option = (ba.payload.options || []).find((o) => String(o.id) === String(optionId));
     raw = (option && option.edits) || [];
+    if (sel.customText && raw.length) {
+      raw = raw.map((edit) => (
+        edit.action === 'delete' ? edit : { ...edit, newText: String(sel.customText) }
+      ));
+    }
   } else if (ba.kind === 'case-cards') {
-    const caseId = sel.caseId || (ba.payload.cards || [])[0]?.id;
-    const card = (ba.payload.cards || []).find((c) => String(c.id) === String(caseId));
-    raw = (card && card.edits) || [];
+    const fallbackId = (ba.payload.cards || [])[0]?.id;
+    const selectedIds = Array.isArray(sel.caseIds) && sel.caseIds.length
+      ? sel.caseIds
+      : [sel.caseId || fallbackId].filter(Boolean);
+    raw = (ba.payload.cards || [])
+      .filter((card) => selectedIds.some((id) => String(id) === String(card.id)))
+      .flatMap((card) => card.edits || []);
   } else {
     raw = ba.payload.edits || [];
   }
@@ -204,6 +213,59 @@ function buildSingleRecPreviewMarkup(syllabus, targetRecId, selectionOverride = 
 }
 
 /**
+ * Build a target-only preview. Unlike buildSingleRecPreviewMarkup, this omits
+ * all already-accepted edits so Preview shows exactly the new change under
+ * review and nothing else.
+ */
+function buildSingleRecPreviewState(syllabus, targetRecId, selectionOverride = null) {
+  const original = String(syllabus.extractedText || '');
+  const doc = toLineDoc(original);
+
+  const targetRec = (syllabus.recommendations || []).find((r) => r.id === targetRecId);
+  if (!targetRec) {
+    const err = new Error(`Recommendation ${targetRecId} not found`);
+    err.statusCode = 404;
+    throw err;
+  }
+  if (!targetRec.beforeAfter || !targetRec.beforeAfter.payload || targetRec.beforeAfter.payload.source !== 'line-edits') {
+    const err = new Error('Recommendation does not have a previewable change');
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const targetSelection = selectionOverride
+    || (targetRec.beforeAfter.payload.appliedSelection)
+    || null;
+  const targetEdits = resolveEditsForRec(targetRec, targetSelection);
+  if (!targetEdits.length) {
+    const err = new Error('Recommendation has no edits to preview');
+    err.statusCode = 409;
+    throw err;
+  }
+  const targetVersion = targetRec.beforeAfter.payload.docVersion;
+  if (targetVersion && targetVersion !== doc.sha1) {
+    const err = new Error('Syllabus text has changed since this recommendation was generated; please re-analyze');
+    err.statusCode = 409;
+    err.code = 'STALE_DOC_VERSION';
+    throw err;
+  }
+  const targetCheck = validateEdits(targetEdits, doc);
+  if (!targetCheck.ok) {
+    const err = new Error(`Recommendation edits are invalid: ${targetCheck.reason}`);
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const rawMarkup = buildRevisionMarkupFromEdits(doc, targetEdits);
+  return {
+    originalText: original,
+    previewText: applyEditsToDoc(doc, targetEdits),
+    revisionMarkup: refineRevisionMarkup(rawMarkup),
+    selection: targetSelection || {},
+  };
+}
+
+/**
  * After accepting/rejecting a rec, recompute editedText + revisionMarkup from
  * the original. Mutates `syllabus` in place but does not save.
  */
@@ -233,6 +295,7 @@ module.exports = {
   buildRevisionMarkupFromEdits,
   buildAcceptedState,
   buildSingleRecPreviewMarkup,
+  buildSingleRecPreviewState,
   recomputeSyllabusState,
   isRecApplicable,
 };

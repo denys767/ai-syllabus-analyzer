@@ -25,7 +25,13 @@ const Sidebar = ({ onItemClick }) => {
   const { user } = useAuth();
 
   const handleNavigation = (path) => {
-    navigate(path);
+    if (path === '/workspace') {
+      const userId = user?.id || user?._id || 'anon';
+      const lastChatId = localStorage.getItem(`pt.lastChat.v1.${userId}`);
+      navigate(lastChatId ? `/workspace/${lastChatId}` : path);
+    } else {
+      navigate(path);
+    }
     if (onItemClick) onItemClick();
   };
 
@@ -38,7 +44,7 @@ const Sidebar = ({ onItemClick }) => {
 
   const items = [
     {
-      text: 'Workspace',
+      text: 'Chat',
       icon: <Forum />,
       path: '/workspace',
       roles: ['instructor', 'admin', 'manager'],

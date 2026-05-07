@@ -5,6 +5,7 @@ const {
   resolveEditsForRec,
   buildAcceptedState,
   buildSingleRecPreviewMarkup,
+  buildSingleRecPreviewState,
   recomputeSyllabusState,
   isRecApplicable,
 } = require('./applyEdits');
@@ -48,6 +49,10 @@ async function renderIssuePreviewPdf(syllabus, recId, selection = null) {
   });
 }
 
+function buildIssuePreview(syllabus, recId, selection = null) {
+  return buildSingleRecPreviewState(syllabus, recId, selection);
+}
+
 module.exports = {
   // Orchestration
   analyzeSyllabus,
@@ -65,6 +70,7 @@ module.exports = {
   // Preview rendering
   renderFinalSyllabusPdf,
   renderIssuePreviewPdf,
+  buildIssuePreview,
   buildSingleRecPreviewMarkup,
   generateSubmissionReport,
 
