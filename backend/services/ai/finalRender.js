@@ -1,12 +1,62 @@
 const path = require('path');
 const fs = require('fs');
+const MarkdownIt = require('markdown-it');
 const {
   refineRevisionMarkup,
-  revisionMarkupToHtml,
   escapeHtml,
 } = require('./revisionMarkup');
 const { buildAcceptedState } = require('./applyEdits');
-const { getCategoryLabel } = require('./constants');
+const {
+  getCategoryLabel,
+  REV_DEL_OPEN,
+  REV_DEL_CLOSE,
+  REV_ADD_OPEN,
+  REV_ADD_CLOSE,
+} = require('./constants');
+
+const markdown = new MarkdownIt({
+  html: false,
+  linkify: false,
+  breaks: true,
+  typographer: false,
+});
+
+function markdownToHtml(text) {
+  return markdown.render(String(text || ''));
+}
+
+function splitRevisionSegments(markup) {
+  const source = String(markup || '');
+  const segments = [];
+  let mode = 'same';
+  let buffer = '';
+  for (let i = 0; i < source.length;) {
+    const marker = [REV_DEL_OPEN, REV_DEL_CLOSE, REV_ADD_OPEN, REV_ADD_CLOSE]
+      .find((candidate) => source.startsWith(candidate, i));
+    if (marker) {
+      if (buffer) segments.push({ mode, text: buffer });
+      buffer = '';
+      if (marker === REV_DEL_OPEN) mode = 'del';
+      if (marker === REV_ADD_OPEN) mode = 'add';
+      if (marker === REV_DEL_CLOSE || marker === REV_ADD_CLOSE) mode = 'same';
+      i += marker.length;
+    } else {
+      buffer += source[i];
+      i += 1;
+    }
+  }
+  if (buffer) segments.push({ mode, text: buffer });
+  return segments;
+}
+
+function revisionMarkupToMarkdownHtml(markup) {
+  return splitRevisionSegments(markup).map((segment) => {
+    const html = markdownToHtml(segment.text);
+    if (segment.mode === 'add') return `<div class="rev-add">${html}</div>`;
+    if (segment.mode === 'del') return `<div class="rev-del">${html}</div>`;
+    return html;
+  }).join('');
+}
 
 /**
  * Render the syllabus PDF for preview and submission. When accepted changes
@@ -29,8 +79,8 @@ async function renderFinalSyllabusPdf(syllabus, destPath) {
   const instructor = `${syllabus.instructor?.firstName || ''} ${syllabus.instructor?.lastName || ''}`.trim();
   const program = syllabus.programId?.name || '';
   const bodyHtml = revisionMarkup
-    ? revisionMarkupToHtml(revisionMarkup)
-    : escapeHtml(editedText);
+    ? revisionMarkupToMarkdownHtml(revisionMarkup)
+    : markdownToHtml(editedText);
 
   const html = renderHtmlScaffold({ course, instructor, program, bodyHtml });
 
@@ -55,7 +105,7 @@ async function renderRevisionPdfFromMarkup(markup, meta, destPath) {
   }
 
   const refined = refineRevisionMarkup(markup || '');
-  const bodyHtml = refined ? revisionMarkupToHtml(refined) : escapeHtml(meta?.fallbackText || '');
+  const bodyHtml = refined ? revisionMarkupToMarkdownHtml(refined) : markdownToHtml(meta?.fallbackText || '');
   const course = meta?.course || 'Syllabus preview';
   const instructor = meta?.instructor || '';
   const program = meta?.program || '';
@@ -77,9 +127,21 @@ function renderHtmlScaffold({ course, instructor, program, bodyHtml }) {
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #111; margin: 40px; line-height: 1.55; }
   h1 { font-size: 16pt; margin-bottom: 4px; }
   .meta { font-size: 10pt; color: #555; margin-bottom: 24px; }
-  .body { white-space: pre-wrap; }
-  .rev-del { color: #b42318; text-decoration: line-through; text-decoration-thickness: 1.5px; background: #fff1f0; }
-  .rev-add { color: #067647; background: #ecfdf3; font-weight: 600; }
+  .body { overflow-wrap: anywhere; }
+  .body table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; }
+  .body th, .body td { border: 1px solid #d0d5dd; padding: 6px 8px; vertical-align: top; }
+  .body th { background: #f2f4f7; font-weight: 700; }
+  .body h1, .body h2, .body h3 { margin: 18px 0 8px; line-height: 1.25; }
+  .body h1 { font-size: 15pt; }
+  .body h2 { font-size: 13pt; }
+  .body h3 { font-size: 12pt; }
+  .body p { margin: 0 0 8px; }
+  .body ul, .body ol { margin: 0 0 10px 22px; padding: 0; }
+  .body li { margin: 2px 0; }
+  .rev-del { color: #b42318; text-decoration: line-through; text-decoration-thickness: 1.5px; background: #fff1f0; padding: 2px 4px; border-radius: 3px; }
+  .rev-add { color: #067647; background: #ecfdf3; font-weight: 600; padding: 2px 4px; border-radius: 3px; }
+  .rev-add table, .rev-del table { background: #fff; }
+  .rev-add p:last-child, .rev-del p:last-child { margin-bottom: 0; }
 </style>
 </head>
 <body>

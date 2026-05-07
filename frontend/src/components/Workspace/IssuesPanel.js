@@ -9,8 +9,9 @@ import {
   LinearProgress,
   Divider,
   Chip,
+  Tooltip,
 } from '@mui/material';
-import { Warning, RadioButtonUnchecked, CheckCircle } from '@mui/icons-material';
+import { Warning, RadioButtonUnchecked, CheckCircle, LockOutlined } from '@mui/icons-material';
 
 const IssuesPanel = ({ issues = [], readiness = { score: 0 }, currentIssueId }) => {
   const priorityRank = { critical: 4, high: 3, medium: 2, low: 1 };
@@ -47,6 +48,7 @@ const IssuesPanel = ({ issues = [], readiness = { score: 0 }, currentIssueId }) 
             const isResolved = issue.decision && issue.decision !== 'pending';
             const isCurrent = issue.id === currentIssueId;
             const isCritical = issue.priority === 'critical';
+            const isRequired = ['critical', 'high'].includes(issue.priority);
             return (
               <ListItem
                 key={issue.id}
@@ -60,6 +62,10 @@ const IssuesPanel = ({ issues = [], readiness = { score: 0 }, currentIssueId }) 
                 <ListItemIcon sx={{ minWidth: 32 }}>
                   {isResolved ? (
                     <CheckCircle fontSize="small" color="success" />
+                  ) : isRequired ? (
+                    <Tooltip title="Important for syllabus readiness. No cancel">
+                      <LockOutlined fontSize="small" color="warning" />
+                    </Tooltip>
                   ) : isCritical ? (
                     <Warning fontSize="small" color="warning" />
                   ) : (
@@ -76,7 +82,7 @@ const IssuesPanel = ({ issues = [], readiness = { score: 0 }, currentIssueId }) 
                       color: issue.decision === 'rejected' ? 'text.secondary' : 'text.primary',
                     },
                   }}
-                  secondary={issue.groupTag}
+                  secondary={isRequired ? `${issue.groupTag || ''} · Important for syllabus readiness. Forbidden to cancel` : issue.groupTag}
                   secondaryTypographyProps={{ variant: 'caption' }}
                 />
               </ListItem>

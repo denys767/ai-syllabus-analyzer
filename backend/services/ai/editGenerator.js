@@ -151,6 +151,8 @@ KIND-SPECIFIC OUTPUT REQUIREMENTS:
 - For all other categories: kind = "before-after"; produce one "edits" array containing the change(s) for that recommendation.
 
 If the recommendation concerns a section that is missing from the syllabus, use insertAfter / insertBefore / appendDoc to add it at an appropriate location. Pick the line number that makes sense topically (e.g. add policies near other policies).
+If the recommendation concerns a section that already exists, prefer "replace" over insertion: replace the full relevant section range and merge the improvement into that existing section. Do NOT create duplicate sections or near-duplicate headings (for example, do not insert "Grading & Assessment" if the syllabus already has "Assignments and Grading"; replace/extend that section in place instead).
+For grading/assessment recommendations specifically: if any grading, assignments, assessment, evaluation, or grade table section exists, preserve its original dates, weights, assignment names, and formats, and use "replace" on that section range to add criteria/rubrics/clarifications. Only use insertAfter/insertBefore for grading if no grading/assessment section exists anywhere in the syllabus.
 
 LINE-NUMBERED SYLLABUS (lines are prefixed by their number followed by "|"):
 ${renderLineNumbered(doc)}

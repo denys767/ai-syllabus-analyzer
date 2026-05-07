@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Box,
   Paper,
@@ -61,6 +62,27 @@ const markdownComponents = {
       {children}
     </Link>
   ),
+  table: ({ children }) => (
+    <Box component="div" sx={{ overflowX: 'auto', my: 1 }}>
+      <Box
+        component="table"
+        sx={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          '& th, & td': {
+            border: '1px solid',
+            borderColor: 'divider',
+            px: 1,
+            py: 0.75,
+            verticalAlign: 'top',
+          },
+          '& th': { bgcolor: 'action.hover', fontWeight: 700 },
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
+  ),
 };
 
 const MarkdownText = ({ children, sx }) => (
@@ -85,7 +107,7 @@ const MarkdownText = ({ children, sx }) => (
       ...sx,
     }}
   >
-    <ReactMarkdown components={markdownComponents}>{String(children || '')}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{String(children || '')}</ReactMarkdown>
   </Box>
 );
 
@@ -125,10 +147,28 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy
     border: '1px solid',
   };
   const showCancel = canCancelIssue(message, issue);
+  const beforePanelSx = {
+    ...panelSx,
+    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(244, 67, 54, 0.14)' : '#fff5f5',
+    borderColor: 'error.light',
+  };
+  const afterPanelSx = {
+    ...panelSx,
+    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(76, 175, 80, 0.14)' : '#f0fff4',
+    borderColor: 'success.light',
+  };
 
   return (
     <Bubble role="ai" sx={{ maxWidth: '95%' }}>
       <MarkdownText sx={{ mb: 1.5 }}>{message.content}</MarkdownText>
+      {isCurrent && !showCancel && (
+        <Chip
+          size="small"
+          color="warning"
+          label="Important for syllabus readiness. No cancel"
+          sx={{ mb: 1.5 }}
+        />
+      )}
       <Stack spacing={1.5} sx={{ mb: 1.5 }}>
         {Array.from({ length: blockCount }).map((_, index) => (
           <Box key={index}>
@@ -138,7 +178,7 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy
               </Typography>
             )}
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
-              <Box sx={{ ...panelSx, bgcolor: '#fff5f5', borderColor: 'error.light' }}>
+              <Box sx={beforePanelSx}>
                 <Typography variant="overline" display="block" sx={{ color: 'error.dark', fontWeight: 700 }}>
                   Before
                 </Typography>
@@ -146,7 +186,7 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy
                   {beforeParts[index] || '(missing section)'}
                 </MarkdownText>
               </Box>
-              <Box sx={{ ...panelSx, bgcolor: '#f0fff4', borderColor: 'success.light' }}>
+              <Box sx={afterPanelSx}>
                 <Typography variant="overline" display="block" sx={{ color: 'success.dark', fontWeight: 700 }}>
                   After
                 </Typography>
@@ -223,6 +263,14 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview, bu
   return (
     <Bubble role="ai" sx={{ maxWidth: '95%' }}>
       <MarkdownText sx={{ mb: 1.5 }}>{message.content}</MarkdownText>
+      {isCurrent && !showCancel && (
+        <Chip
+          size="small"
+          color="warning"
+          label="Important for syllabus readiness. No cancel"
+          sx={{ mb: 1.5 }}
+        />
+      )}
       {!customMode ? (
         <RadioGroup value={optionId} onChange={(event) => setOptionId(event.target.value)}>
           <Stack spacing={1}>
@@ -340,6 +388,14 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview,
   return (
     <Bubble role="ai" sx={{ maxWidth: '95%' }}>
       <MarkdownText sx={{ mb: 1.5 }}>{message.content}</MarkdownText>
+      {isCurrent && !showCancel && (
+        <Chip
+          size="small"
+          color="warning"
+          label="Important for syllabus readiness. No cancel"
+          sx={{ mb: 1.5 }}
+        />
+      )}
       {message.payload?.week && (
         <Chip size="small" label={`Case Recommendations - ${message.payload.week}`} sx={{ mb: 1.5 }} />
       )}

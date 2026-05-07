@@ -25,6 +25,7 @@
     "helmet": "latest",
     "jsonwebtoken": "latest",
     "mammoth": "latest",
+    "markdown-it": "^14.1.1",
     "moment": "latest",
     "mongodb-memory-server": "latest",
     "mongoose": "latest",

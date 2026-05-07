@@ -89,7 +89,7 @@ const ReadinessCell = ({ syllabus }) => {
 
 // ─── Syllabi tab ─────────────────────────────────────────────────────────────
 
-const SyllabiTab = ({ programs, isAdmin, onChanged }) => {
+const SyllabiTab = ({ programs, isAdmin, currentUser, onChanged }) => {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -142,6 +142,12 @@ const SyllabiTab = ({ programs, isAdmin, onChanged }) => {
     }
   };
 
+  const canDeleteSyllabus = (syllabus) => {
+    if (isAdmin) return true;
+    const ownerId = syllabus.instructor?._id || syllabus.instructorId?._id || syllabus.instructor || syllabus.instructorId;
+    return ownerId && String(ownerId) === String(currentUser?._id || currentUser?.id);
+  };
+
   return (
     <Box>
       <Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'center' }}>
@@ -188,7 +194,7 @@ const SyllabiTab = ({ programs, isAdmin, onChanged }) => {
                       <IconButton size="small" onClick={() => resend(s._id)}><Email fontSize="small" /></IconButton>
                     </Tooltip>
                   )}
-                  {isAdmin && (
+                  {canDeleteSyllabus(s) && (
                     <Tooltip title="Delete syllabus">
                       <span>
                         <IconButton
@@ -557,7 +563,7 @@ const Cabinet = () => {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
         {tabs.map((label) => <Tab key={label} label={label} />)}
       </Tabs>
-      {tab === 0 && <SyllabiTab programs={programs} isAdmin={isAdmin} onChanged={loadMetrics} />}
+      {tab === 0 && <SyllabiTab programs={programs} isAdmin={isAdmin} currentUser={user} onChanged={loadMetrics} />}
       {isAdmin && tab === 1 && <UsersTab programs={programs} />}
       {isAdmin && tab === 2 && <ProgramsTab programs={programs} reload={loadPrograms} />}
     </Box>

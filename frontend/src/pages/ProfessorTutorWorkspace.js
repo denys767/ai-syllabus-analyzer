@@ -76,29 +76,26 @@ function splitRevisionMarkup(markup) {
 
 const RevisionPreview = ({ markup }) => (
   <Box
-    component="pre"
     sx={{
       m: 0,
-      whiteSpace: 'pre-wrap',
       overflowWrap: 'anywhere',
-      fontFamily: 'inherit',
       fontSize: '0.875rem',
-      lineHeight: 1.6,
     }}
   >
     {splitRevisionMarkup(markup).map((part, index) => (
       <Box
         key={`${part.mode}-${index}`}
-        component="span"
         sx={{
           bgcolor: part.mode === 'add' ? 'success.light' : part.mode === 'del' ? 'error.light' : 'transparent',
           color: part.mode === 'del' ? 'error.dark' : 'inherit',
           textDecoration: part.mode === 'del' ? 'line-through' : 'none',
-          px: part.mode === 'same' ? 0 : 0.25,
+          px: part.mode === 'same' ? 0 : 0.5,
+          py: part.mode === 'same' ? 0 : 0.25,
           borderRadius: part.mode === 'same' ? 0 : 0.5,
+          display: 'block',
         }}
       >
-        {part.text}
+        <MarkdownText>{part.text}</MarkdownText>
       </Box>
     ))}
   </Box>
@@ -178,9 +175,21 @@ const ProfessorTutorWorkspace = () => {
         setMessages(started?.messages || []);
       }
     } catch (err) {
+      if (err.response?.status === 404) {
+        if (localStorage.getItem(lastChatKey) === id) {
+          localStorage.removeItem(lastChatKey);
+        }
+        setOpenTabs((tabs) => tabs.filter((tab) => tab.id !== id));
+        setSyllabus(null);
+        setConversation(null);
+        setMessages([]);
+        setError('');
+        navigate('/workspace', { replace: true });
+        return;
+      }
       setError(err.response?.data?.message || err.message || 'Failed to load syllabus');
     }
-  }, [ensureTab]);
+  }, [ensureTab, lastChatKey, navigate]);
 
   // Load when route param changes
   useEffect(() => {
