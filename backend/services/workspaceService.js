@@ -173,18 +173,14 @@ async function nextIssueMessage(conversation) {
   const alreadyCurrent = conversation.currentIssueId === issue.id;
 
   // Cache miss → backfill via live LLM call.
-  const currentSyllabusText = aiService.getEditableSyllabusText(syllabus);
-  const missingPreview = !issue.beforeAfter || (!issue.beforeAfter.before && !issue.beforeAfter.after);
-  const previewKind = issue.beforeAfter?.kind || 'before-after';
-  const stalePreview = previewKind === 'before-after'
-    && !aiService.isBeforeAfterApplicable(currentSyllabusText, issue.beforeAfter);
+  const missingPreview = !issue.beforeAfter || !issue.beforeAfter.payload;
+  const stalePreview = !missingPreview && !aiService.isRecApplicable(syllabus, issue);
 
   if (alreadyCurrent && !missingPreview && !stalePreview) return issue;
 
   if (missingPreview || stalePreview) {
     try {
-      const ba = await aiService.generateIssueMessage(syllabus, issue);
-      issue.beforeAfter = ba;
+      await aiService.regenerateForRec(syllabus, issue);
       await syllabus.save();
       conversation.consecutiveAiFailures = 0;
     } catch (err) {
@@ -247,41 +243,39 @@ async function applyDecision(conversation, issueId, decision, selection = null) 
   }
 
   if (decision === 'accepted') {
-    if (!issue.beforeAfter) {
+    if (!issue.beforeAfter || !issue.beforeAfter.payload) {
       const e = new Error('Issue does not have a Before/After preview to apply');
       e.statusCode = 409;
       throw e;
     }
-    const currentText = aiService.getEditableSyllabusText(syllabus);
-    try {
-      const applied = aiService.applyIssuePreviewToTextWithTrace(currentText, issue.beforeAfter, selection);
-      syllabus.editedText = applied.text;
-      syllabus.revisionMarkup = aiService.applyBeforeAfterToRevisionMarkup(
-        syllabus.revisionMarkup || currentText,
-        applied.trace
-      );
-      if (issue.beforeAfter.kind && issue.beforeAfter.kind !== 'before-after') {
-        issue.beforeAfter.payload = {
-          ...(issue.beforeAfter.payload || {}),
-          appliedSelection: selection || {},
-          appliedText: applied.appliedText,
-        };
-      }
-      if (syllabus.previewPdf?.path) {
-        try { await fs.promises.unlink(syllabus.previewPdf.path); } catch { /* best-effort stale preview cleanup */ }
-      }
-      syllabus.previewPdf = undefined;
-      syllabus.editingStatus = 'ready';
-    } catch (err) {
-      err.statusCode = ['STALE_BEFORE_AFTER', 'INVALID_SELECTION', 'INVALID_BEFORE_AFTER'].includes(err.code) ? 409 : 500;
-      err.retryable = err.code === 'STALE_BEFORE_AFTER';
-      throw err;
+    if (!aiService.isRecApplicable(syllabus, issue, selection)) {
+      const e = new Error('The recommendation no longer applies to the current syllabus text; please re-analyze.');
+      e.statusCode = 409;
+      e.code = 'STALE_DOC_VERSION';
+      e.retryable = true;
+      throw e;
     }
+    if (selection) {
+      issue.beforeAfter.payload = {
+        ...(issue.beforeAfter.payload || {}),
+        appliedSelection: selection,
+      };
+    }
+    issue.decision = decision;
+    issue.decidedVia = 'chat';
+    issue.respondedAt = new Date();
+    aiService.applyAcceptedDecisions(syllabus);
+    if (syllabus.previewPdf?.path) {
+      try { await fs.promises.unlink(syllabus.previewPdf.path); } catch { /* best-effort stale preview cleanup */ }
+    }
+    syllabus.previewPdf = undefined;
+    syllabus.editingStatus = 'ready';
+  } else {
+    issue.decision = decision;
+    issue.decidedVia = 'chat';
+    issue.respondedAt = new Date();
   }
 
-  issue.decision = decision;
-  issue.decidedVia = 'chat';
-  issue.respondedAt = new Date();
   await syllabus.save();
 
   conversation.lastDecisionAt = new Date();
@@ -354,6 +348,19 @@ async function freeChatMessage(conversation, userText) {
     content: aiText || '...',
   });
   return aiMessage;
+}
+
+async function previewIssueChange(syllabusId, issueId, selection = null) {
+  const syllabus = await Syllabus.findById(syllabusId)
+    .populate('programId', 'name')
+    .populate('instructor', 'firstName lastName');
+  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  const issue = (syllabus.recommendations || []).find((r) => r.id === issueId);
+  if (!issue) throw Object.assign(new Error('Issue not found'), { statusCode: 404 });
+  if (!issue.beforeAfter || !issue.beforeAfter.payload) {
+    throw Object.assign(new Error('Issue has no preview to render'), { statusCode: 409 });
+  }
+  return aiService.renderIssuePreviewPdf(syllabus, issueId, selection);
 }
 
 async function previewFinalPdf(syllabusId) {
@@ -432,7 +439,27 @@ async function submitSyllabus(syllabusId) {
     submittedPdfPath: pdfPath,
     submissionEmailStatus: emailStatus,
   });
-  await Conversation.findOneAndUpdate({ syllabusId }, { status: 'submitted', currentIssueId: null });
+
+  const conversation = await Conversation.findOneAndUpdate(
+    { syllabusId },
+    { status: 'submitted', currentIssueId: null },
+    { new: true }
+  );
+
+  if (conversation) {
+    const adEmail = syllabus.programId?.academicDirectorEmail;
+    const courseName = syllabus.course?.name || 'your syllabus';
+    const confirmationText = emailStatus === 'sent' && adEmail
+      ? `Your syllabus for **${courseName}** has been submitted. A confirmation email with the final PDF was sent to the Academic Director (${adEmail}).`
+      : `Your syllabus for **${courseName}** has been submitted. The email to the Academic Director could not be delivered — please contact the program office directly.`;
+
+    await Message.create({
+      conversationId: conversation._id,
+      role: 'ai',
+      kind: 'text',
+      content: confirmationText,
+    });
+  }
 }
 
 async function getConversationView(syllabusId, { limit = 200 } = {}) {
@@ -452,6 +479,7 @@ module.exports = {
   cancelIssue,
   freeChatMessage,
   previewFinalPdf,
+  previewIssueChange,
   submitSyllabus,
   getConversationView,
   recomputeReadiness,

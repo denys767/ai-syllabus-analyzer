@@ -153,6 +153,36 @@ router.post('/:syllabusId/message', auth, messageLimiter, gateMutate, [
   }
 });
 
+// POST /api/chat/:syllabusId/issues/:issueId/preview — stream a per-issue preview PDF
+router.post('/:syllabusId/issues/:issueId/preview', auth, gateMutate, [
+  body('selection').optional().isObject().withMessage('selection must be an object'),
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  try {
+    const pdfPath = await workspaceService.previewIssueChange(
+      req.params.syllabusId,
+      req.params.issueId,
+      req.body?.selection || null,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="issue-preview.pdf"');
+    const stream = fs.createReadStream(pdfPath);
+    stream.on('error', (err) => {
+      if (!res.headersSent) res.status(500).json({ message: 'Error streaming PDF' });
+      console.error('Issue preview stream error:', err);
+    });
+    stream.on('close', () => {
+      // Cleanup the one-off preview PDF after streaming.
+      fs.promises.unlink(pdfPath).catch(() => {});
+    });
+    stream.pipe(res);
+  } catch (err) {
+    console.error('chat issue preview error:', err);
+    res.status(err.statusCode || 500).json({ message: err.message || 'Issue preview failed' });
+  }
+});
+
 // POST /api/chat/:syllabusId/preview — stream the generated PDF
 router.post('/:syllabusId/preview', auth, gateMutate, async (req, res) => {
   try {

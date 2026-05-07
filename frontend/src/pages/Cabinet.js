@@ -1,14 +1,16 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   IconButton,
   LinearProgress,
   MenuItem,
@@ -35,9 +37,11 @@ import {
   Edit,
   Email,
   Refresh,
+  Settings,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import AuthContext from '../contexts/AuthContext';
 
 // ─── Metrics row ─────────────────────────────────────────────────────────────
 
@@ -85,7 +89,7 @@ const ReadinessCell = ({ syllabus }) => {
 
 // ─── Syllabi tab ─────────────────────────────────────────────────────────────
 
-const SyllabiTab = ({ programs, onChanged }) => {
+const SyllabiTab = ({ programs, isAdmin, onChanged }) => {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -124,17 +128,13 @@ const SyllabiTab = ({ programs, onChanged }) => {
   const deleteSyllabus = async (syllabus) => {
     const courseTitle = syllabus.course?.name || syllabus.title || 'this syllabus';
     if (!window.confirm(`Delete "${courseTitle}"? This cannot be undone.`)) return;
-
     setDeletingId(syllabus._id);
     try {
       await api.cabinet.deleteSyllabus(syllabus._id);
       setSnack('Syllabus deleted');
       onChanged?.();
-      if (rows.length === 1 && page > 1) {
-        setPage((p) => p - 1);
-      } else {
-        load();
-      }
+      if (rows.length === 1 && page > 1) setPage((p) => p - 1);
+      else load();
     } catch (err) {
       setSnack(err.response?.data?.message || 'Delete failed');
     } finally {
@@ -183,23 +183,25 @@ const SyllabiTab = ({ programs, onChanged }) => {
                   <Tooltip title="Open chat interface">
                     <IconButton size="small" onClick={() => navigate(`/workspace/${s._id}`)}><Chat fontSize="small" /></IconButton>
                   </Tooltip>
-                  {s.status === 'submitted' && s.submissionEmailStatus === 'failed' && (
+                  {s.status === 'submitted' && s.submissionEmailStatus === 'failed' && isAdmin && (
                     <Tooltip title="Resend submission email">
                       <IconButton size="small" onClick={() => resend(s._id)}><Email fontSize="small" /></IconButton>
                     </Tooltip>
                   )}
-                  <Tooltip title="Delete syllabus">
-                    <span>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        disabled={deletingId === s._id}
-                        onClick={() => deleteSyllabus(s)}
-                      >
-                        {deletingId === s._id ? <CircularProgress size={16} color="inherit" /> : <Delete fontSize="small" />}
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+                  {isAdmin && (
+                    <Tooltip title="Delete syllabus">
+                      <span>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          disabled={deletingId === s._id}
+                          onClick={() => deleteSyllabus(s)}
+                        >
+                          {deletingId === s._id ? <CircularProgress size={16} color="inherit" /> : <Delete fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -221,14 +223,73 @@ const SyllabiTab = ({ programs, onChanged }) => {
   );
 };
 
+// ─── Program assignment dialog (admin → manager) ──────────────────────────────
+
+const ProgramAssignDialog = ({ user, programs, open, onClose, onSaved }) => {
+  const [selected, setSelected] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [snack, setSnack] = useState('');
+
+  useEffect(() => {
+    if (open && user) {
+      setSelected((user.managedProgramIds || []).map((p) => (typeof p === 'object' ? String(p._id) : String(p))));
+    }
+  }, [open, user]);
+
+  const toggle = (id) => {
+    setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.cabinet.updateUserPrograms(user._id, selected);
+      onSaved?.();
+      onClose();
+    } catch (err) {
+      setSnack(err.response?.data?.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Assign programs — {user?.firstName} {user?.lastName}</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Select the programs this manager can view.
+        </Typography>
+        <Stack>
+          {programs.map((p) => (
+            <FormControlLabel
+              key={p._id}
+              control={<Checkbox checked={selected.includes(String(p._id))} onChange={() => toggle(String(p._id))} size="small" />}
+              label={`${p.name} (${p.code})`}
+            />
+          ))}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={save} disabled={saving}>
+          {saving ? <CircularProgress size={18} /> : 'Save'}
+        </Button>
+      </DialogActions>
+      <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack('')} message={snack} />
+    </Dialog>
+  );
+};
+
 // ─── Users tab ────────────────────────────────────────────────────────────────
 
-const UsersTab = () => {
+const UsersTab = ({ programs }) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ email: '', firstName: '', lastName: '', role: 'instructor' });
   const [saving, setSaving] = useState(false);
+  const [assignTarget, setAssignTarget] = useState(null);
   const [snack, setSnack] = useState('');
 
   const load = useCallback(async () => {
@@ -273,8 +334,10 @@ const UsersTab = () => {
               <TableCell>Name</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Role</TableCell>
+              <TableCell>Programs</TableCell>
               <TableCell>Verified</TableCell>
               <TableCell>Joined</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -283,17 +346,32 @@ const UsersTab = () => {
                 <TableCell>{`${u.firstName} ${u.lastName}`}</TableCell>
                 <TableCell>{u.email}</TableCell>
                 <TableCell><Chip label={u.role} size="small" /></TableCell>
+                <TableCell>
+                  {u.role === 'manager'
+                    ? (u.managedProgramIds?.length
+                        ? u.managedProgramIds.map((p) => <Chip key={p._id} label={p.code} size="small" variant="outlined" sx={{ mr: 0.5 }} />)
+                        : <Typography variant="caption" color="text.secondary">none</Typography>)
+                    : '—'}
+                </TableCell>
                 <TableCell>{u.isVerified ? 'Yes' : 'No'}</TableCell>
                 <TableCell>{new Date(u.createdAt).toLocaleDateString()}</TableCell>
+                <TableCell align="right">
+                  {u.role === 'manager' && (
+                    <Tooltip title="Assign programs">
+                      <IconButton size="small" onClick={() => setAssignTarget(u)}><Settings fontSize="small" /></IconButton>
+                    </Tooltip>
+                  )}
+                </TableCell>
               </TableRow>
             ))}
             {!loading && rows.length === 0 && (
-              <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>No users found</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.secondary' }}>No users found</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
       </TableContainer>
 
+      {/* Create user dialog */}
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Create user</DialogTitle>
         <DialogContent>
@@ -303,6 +381,7 @@ const UsersTab = () => {
             <TextField label="Last name" size="small" fullWidth value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} />
             <Select size="small" value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
               <MenuItem value="instructor">Instructor</MenuItem>
+              <MenuItem value="manager">Manager</MenuItem>
               <MenuItem value="admin">Admin</MenuItem>
             </Select>
           </Stack>
@@ -314,6 +393,15 @@ const UsersTab = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Program assignment dialog */}
+      <ProgramAssignDialog
+        user={assignTarget}
+        programs={programs}
+        open={!!assignTarget}
+        onClose={() => setAssignTarget(null)}
+        onSaved={() => { load(); setSnack('Programs updated'); }}
+      />
 
       <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack('')} message={snack} />
     </Box>
@@ -428,6 +516,9 @@ const ProgramsTab = ({ programs, reload }) => {
 // ─── Cabinet page ─────────────────────────────────────────────────────────────
 
 const Cabinet = () => {
+  const { user } = useContext(AuthContext);
+  const isAdmin = user?.role === 'admin';
+
   const [tab, setTab] = useState(0);
   const [metrics, setMetrics] = useState(null);
   const [programs, setPrograms] = useState([]);
@@ -451,19 +542,24 @@ const Cabinet = () => {
     loadMetrics();
   }, [loadPrograms, loadMetrics]);
 
+  // Manager sees only the Syllabi tab.
+  const tabs = isAdmin
+    ? ['Syllabi', 'Users', 'Programs']
+    : ['Syllabi'];
+
   return (
     <Box sx={{ p: 3, maxWidth: 1100, mx: 'auto' }}>
-      <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>Admin Cabinet</Typography>
+      <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>
+        {isAdmin ? 'Admin Cabinet' : user?.role === 'manager' ? 'Program Cabinet' : 'My Syllabi'}
+      </Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       <MetricsRow metrics={metrics} />
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Tab label="Syllabi" />
-        <Tab label="Users" />
-        <Tab label="Programs" />
+        {tabs.map((label) => <Tab key={label} label={label} />)}
       </Tabs>
-      {tab === 0 && <SyllabiTab programs={programs} onChanged={loadMetrics} />}
-      {tab === 1 && <UsersTab />}
-      {tab === 2 && <ProgramsTab programs={programs} reload={loadPrograms} />}
+      {tab === 0 && <SyllabiTab programs={programs} isAdmin={isAdmin} onChanged={loadMetrics} />}
+      {isAdmin && tab === 1 && <UsersTab programs={programs} />}
+      {isAdmin && tab === 2 && <ProgramsTab programs={programs} reload={loadPrograms} />}
     </Box>
   );
 };

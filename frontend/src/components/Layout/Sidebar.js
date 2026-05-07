@@ -41,24 +41,24 @@ const Sidebar = ({ onItemClick }) => {
       text: 'Workspace',
       icon: <Forum />,
       path: '/workspace',
-      roles: ['instructor', 'admin'],
+      roles: ['instructor', 'admin', 'manager'],
     },
     {
       text: 'Cabinet',
       icon: <AdminPanelSettings />,
       path: '/cabinet',
-      roles: ['admin'],
+      roles: ['admin', 'manager', 'instructor'],
     },
     {
       text: 'Documents',
       icon: <Policy />,
       path: '/policies',
-      roles: ['instructor', 'admin'],
+      roles: ['instructor', 'admin', 'manager'],
     },
   ].filter((item) => item.roles.includes(user?.role));
 
-  const roleColors = { admin: 'error', instructor: 'primary' };
-  const roleLabels = { admin: 'Admin', instructor: 'Instructor' };
+  const roleColors = { admin: 'error', instructor: 'primary', manager: 'warning' };
+  const roleLabels = { admin: 'Admin', instructor: 'Instructor', manager: 'Manager' };
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

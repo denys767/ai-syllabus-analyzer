@@ -12,28 +12,35 @@ import {
 } from '@mui/material';
 import { Add, Close } from '@mui/icons-material';
 import api from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import EmptyState from '../components/Workspace/EmptyState';
 import IssuesPanel from '../components/Workspace/IssuesPanel';
 import MessageBubble from '../components/Workspace/MessageBubble';
 import ChatInput from '../components/Workspace/ChatInput';
 
-const OPEN_TABS_KEY = 'pt.openTabs.v1';
-
-function readOpenTabs() {
+// Per-user key so a different user signed in on the same browser cannot
+// see the previous user's syllabus tabs.
+const OPEN_TABS_KEY_PREFIX = 'pt.openTabs.v1.';
+function tabsKeyFor(userId) {
+  return `${OPEN_TABS_KEY_PREFIX}${userId || 'anon'}`;
+}
+function readOpenTabs(key) {
   try {
-    return JSON.parse(localStorage.getItem(OPEN_TABS_KEY)) || [];
+    return JSON.parse(localStorage.getItem(key)) || [];
   } catch {
     return [];
   }
 }
-function writeOpenTabs(tabs) {
-  localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(tabs));
+function writeOpenTabs(key, tabs) {
+  localStorage.setItem(key, JSON.stringify(tabs));
 }
 
 const ProfessorTutorWorkspace = () => {
   const { syllabusId } = useParams();
   const navigate = useNavigate();
-  const [openTabs, setOpenTabs] = useState(readOpenTabs);
+  const { user } = useAuth();
+  const tabsKey = useMemo(() => tabsKeyFor(user?.id || user?._id), [user]);
+  const [openTabs, setOpenTabs] = useState(() => readOpenTabs(tabsKey));
   const [syllabus, setSyllabus] = useState(null);
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -42,9 +49,18 @@ const ProfessorTutorWorkspace = () => {
   const [busy, setBusy] = useState(false);
   const pollRef = useRef(null);
   const threadEndRef = useRef(null);
+  const lastTabsKeyRef = useRef(tabsKey);
 
-  // Persist tabs whenever they change
-  useEffect(() => { writeOpenTabs(openTabs); }, [openTabs]);
+  // When the active user changes, rehydrate tabs from their key before persisting,
+  // otherwise we'd write the previous user's tabs into the new user's slot.
+  useEffect(() => {
+    if (lastTabsKeyRef.current !== tabsKey) {
+      lastTabsKeyRef.current = tabsKey;
+      setOpenTabs(readOpenTabs(tabsKey));
+      return;
+    }
+    writeOpenTabs(tabsKey, openTabs);
+  }, [tabsKey, openTabs]);
 
   const closeTab = useCallback((id) => {
     setOpenTabs((tabs) => {
@@ -179,6 +195,18 @@ const ProfessorTutorWorkspace = () => {
     }
   };
 
+  const handleIssuePreview = async (issueId, selection = null) => {
+    setError('');
+    try {
+      const { data: blob } = await api.chat.issuePreview(syllabusId, issueId, selection);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Issue preview failed. Please try again.');
+    }
+  };
+
   const handleSubmit = async () => {
     setBusy(true);
     setError('');
@@ -277,6 +305,7 @@ const ProfessorTutorWorkspace = () => {
                     onConfirm={handleConfirm}
                     onCancel={handleCancel}
                     onPreview={handlePreview}
+                    onIssuePreview={handleIssuePreview}
                     onSubmit={handleSubmit}
                     busy={busy}
                   />

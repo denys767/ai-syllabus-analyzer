@@ -107,6 +107,12 @@ class ApiService {
     cancel: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/cancel`, body),
     sendMessage: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/message`, body),
     preview: (syllabusId) => this.client.post(`/chat/${syllabusId}/preview`, {}, { responseType: 'blob', timeout: 60000 }),
+    issuePreview: (syllabusId, issueId, selection = null) =>
+      this.client.post(
+        `/chat/${syllabusId}/issues/${issueId}/preview`,
+        selection ? { selection } : {},
+        { responseType: 'blob', timeout: 60000 }
+      ),
     submit: (syllabusId) => this.client.post(`/chat/${syllabusId}/submit`),
   };
 
@@ -122,6 +128,7 @@ class ApiService {
     deleteProgram: (id) => this.client.delete(`/cabinet/programs/${id}`),
     deleteSyllabus: (id) => this.client.delete(`/syllabus/${id}`),
     resendSubmission: (syllabusId) => this.client.post(`/cabinet/syllabi/${syllabusId}/resend-submission`),
+    updateUserPrograms: (userId, programIds) => this.client.put(`/cabinet/users/${userId}/programs`, { programIds }),
   };
 
   policies = {

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require\\('dotenv'\\).config\\(\\); const ai = require\\('./services/ai'\\); console.log\\('exports:', Object.keys\\(ai\\).join\\(', '\\)\\);\")",
+      "Bash(node -e \"require\\('dotenv'\\).config\\(\\); const ws = require\\('./services/workspaceService'\\); const chat = require\\('./routes/chat'\\); console.log\\('workspace exports:', Object.keys\\(ws\\).join\\(', '\\)\\); console.log\\('chat router loaded:', typeof chat\\);\")",
+      "Bash(node -e ' *)"
+    ]
+  }
+}

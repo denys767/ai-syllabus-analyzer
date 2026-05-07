@@ -10,7 +10,6 @@ const { getIssueCounts } = require('../services/workspaceService');
 const { sendInvitationEmail } = require('../services/emailService');
 const crypto = require('crypto');
 
-
 // ─── Programs ────────────────────────────────────────────────────────────────
 
 router.get('/programs', auth, async (req, res) => {
@@ -22,9 +21,7 @@ router.get('/programs', auth, async (req, res) => {
   }
 });
 
-router.use(auth, admin);
-
-router.post('/programs', async (req, res) => {
+router.post('/programs', auth, admin, async (req, res) => {
   try {
     const { name, code, academicDirectorEmail } = req.body;
     if (!name || !code) return res.status(400).json({ message: 'name and code are required' });
@@ -36,7 +33,7 @@ router.post('/programs', async (req, res) => {
   }
 });
 
-router.put('/programs/:id', async (req, res) => {
+router.put('/programs/:id', auth, admin, async (req, res) => {
   try {
     const { name, academicDirectorEmail } = req.body;
     const update = {};
@@ -50,7 +47,7 @@ router.put('/programs/:id', async (req, res) => {
   }
 });
 
-router.delete('/programs/:id', async (req, res) => {
+router.delete('/programs/:id', auth, admin, async (req, res) => {
   try {
     const program = await Program.findByIdAndDelete(req.params.id);
     if (!program) return res.status(404).json({ message: 'Program not found' });
@@ -62,12 +59,20 @@ router.delete('/programs/:id', async (req, res) => {
 
 // ─── Metrics ─────────────────────────────────────────────────────────────────
 
-router.get('/metrics', async (req, res) => {
+router.get('/metrics', auth, async (req, res) => {
   try {
+    const filter = {};
+    if (req.user.role === 'manager') {
+      const me = await User.findById(req.user.userId).select('managedProgramIds').lean();
+      if (!me?.managedProgramIds?.length) return res.json({ total: 0, submitted: 0, inProgress: 0 });
+      filter.programId = { $in: me.managedProgramIds };
+    } else if (req.user.role === 'instructor') {
+      filter.instructor = req.user.userId;
+    }
     const [total, submitted, inProgress] = await Promise.all([
-      Syllabus.countDocuments(),
-      Syllabus.countDocuments({ status: 'submitted' }),
-      Syllabus.countDocuments({ status: 'in_progress' }),
+      Syllabus.countDocuments(filter),
+      Syllabus.countDocuments({ ...filter, status: 'submitted' }),
+      Syllabus.countDocuments({ ...filter, status: 'in_progress' }),
     ]);
     res.json({ total, submitted, inProgress });
   } catch (err) {
@@ -77,12 +82,30 @@ router.get('/metrics', async (req, res) => {
 
 // ─── Syllabi ─────────────────────────────────────────────────────────────────
 
-router.get('/syllabi', async (req, res) => {
+router.get('/syllabi', auth, async (req, res) => {
   try {
     const { program, status, page = 1, limit = 20 } = req.query;
     const filter = {};
-    if (program) filter.programId = new mongoose.Types.ObjectId(program);
     if (status) filter.status = status;
+
+    if (req.user.role === 'manager') {
+      const me = await User.findById(req.user.userId).select('managedProgramIds').lean();
+      const allowed = me?.managedProgramIds || [];
+      if (!allowed.length) return res.json({ syllabi: [], total: 0, page: 1, pages: 0 });
+      // Manager can only see syllabi from their assigned programs; optional further filter.
+      const requestedProgram = program ? new mongoose.Types.ObjectId(program) : null;
+      if (requestedProgram && allowed.some((id) => id.equals(requestedProgram))) {
+        filter.programId = requestedProgram;
+      } else {
+        filter.programId = { $in: allowed };
+      }
+    } else if (req.user.role === 'instructor') {
+      filter.instructor = new mongoose.Types.ObjectId(req.user.userId);
+      if (program) filter.programId = new mongoose.Types.ObjectId(program);
+    } else if (program) {
+      filter.programId = new mongoose.Types.ObjectId(program);
+    }
+
     const skip = (Number(page) - 1) * Number(limit);
     const [syllabi, total] = await Promise.all([
       Syllabus.find(filter)
@@ -93,14 +116,13 @@ router.get('/syllabi', async (req, res) => {
         .populate('programId', 'name code'),
       Syllabus.countDocuments(filter),
     ]);
+
     const syllabusIds = syllabi.map((item) => item._id);
     const conversations = await Conversation.find({ syllabusId: { $in: syllabusIds } })
       .select('syllabusId readiness')
       .lean();
-    const conversationBySyllabus = new Map(conversations.map((conversation) => [
-      String(conversation.syllabusId),
-      conversation,
-    ]));
+    const conversationBySyllabus = new Map(conversations.map((c) => [String(c.syllabusId), c]));
+
     const enriched = syllabi.map((syllabus) => {
       const plain = syllabus.toObject();
       const conversation = conversationBySyllabus.get(String(plain._id));
@@ -116,7 +138,7 @@ router.get('/syllabi', async (req, res) => {
   }
 });
 
-router.post('/syllabi/:id/resend-submission', async (req, res) => {
+router.post('/syllabi/:id/resend-submission', auth, admin, async (req, res) => {
   try {
     const syllabus = await Syllabus.findById(req.params.id)
       .populate('programId')
@@ -167,15 +189,19 @@ router.post('/syllabi/:id/resend-submission', async (req, res) => {
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 
-router.get('/users', async (req, res) => {
+router.get('/users', auth, admin, async (req, res) => {
   try {
     const { page = 1, limit = 50, role } = req.query;
     const filter = {};
     if (role) filter.role = role;
     const skip = (Number(page) - 1) * Number(limit);
     const [users, total] = await Promise.all([
-      User.find(filter).select('-password -resetPasswordToken -resetPasswordExpires -emailChangeToken -emailChangeExpires')
-        .sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+      User.find(filter)
+        .select('-password -resetPasswordToken -resetPasswordExpires -emailChangeToken -emailChangeExpires')
+        .populate('managedProgramIds', 'name code')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit)),
       User.countDocuments(filter),
     ]);
     res.json({ users, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
@@ -184,7 +210,7 @@ router.get('/users', async (req, res) => {
   }
 });
 
-router.post('/users', async (req, res) => {
+router.post('/users', auth, admin, async (req, res) => {
   try {
     const { email, firstName, lastName, role = 'instructor' } = req.body;
     if (!email || !firstName || !lastName) return res.status(400).json({ message: 'email, firstName, lastName required' });
@@ -214,6 +240,29 @@ router.post('/users', async (req, res) => {
     }
 
     res.status(201).json({ _id: user._id, email: user.email, firstName, lastName, role });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Admin assigns programs to a manager.
+router.put('/users/:id/programs', auth, admin, async (req, res) => {
+  try {
+    const { programIds } = req.body;
+    if (!Array.isArray(programIds)) return res.status(400).json({ message: 'programIds must be an array' });
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (user.role !== 'manager') return res.status(400).json({ message: 'User is not a manager' });
+
+    const validIds = programIds
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+
+    user.managedProgramIds = validIds;
+    await user.save();
+    await user.populate('managedProgramIds', 'name code');
+    res.json({ managedProgramIds: user.managedProgramIds });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

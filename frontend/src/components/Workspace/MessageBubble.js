@@ -42,7 +42,7 @@ const Bubble = ({ role, children, sx }) => {
   );
 };
 
-const BeforeAfter = ({ message, onConfirm, onCancel, busy, isCurrent }) => {
+const BeforeAfter = ({ message, onConfirm, onCancel, onIssuePreview, busy, isCurrent }) => {
   const before = message.payload?.before;
   const after = message.payload?.after;
   const panelSx = {
@@ -101,6 +101,15 @@ const BeforeAfter = ({ message, onConfirm, onCancel, busy, isCurrent }) => {
           <Button
             size="small"
             variant="outlined"
+            startIcon={<Visibility />}
+            disabled={busy}
+            onClick={() => onIssuePreview && onIssuePreview(message.relatedIssueId)}
+          >
+            Preview
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
             color="inherit"
             startIcon={<Close />}
             disabled={busy}
@@ -130,7 +139,7 @@ const SubmissionCta = ({ message, onPreview, onSubmit, busy }) => (
   </Bubble>
 );
 
-const ChoiceMessage = ({ message, onConfirm, onCancel, busy, isCurrent }) => {
+const ChoiceMessage = ({ message, onConfirm, onCancel, onIssuePreview, busy, isCurrent }) => {
   const options = message.payload?.options || [];
   const [optionId, setOptionId] = useState(options[0]?.id || '');
   const [customNote, setCustomNote] = useState('');
@@ -154,7 +163,10 @@ const ChoiceMessage = ({ message, onConfirm, onCancel, busy, isCurrent }) => {
                   label={
                     <Box>
                       <Typography variant="subtitle2">{option.label}</Typography>
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary', fontWeight: 700 }}
+                      >
                         {option.text}
                       </Typography>
                       {option.rationale && (
@@ -218,6 +230,18 @@ const ChoiceMessage = ({ message, onConfirm, onCancel, busy, isCurrent }) => {
           <Button
             size="small"
             variant="outlined"
+            startIcon={<Visibility />}
+            disabled={busy || customMode || !optionId}
+            onClick={() => onIssuePreview && onIssuePreview(
+              message.relatedIssueId,
+              { optionId, customNote: customNote.trim() }
+            )}
+          >
+            Preview
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
             color="inherit"
             startIcon={<Close />}
             disabled={busy}
@@ -231,7 +255,7 @@ const ChoiceMessage = ({ message, onConfirm, onCancel, busy, isCurrent }) => {
   );
 };
 
-const CaseCardsMessage = ({ message, onConfirm, onCancel, busy, isCurrent }) => {
+const CaseCardsMessage = ({ message, onConfirm, onCancel, onIssuePreview, busy, isCurrent }) => {
   const cards = message.payload?.cards || [];
   const [previewCard, setPreviewCard] = useState(null);
 
@@ -263,7 +287,19 @@ const CaseCardsMessage = ({ message, onConfirm, onCancel, busy, isCurrent }) => 
               </Typography>
               {isCurrent && (
                 <Stack direction="row" spacing={1}>
-                  <Button size="small" variant="outlined" onClick={() => setPreviewCard(card)}>
+                  <Button size="small" variant="text" onClick={() => setPreviewCard(card)}>
+                    Details
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<Visibility />}
+                    disabled={busy}
+                    onClick={() => onIssuePreview && onIssuePreview(
+                      message.relatedIssueId,
+                      { caseId: card.id }
+                    )}
+                  >
                     Preview
                   </Button>
                   <Button
@@ -315,15 +351,15 @@ const Text = ({ message }) => (
   </Bubble>
 );
 
-const MessageBubble = ({ message, currentIssueId, onConfirm, onCancel, onPreview, onSubmit, busy }) => {
+const MessageBubble = ({ message, currentIssueId, onConfirm, onCancel, onPreview, onIssuePreview, onSubmit, busy }) => {
   const isCurrent = !!message.relatedIssueId && message.relatedIssueId === currentIssueId;
   switch (message.kind) {
     case 'before-after':
-      return <BeforeAfter message={message} onConfirm={onConfirm} onCancel={onCancel} busy={busy} isCurrent={isCurrent} />;
+      return <BeforeAfter message={message} onConfirm={onConfirm} onCancel={onCancel} onIssuePreview={onIssuePreview} busy={busy} isCurrent={isCurrent} />;
     case 'choice':
-      return <ChoiceMessage message={message} onConfirm={onConfirm} onCancel={onCancel} busy={busy} isCurrent={isCurrent} />;
+      return <ChoiceMessage message={message} onConfirm={onConfirm} onCancel={onCancel} onIssuePreview={onIssuePreview} busy={busy} isCurrent={isCurrent} />;
     case 'case-cards':
-      return <CaseCardsMessage message={message} onConfirm={onConfirm} onCancel={onCancel} busy={busy} isCurrent={isCurrent} />;
+      return <CaseCardsMessage message={message} onConfirm={onConfirm} onCancel={onCancel} onIssuePreview={onIssuePreview} busy={busy} isCurrent={isCurrent} />;
     case 'submission-cta':
       return <SubmissionCta message={message} onPreview={onPreview} onSubmit={onSubmit} busy={busy} />;
     case 'text':
