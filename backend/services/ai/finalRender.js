@@ -4,6 +4,7 @@ const {
   refineRevisionMarkup,
   revisionMarkupToHtml,
   escapeHtml,
+  markdownToHtml,
 } = require('./revisionMarkup');
 const { buildAcceptedState } = require('./applyEdits');
 const { getCategoryLabel } = require('./constants');
@@ -28,11 +29,20 @@ async function renderFinalSyllabusPdf(syllabus, destPath) {
   const course = syllabus.course?.name || syllabus.title || 'Untitled Course';
   const instructor = `${syllabus.instructor?.firstName || ''} ${syllabus.instructor?.lastName || ''}`.trim();
   const program = syllabus.programId?.name || '';
-  const bodyHtml = revisionMarkup
+  const cleanHtml = markdownToHtml(editedText);
+  const revisionHtml = revisionMarkup
     ? revisionMarkupToHtml(revisionMarkup)
-    : escapeHtml(editedText);
+    : markdownToHtml(editedText);
 
-  const html = renderHtmlScaffold({ course, instructor, program, bodyHtml });
+  const html = renderHtmlScaffold({
+    course,
+    instructor,
+    program,
+    sections: [
+      { title: 'Clean rendered text', bodyHtml: cleanHtml },
+      { title: 'Text with red/green changes', bodyHtml: revisionHtml },
+    ],
+  });
 
   const outDir = path.join(__dirname, '../../uploads/pdfs');
   fs.mkdirSync(outDir, { recursive: true });
@@ -55,11 +65,16 @@ async function renderRevisionPdfFromMarkup(markup, meta, destPath) {
   }
 
   const refined = refineRevisionMarkup(markup || '');
-  const bodyHtml = refined ? revisionMarkupToHtml(refined) : escapeHtml(meta?.fallbackText || '');
+  const bodyHtml = refined ? revisionMarkupToHtml(refined) : markdownToHtml(meta?.fallbackText || '');
   const course = meta?.course || 'Syllabus preview';
   const instructor = meta?.instructor || '';
   const program = meta?.program || '';
-  const html = renderHtmlScaffold({ course, instructor, program, bodyHtml });
+  const html = renderHtmlScaffold({
+    course,
+    instructor,
+    program,
+    sections: [{ title: 'Tracked changes preview', bodyHtml }],
+  });
 
   const outDir = path.join(__dirname, '../../uploads/pdfs');
   fs.mkdirSync(outDir, { recursive: true });
@@ -68,7 +83,13 @@ async function renderRevisionPdfFromMarkup(markup, meta, destPath) {
   return filePath;
 }
 
-function renderHtmlScaffold({ course, instructor, program, bodyHtml }) {
+function renderHtmlScaffold({ course, instructor, program, sections }) {
+  const renderedSections = (sections || []).map((section, index) => `
+<section class="syllabus-section${index > 0 ? ' section-break' : ''}">
+  <h2>${escapeHtml(section.title)}</h2>
+  <div class="body">${section.bodyHtml || ''}</div>
+</section>`).join('\n');
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -76,16 +97,28 @@ function renderHtmlScaffold({ course, instructor, program, bodyHtml }) {
 <style>
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #111; margin: 40px; line-height: 1.55; }
   h1 { font-size: 16pt; margin-bottom: 4px; }
+  h2 { font-size: 13pt; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid #d0d7de; }
+  h3 { font-size: 12pt; margin: 16px 0 6px; }
   .meta { font-size: 10pt; color: #555; margin-bottom: 24px; }
-  .body { white-space: pre-wrap; }
+  .syllabus-section { margin-bottom: 28px; }
+  .section-break { break-before: page; }
+  .body p { margin: 0 0 8px; }
+  .body ul, .body ol { margin-top: 4px; padding-left: 24px; }
+  .body table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 10pt; }
+  .body th, .body td { border: 1px solid #d0d7de; padding: 6px 8px; vertical-align: top; }
+  .body th { background: #f6f8fa; font-weight: 700; text-align: left; }
+  .body code { font-family: Consolas, monospace; background: #f6f8fa; padding: 1px 3px; border-radius: 3px; }
+  .body pre { background: #f6f8fa; padding: 10px; overflow-wrap: anywhere; white-space: pre-wrap; }
   .rev-del { color: #b42318; text-decoration: line-through; text-decoration-thickness: 1.5px; background: #fff1f0; }
   .rev-add { color: #067647; background: #ecfdf3; font-weight: 600; }
+  .rev-block { display: block; padding: 8px; margin: 8px 0; border-left: 3px solid currentColor; text-decoration-skip-ink: none; }
+  .rev-block p:last-child { margin-bottom: 0; }
 </style>
 </head>
 <body>
 <h1>${escapeHtml(course)}</h1>
 <div class="meta">${escapeHtml(instructor)}${program ? ` &mdash; ${escapeHtml(program)}` : ''}</div>
-<div class="body">${bodyHtml}</div>
+${renderedSections}
 </body>
 </html>`;
 }
@@ -103,7 +136,7 @@ async function renderHtmlToPdf(puppeteer, html, filePath) {
     await page.pdf({
       path: filePath,
       format: 'A4',
-      printBackground: false,
+      printBackground: true,
       margin: { top: '20mm', bottom: '20mm', left: '20mm', right: '20mm' },
     });
   } finally {

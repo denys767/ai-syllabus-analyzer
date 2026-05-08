@@ -25,7 +25,6 @@ const EDIT_PROTOCOL = `EDIT PROTOCOL — read carefully:
 - DO NOT quote syllabus text in your output. Use line numbers only — the system reconstructs the original text from those lines.
 - newText is the FINAL text the syllabus should contain (not a diff). Multi-line newText is allowed via "\\n".
 - Edit ranges within ONE recommendation must NOT overlap.
-- For learning-objectives recs, newText MUST cite relevant Learning Outcome IDs verbatim from the canonical list (e.g. "Aligns with Learning outcome 3, Learning outcome 7"). Do not invent new outcome IDs.
 - Do NOT invent dates, instructor names, grading weights, required readings, or case titles unless implied by the syllabus or recommendation.
 - newText must conform to the KSE syllabus template structure.`;
 

@@ -89,7 +89,7 @@ const ReadinessCell = ({ syllabus }) => {
 
 // ─── Syllabi tab ─────────────────────────────────────────────────────────────
 
-const SyllabiTab = ({ programs, isAdmin, onChanged }) => {
+const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -99,6 +99,7 @@ const SyllabiTab = ({ programs, isAdmin, onChanged }) => {
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState('');
   const [snack, setSnack] = useState('');
+  const userId = user?.id || user?._id || '';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,12 +126,41 @@ const SyllabiTab = ({ programs, isAdmin, onChanged }) => {
     }
   };
 
+  const getOwnerId = (syllabus) => {
+    const owner = syllabus.instructor || syllabus.instructorId;
+    if (!owner) return '';
+    return typeof owner === 'object' ? String(owner._id || owner.id || '') : String(owner);
+  };
+
+  const canDeleteSyllabus = (syllabus) => isAdmin || (userId && getOwnerId(syllabus) === String(userId));
+
+  const clearDeletedWorkspaceState = (syllabusId) => {
+    const openTabsKey = `pt.openTabs.v1.${userId || 'anon'}`;
+    const lastChatKey = `pt.lastChat.v1.${userId || 'anon'}`;
+    try {
+      const tabs = JSON.parse(localStorage.getItem(openTabsKey) || '[]');
+      if (Array.isArray(tabs)) {
+        localStorage.setItem(openTabsKey, JSON.stringify(tabs.filter((tab) => tab.id !== syllabusId)));
+      }
+      if (localStorage.getItem(lastChatKey) === syllabusId) {
+        localStorage.removeItem(lastChatKey);
+      }
+    } catch {
+      // Browser storage cleanup is best-effort; the server deletion is authoritative.
+    }
+  };
+
   const deleteSyllabus = async (syllabus) => {
+    if (!canDeleteSyllabus(syllabus)) {
+      setSnack('You can only delete your own syllabi');
+      return;
+    }
     const courseTitle = syllabus.course?.name || syllabus.title || 'this syllabus';
     if (!window.confirm(`Delete "${courseTitle}"? This cannot be undone.`)) return;
     setDeletingId(syllabus._id);
     try {
-      await api.cabinet.deleteSyllabus(syllabus._id);
+      await api.syllabus.deleteSyllabus(syllabus._id);
+      clearDeletedWorkspaceState(syllabus._id);
       setSnack('Syllabus deleted');
       onChanged?.();
       if (rows.length === 1 && page > 1) setPage((p) => p - 1);
@@ -188,7 +218,7 @@ const SyllabiTab = ({ programs, isAdmin, onChanged }) => {
                       <IconButton size="small" onClick={() => resend(s._id)}><Email fontSize="small" /></IconButton>
                     </Tooltip>
                   )}
-                  {isAdmin && (
+                  {canDeleteSyllabus(s) && (
                     <Tooltip title="Delete syllabus">
                       <span>
                         <IconButton
@@ -557,7 +587,7 @@ const Cabinet = () => {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
         {tabs.map((label) => <Tab key={label} label={label} />)}
       </Tabs>
-      {tab === 0 && <SyllabiTab programs={programs} isAdmin={isAdmin} onChanged={loadMetrics} />}
+      {tab === 0 && <SyllabiTab programs={programs} isAdmin={isAdmin} user={user} onChanged={loadMetrics} />}
       {isAdmin && tab === 1 && <UsersTab programs={programs} />}
       {isAdmin && tab === 2 && <ProgramsTab programs={programs} reload={loadPrograms} />}
     </Box>

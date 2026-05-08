@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Box,
   Paper,
@@ -61,6 +62,24 @@ const markdownComponents = {
       {children}
     </Link>
   ),
+  table: ({ children }) => (
+    <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', my: 1, fontSize: '0.875rem' }}>
+      {children}
+    </Box>
+  ),
+  thead: ({ children }) => <Box component="thead" sx={{ bgcolor: 'action.hover' }}>{children}</Box>,
+  tbody: ({ children }) => <tbody>{children}</tbody>,
+  tr: ({ children }) => <tr>{children}</tr>,
+  th: ({ children }) => (
+    <Box component="th" sx={{ border: '1px solid', borderColor: 'divider', p: 0.75, textAlign: 'left', fontWeight: 700 }}>
+      {children}
+    </Box>
+  ),
+  td: ({ children }) => (
+    <Box component="td" sx={{ border: '1px solid', borderColor: 'divider', p: 0.75, verticalAlign: 'top' }}>
+      {children}
+    </Box>
+  ),
 };
 
 const MarkdownText = ({ children, sx }) => (
@@ -82,10 +101,15 @@ const MarkdownText = ({ children, sx }) => (
         bgcolor: 'action.hover',
         fontFamily: 'monospace',
       },
+      '& table': {
+        display: 'block',
+        maxWidth: '100%',
+        overflowX: 'auto',
+      },
       ...sx,
     }}
   >
-    <ReactMarkdown components={markdownComponents}>{String(children || '')}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{String(children || '')}</ReactMarkdown>
   </Box>
 );
 
@@ -124,6 +148,24 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy
     borderRadius: 1,
     border: '1px solid',
   };
+  const beforePanelSx = (theme) => ({
+    ...panelSx,
+    bgcolor: theme.palette.mode === 'dark' ? 'rgba(244, 67, 54, 0.14)' : '#fff5f5',
+    borderColor: theme.palette.mode === 'dark' ? 'error.dark' : 'error.light',
+  });
+  const afterPanelSx = (theme) => ({
+    ...panelSx,
+    bgcolor: theme.palette.mode === 'dark' ? 'rgba(46, 125, 50, 0.16)' : '#f0fff4',
+    borderColor: theme.palette.mode === 'dark' ? 'success.dark' : 'success.light',
+  });
+  const beforeLabelSx = (theme) => ({
+    color: theme.palette.mode === 'dark' ? 'error.light' : 'error.dark',
+    fontWeight: 700,
+  });
+  const afterLabelSx = (theme) => ({
+    color: theme.palette.mode === 'dark' ? 'success.light' : 'success.dark',
+    fontWeight: 700,
+  });
   const showCancel = canCancelIssue(message, issue);
 
   return (
@@ -138,16 +180,16 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy
               </Typography>
             )}
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
-              <Box sx={{ ...panelSx, bgcolor: '#fff5f5', borderColor: 'error.light' }}>
-                <Typography variant="overline" display="block" sx={{ color: 'error.dark', fontWeight: 700 }}>
+              <Box sx={beforePanelSx}>
+                <Typography variant="overline" display="block" sx={beforeLabelSx}>
                   Before
                 </Typography>
                 <MarkdownText sx={{ color: 'text.primary' }}>
                   {beforeParts[index] || '(missing section)'}
                 </MarkdownText>
               </Box>
-              <Box sx={{ ...panelSx, bgcolor: '#f0fff4', borderColor: 'success.light' }}>
-                <Typography variant="overline" display="block" sx={{ color: 'success.dark', fontWeight: 700 }}>
+              <Box sx={afterPanelSx}>
+                <Typography variant="overline" display="block" sx={afterLabelSx}>
                   After
                 </Typography>
                 <MarkdownText sx={{ color: 'text.primary' }}>

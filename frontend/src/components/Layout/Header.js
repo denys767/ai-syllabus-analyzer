@@ -8,8 +8,6 @@ import {
   Menu,
   MenuItem,
   Divider,
-  Badge,
-  Tooltip,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -84,7 +82,7 @@ const Header = ({ onMenuClick, drawerOpen }) => {
         sx={{ 
           flexGrow: 1,
           fontWeight: 600,
-          color: 'text.primary'
+          color: 'common.white'
         }}
       >
         AI Syllabus Analyzer
