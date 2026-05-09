@@ -63,8 +63,18 @@ const markdownComponents = {
     </Link>
   ),
   table: ({ children }) => (
-    <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', my: 1, fontSize: '0.875rem' }}>
-      {children}
+    <Box sx={{ maxWidth: '100%', overflowX: 'auto', my: 1 }}>
+      <Box
+        component="table"
+        sx={{
+          width: '100%',
+          minWidth: 420,
+          borderCollapse: 'collapse',
+          fontSize: '0.875rem',
+        }}
+      >
+        {children}
+      </Box>
     </Box>
   ),
   thead: ({ children }) => <Box component="thead" sx={{ bgcolor: 'action.hover' }}>{children}</Box>,
@@ -81,6 +91,39 @@ const markdownComponents = {
     </Box>
   ),
 };
+
+function looksLikeTableRow(line) {
+  const trimmed = String(line || '').trim();
+  return trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.split('|').length >= 4;
+}
+
+function looksLikeTableDivider(line) {
+  const trimmed = String(line || '').trim();
+  if (!looksLikeTableRow(trimmed)) return false;
+  return trimmed
+    .slice(1, -1)
+    .split('|')
+    .every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function normalizeMarkdownTables(value) {
+  const lines = String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const out = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const startsTable = looksLikeTableRow(line) && looksLikeTableDivider(lines[index + 1]);
+    if (startsTable && out.length && out[out.length - 1].trim()) {
+      out.push('');
+    }
+    out.push(line);
+    const inTable = looksLikeTableRow(line) || looksLikeTableDivider(line);
+    const nextLeavesTable = inTable && lines[index + 1] && !looksLikeTableRow(lines[index + 1]) && lines[index + 1].trim();
+    if (nextLeavesTable) {
+      out.push('');
+    }
+  }
+  return out.join('\n');
+}
 
 const MarkdownText = ({ children, sx }) => (
   <Box
@@ -102,14 +145,14 @@ const MarkdownText = ({ children, sx }) => (
         fontFamily: 'monospace',
       },
       '& table': {
-        display: 'block',
-        maxWidth: '100%',
-        overflowX: 'auto',
+        tableLayout: 'auto',
       },
       ...sx,
     }}
   >
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{String(children || '')}</ReactMarkdown>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      {normalizeMarkdownTables(children)}
+    </ReactMarkdown>
   </Box>
 );
 
