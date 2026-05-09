@@ -116,18 +116,39 @@ router.post('/:syllabusId/confirm', auth, gateMutate, [
 // POST /api/chat/:syllabusId/cancel — reject the current issue
 router.post('/:syllabusId/cancel', auth, gateMutate, [
   body('issueId').notEmpty().withMessage('issueId is required'),
+  body('reason').optional({ nullable: true }).isString().trim().isLength({ max: 2000 }).withMessage('reason must be a string up to 2000 characters'),
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
   try {
     const conversation = await workspaceService.getOrCreateConversation(req.params.syllabusId, req.user.userId);
-    await workspaceService.cancelIssue(conversation, req.body.issueId);
+    await workspaceService.cancelIssue(conversation, req.body.issueId, req.body.reason || null);
     const view = await workspaceService.getConversationView(req.params.syllabusId);
     res.json(view);
   } catch (err) {
     console.error('chat cancel error:', err);
     res.status(err.statusCode || 500).json({
       message: err.message || 'Internal server error',
+      retryable: !!err.retryable,
+    });
+  }
+});
+
+// POST /api/chat/:syllabusId/issues/:issueId/reopen — rewind to a resolved issue card
+router.post('/:syllabusId/issues/:issueId/reopen', auth, gateMutate, [
+  body('anchorMessageId').optional({ nullable: true }).isMongoId().withMessage('anchorMessageId must be a valid message id'),
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  try {
+    const conversation = await workspaceService.getOrCreateConversation(req.params.syllabusId, req.user.userId);
+    await workspaceService.reopenIssue(conversation, req.params.issueId, req.body.anchorMessageId || null);
+    const view = await workspaceService.getConversationView(req.params.syllabusId);
+    res.json(view);
+  } catch (err) {
+    console.error('chat reopen error:', err);
+    res.status(err.statusCode || 500).json({
+      message: err.message || 'Reopen failed',
       retryable: !!err.retryable,
     });
   }

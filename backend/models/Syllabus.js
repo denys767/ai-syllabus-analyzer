@@ -157,6 +157,24 @@ const syllabusSchema = new mongoose.Schema({
       enum: ['chat', 'admin-override'],
       default: null
     },
+    decisionReason: String,
+    decisionHistory: [{
+      action: {
+        type: String,
+        enum: ['accepted', 'rejected', 'reopened']
+      },
+      previousDecision: String,
+      previousAppliedSelection: mongoose.Schema.Types.Mixed,
+      previousReason: String,
+      previousRespondedAt: Date,
+      resultingDecision: String,
+      selection: mongoose.Schema.Types.Mixed,
+      reason: String,
+      at: {
+        type: Date,
+        default: Date.now
+      }
+    }],
     // Pre-generated chat payload to avoid live LLM calls per Confirm
     beforeAfter: {
       kind: {

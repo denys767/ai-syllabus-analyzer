@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -20,7 +20,7 @@ import {
   Chip,
   Link,
 } from '@mui/material';
-import { Check, Close, Visibility, Send } from '@mui/icons-material';
+import { Check, Close, Visibility, Send, Replay } from '@mui/icons-material';
 
 const Bubble = ({ role, children, sx }) => {
   const isUser = role === 'user';
@@ -130,12 +130,54 @@ function optionDisplayText(option) {
   return editText || '';
 }
 
-function canCancelIssue(message, issue) {
-  const priority = issue?.priority || message.payload?.priority;
-  return !['critical', 'high'].includes(priority);
+const CATEGORY_LABELS = {
+  'template-compliance': 'Template Compliance',
+  'learning-objectives': 'Learning Outcomes Alignment',
+  'content-quality': 'Content Quality',
+  cases: 'Case Recommendations',
+  'student-clusters': 'Student Cluster Fit',
+  plagiarism: 'Plagiarism',
+  policy: 'Course Policies',
+  other: 'Other',
+};
+
+function categoryLabel(issue, message) {
+  return issue?.groupTag
+    || message.payload?.groupTag
+    || CATEGORY_LABELS[issue?.category || message.payload?.category]
+    || null;
 }
 
-const BeforeAfter = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy, isCurrent }) => {
+const CategoryChip = ({ issue, message }) => {
+  const label = categoryLabel(issue, message);
+  if (!label) return null;
+  return <Chip size="small" variant="outlined" label={label} sx={{ mb: 1 }} />;
+};
+
+const ResolvedActions = ({ message, onIssuePreview, onReopen, busy }) => (
+  <Stack direction="row" spacing={1}>
+    <Button
+      size="small"
+      variant="outlined"
+      startIcon={<Visibility />}
+      disabled={busy}
+      onClick={() => onIssuePreview && onIssuePreview(message.relatedIssueId)}
+    >
+      Preview
+    </Button>
+    <Button
+      size="small"
+      variant="outlined"
+      startIcon={<Replay />}
+      disabled={busy}
+      onClick={() => onReopen && onReopen(message.relatedIssueId, message._id)}
+    >
+      Reopen
+    </Button>
+  </Stack>
+);
+
+const BeforeAfter = ({ message, issue, onConfirm, onCancel, onReopen, onIssuePreview, busy, isCurrent, isResolved }) => {
   const before = message.payload?.before;
   const after = message.payload?.after;
   const editBlocks = Array.isArray(message.payload?.editBlocks) ? message.payload.editBlocks : null;
@@ -166,10 +208,10 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy
     color: theme.palette.mode === 'dark' ? 'success.light' : 'success.dark',
     fontWeight: 700,
   });
-  const showCancel = canCancelIssue(message, issue);
 
   return (
     <Bubble role="ai" sx={{ maxWidth: '95%' }}>
+      <CategoryChip issue={issue} message={message} />
       <MarkdownText sx={{ mb: 1.5 }}>{message.content}</MarkdownText>
       <Stack spacing={1.5} sx={{ mb: 1.5 }}>
         {Array.from({ length: blockCount }).map((_, index) => (
@@ -221,19 +263,20 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy
           >
             Preview
           </Button>
-          {showCancel && (
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={<Close />}
-              disabled={busy}
-              onClick={() => onCancel(message.relatedIssueId)}
-            >
-              Cancel
-            </Button>
-          )}
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            startIcon={<Close />}
+            disabled={busy}
+            onClick={() => onCancel(message.relatedIssueId)}
+          >
+            Cancel
+          </Button>
         </Stack>
+      )}
+      {isResolved && (
+        <ResolvedActions message={message} onIssuePreview={onIssuePreview} onReopen={onReopen} busy={busy} />
       )}
     </Bubble>
   );
@@ -253,26 +296,35 @@ const SubmissionCta = ({ message, onPreview, onSubmit, busy }) => (
   </Bubble>
 );
 
-const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy, isCurrent }) => {
+const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIssuePreview, busy, isCurrent, isResolved }) => {
   const options = message.payload?.options || [];
-  const [optionId, setOptionId] = useState(options[0]?.id || '');
+  const storedSelection = issue?.beforeAfter?.payload?.appliedSelection || message.payload?.appliedSelection || {};
+  const storedOptionId = storedSelection.optionId || options[0]?.id || '';
+  const [optionId, setOptionId] = useState(storedOptionId);
   const [customNote, setCustomNote] = useState('');
   const [customMode, setCustomMode] = useState(false);
   const [customText, setCustomText] = useState('');
-  const canApply = customMode ? customText.trim().length > 0 : !!optionId;
-  const showCancel = canCancelIssue(message, issue);
+  const effectiveOptionId = isCurrent ? optionId : storedOptionId;
+  const canApply = customMode ? customText.trim().length > 0 : !!effectiveOptionId;
+  useEffect(() => {
+    setOptionId(storedOptionId);
+  }, [storedOptionId]);
+  useEffect(() => {
+    if (!isCurrent) setCustomMode(false);
+  }, [isCurrent]);
 
   return (
     <Bubble role="ai" sx={{ maxWidth: '95%' }}>
+      <CategoryChip issue={issue} message={message} />
       <MarkdownText sx={{ mb: 1.5 }}>{message.content}</MarkdownText>
       {!customMode ? (
-        <RadioGroup value={optionId} onChange={(event) => setOptionId(event.target.value)}>
+        <RadioGroup value={effectiveOptionId} onChange={(event) => isCurrent && setOptionId(event.target.value)}>
           <Stack spacing={1}>
             {options.map((option) => (
               <Paper key={option.id} variant="outlined" sx={{ p: 1.25, borderRadius: 1 }}>
                 <FormControlLabel
                   value={option.id}
-                  control={<Radio size="small" />}
+                  control={<Radio size="small" disabled={!isCurrent || busy} />}
                   label={
                     <Box>
                       <Typography variant="subtitle2">{option.label}</Typography>
@@ -300,6 +352,7 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview, bu
           label="Your policy text"
           value={customText}
           onChange={(event) => setCustomText(event.target.value)}
+          disabled={!isCurrent || busy}
           sx={{ mb: 1.5 }}
         />
       )}
@@ -311,6 +364,7 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview, bu
           label="Optional custom note"
           value={customNote}
           onChange={(event) => setCustomNote(event.target.value)}
+          disabled={!isCurrent || busy}
           sx={{ mt: 1.5, mb: 1.5 }}
         />
       )}
@@ -324,7 +378,7 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview, bu
             disabled={busy || !canApply}
             onClick={() => onConfirm(
               message.relatedIssueId,
-              customMode ? { customText: customText.trim() } : { optionId, customNote: customNote.trim() }
+              customMode ? { customText: customText.trim() } : { optionId: effectiveOptionId, customNote: customNote.trim() }
             )}
           >
             {customMode ? 'Apply my text' : 'Apply selected'}
@@ -341,46 +395,56 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview, bu
             size="small"
             variant="outlined"
             startIcon={<Visibility />}
-            disabled={busy || customMode || !optionId}
+            disabled={busy || customMode || !effectiveOptionId}
             onClick={() => onIssuePreview && onIssuePreview(
               message.relatedIssueId,
-              { optionId, customNote: customNote.trim() }
+              { optionId: effectiveOptionId, customNote: customNote.trim() }
             )}
           >
             Preview
           </Button>
-          {showCancel && (
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={<Close />}
-              disabled={busy}
-              onClick={() => onCancel(message.relatedIssueId)}
-            >
-              Cancel
-            </Button>
-          )}
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            startIcon={<Close />}
+            disabled={busy}
+            onClick={() => onCancel(message.relatedIssueId)}
+          >
+            Cancel
+          </Button>
         </Stack>
+      )}
+      {isResolved && (
+        <ResolvedActions message={message} onIssuePreview={onIssuePreview} onReopen={onReopen} busy={busy} />
       )}
     </Bubble>
   );
 };
 
-const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview, busy, isCurrent }) => {
+const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIssuePreview, busy, isCurrent, isResolved }) => {
   const cards = message.payload?.cards || [];
   const [previewCard, setPreviewCard] = useState(null);
-  const [selectedCaseIds, setSelectedCaseIds] = useState(() => (cards[0]?.id ? [cards[0].id] : []));
+  const storedSelection = issue?.beforeAfter?.payload?.appliedSelection || message.payload?.appliedSelection || {};
+  const storedCaseIds = Array.isArray(storedSelection.caseIds) && storedSelection.caseIds.length
+    ? storedSelection.caseIds
+    : [storedSelection.caseId || cards[0]?.id].filter(Boolean);
+  const [selectedCaseIds, setSelectedCaseIds] = useState(() => storedCaseIds);
+  const storedCaseKey = JSON.stringify(storedCaseIds.map(String));
+  const effectiveCaseIds = isCurrent ? selectedCaseIds : storedCaseIds;
+  useEffect(() => {
+    setSelectedCaseIds(JSON.parse(storedCaseKey));
+  }, [storedCaseKey]);
   const toggleCase = (id) => {
     setSelectedCaseIds((current) => (
       current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
     ));
   };
-  const canApply = selectedCaseIds.length > 0;
-  const showCancel = canCancelIssue(message, issue);
+  const canApply = effectiveCaseIds.length > 0;
 
   return (
     <Bubble role="ai" sx={{ maxWidth: '95%' }}>
+      <CategoryChip issue={issue} message={message} />
       <MarkdownText sx={{ mb: 1.5 }}>{message.content}</MarkdownText>
       {message.payload?.week && (
         <Chip size="small" label={`Case Recommendations - ${message.payload.week}`} sx={{ mb: 1.5 }} />
@@ -393,7 +457,7 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview,
                 control={
                   <Checkbox
                     size="small"
-                    checked={selectedCaseIds.includes(card.id)}
+                    checked={effectiveCaseIds.includes(card.id)}
                     onChange={() => toggleCase(card.id)}
                     disabled={!isCurrent || busy}
                   />
@@ -416,13 +480,11 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview,
               <MarkdownText sx={{ color: 'text.secondary' }}>
                 {card.summary}
               </MarkdownText>
-              {isCurrent && (
-                <Stack direction="row" spacing={1}>
-                  <Button size="small" variant="text" onClick={() => setPreviewCard(card)}>
-                    Details
-                  </Button>
-                </Stack>
-              )}
+              <Stack direction="row" spacing={1}>
+                <Button size="small" variant="text" onClick={() => setPreviewCard(card)}>
+                  Details
+                </Button>
+              </Stack>
             </Stack>
           </Paper>
         ))}
@@ -435,7 +497,7 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview,
             color="success"
             disabled={busy || !canApply}
             startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <Check />}
-            onClick={() => onConfirm(message.relatedIssueId, { caseIds: selectedCaseIds })}
+            onClick={() => onConfirm(message.relatedIssueId, { caseIds: effectiveCaseIds })}
           >
             Add selected
           </Button>
@@ -446,24 +508,25 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onIssuePreview,
             disabled={busy || !canApply}
             onClick={() => onIssuePreview && onIssuePreview(
               message.relatedIssueId,
-              { caseIds: selectedCaseIds }
+              { caseIds: effectiveCaseIds }
             )}
           >
             Preview selected
           </Button>
-          {showCancel && (
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={<Close />}
-              disabled={busy}
-              onClick={() => onCancel(message.relatedIssueId)}
-            >
-              Cancel
-            </Button>
-          )}
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            startIcon={<Close />}
+            disabled={busy}
+            onClick={() => onCancel(message.relatedIssueId)}
+          >
+            Cancel
+          </Button>
         </Stack>
+      )}
+      {isResolved && (
+        <ResolvedActions message={message} onIssuePreview={onIssuePreview} onReopen={onReopen} busy={busy} />
       )}
       <Dialog open={!!previewCard} onClose={() => setPreviewCard(null)} fullWidth maxWidth="sm">
         <DialogTitle>{previewCard?.title}</DialogTitle>
@@ -486,15 +549,16 @@ const Text = ({ message }) => (
   </Bubble>
 );
 
-const MessageBubble = ({ message, issue, currentIssueId, onConfirm, onCancel, onPreview, onIssuePreview, onSubmit, busy }) => {
+const MessageBubble = ({ message, issue, currentIssueId, onConfirm, onCancel, onReopen, onPreview, onIssuePreview, onSubmit, busy }) => {
   const isCurrent = !!message.relatedIssueId && message.relatedIssueId === currentIssueId;
+  const isResolved = !!message.relatedIssueId && !!issue?.decision && issue.decision !== 'pending';
   switch (message.kind) {
     case 'before-after':
-      return <BeforeAfter message={message} issue={issue} onConfirm={onConfirm} onCancel={onCancel} onIssuePreview={onIssuePreview} busy={busy} isCurrent={isCurrent} />;
+      return <BeforeAfter message={message} issue={issue} onConfirm={onConfirm} onCancel={onCancel} onReopen={onReopen} onIssuePreview={onIssuePreview} busy={busy} isCurrent={isCurrent} isResolved={isResolved} />;
     case 'choice':
-      return <ChoiceMessage message={message} issue={issue} onConfirm={onConfirm} onCancel={onCancel} onIssuePreview={onIssuePreview} busy={busy} isCurrent={isCurrent} />;
+      return <ChoiceMessage message={message} issue={issue} onConfirm={onConfirm} onCancel={onCancel} onReopen={onReopen} onIssuePreview={onIssuePreview} busy={busy} isCurrent={isCurrent} isResolved={isResolved} />;
     case 'case-cards':
-      return <CaseCardsMessage message={message} issue={issue} onConfirm={onConfirm} onCancel={onCancel} onIssuePreview={onIssuePreview} busy={busy} isCurrent={isCurrent} />;
+      return <CaseCardsMessage message={message} issue={issue} onConfirm={onConfirm} onCancel={onCancel} onReopen={onReopen} onIssuePreview={onIssuePreview} busy={busy} isCurrent={isCurrent} isResolved={isResolved} />;
     case 'submission-cta':
       return <SubmissionCta message={message} onPreview={onPreview} onSubmit={onSubmit} busy={busy} />;
     case 'text':

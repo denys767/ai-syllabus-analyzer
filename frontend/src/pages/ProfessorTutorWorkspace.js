@@ -15,6 +15,7 @@ import {
   DialogActions,
   Button,
   Stack,
+  TextField,
 } from '@mui/material';
 import { Add, Close } from '@mui/icons-material';
 import api from '../services/api';
@@ -119,6 +120,7 @@ const ProfessorTutorWorkspace = () => {
   const [busy, setBusy] = useState(false);
   const [issuePreview, setIssuePreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [cancelDialog, setCancelDialog] = useState({ open: false, issueId: null, reason: '' });
   const pollRef = useRef(null);
   const threadEndRef = useRef(null);
   const lastTabsKeyRef = useRef(tabsKey);
@@ -208,6 +210,14 @@ const ProfessorTutorWorkspace = () => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
+  const issues = useMemo(() => syllabus?.recommendations || [], [syllabus?.recommendations]);
+  const issueById = useMemo(() => {
+    const map = new Map();
+    issues.forEach((issue) => map.set(issue.id, issue));
+    return map;
+  }, [issues]);
+  const currentIssueId = conversation?.currentIssueId;
+
   const handleUploaded = (id) => {
     ensureTab(id, '');
     navigate(`/workspace/${id}`);
@@ -231,17 +241,45 @@ const ProfessorTutorWorkspace = () => {
     }
   };
 
-  const handleCancel = async (issueId) => {
+  const performCancel = async (issueId, reason = '') => {
     setBusy(true);
     setError('');
     try {
-      const { data } = await api.chat.cancel(syllabusId, { issueId });
+      const payload = reason.trim() ? { issueId, reason: reason.trim() } : { issueId };
+      const { data } = await api.chat.cancel(syllabusId, payload);
+      setConversation(data?.conversation || null);
+      setMessages(data?.messages || []);
+      const { data: syl } = await api.syllabus.getSyllabus(syllabusId);
+      setSyllabus(syl);
+      setCancelDialog({ open: false, issueId: null, reason: '' });
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Action failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancel = async (issueId) => {
+    const issue = issueById.get(issueId);
+    if (['critical', 'high'].includes(issue?.priority)) {
+      setCancelDialog({ open: true, issueId, reason: '' });
+      return;
+    }
+    await performCancel(issueId);
+  };
+
+  const handleReopen = async (issueId, anchorMessageId) => {
+    setBusy(true);
+    setError('');
+    try {
+      const body = anchorMessageId ? { anchorMessageId } : {};
+      const { data } = await api.chat.reopen(syllabusId, issueId, body);
       setConversation(data?.conversation || null);
       setMessages(data?.messages || []);
       const { data: syl } = await api.syllabus.getSyllabus(syllabusId);
       setSyllabus(syl);
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Action failed');
+      setError(err.response?.data?.message || err.message || 'Reopen failed');
     } finally {
       setBusy(false);
     }
@@ -301,14 +339,6 @@ const ProfessorTutorWorkspace = () => {
       setBusy(false);
     }
   };
-
-  const issues = useMemo(() => syllabus?.recommendations || [], [syllabus?.recommendations]);
-  const issueById = useMemo(() => {
-    const map = new Map();
-    issues.forEach((issue) => map.set(issue.id, issue));
-    return map;
-  }, [issues]);
-  const currentIssueId = conversation?.currentIssueId;
 
   const tabHeader = useMemo(() => (
     <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid', borderColor: 'divider', px: 1, bgcolor: 'background.paper' }}>
@@ -389,6 +419,7 @@ const ProfessorTutorWorkspace = () => {
                     currentIssueId={currentIssueId}
                     onConfirm={handleConfirm}
                     onCancel={handleCancel}
+                    onReopen={handleReopen}
                     onPreview={handlePreview}
                     onIssuePreview={handleIssuePreview}
                     onSubmit={handleSubmit}
@@ -402,6 +433,42 @@ const ProfessorTutorWorkspace = () => {
           <ChatInput onSend={handleSend} disabled={syllabus?.status === 'analyzing'} />
         </Box>
       </Box>
+      <Dialog
+        open={cancelDialog.open}
+        onClose={() => !busy && setCancelDialog({ open: false, issueId: null, reason: '' })}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Cancellation reason required</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            High and critical issues can be cancelled only with an audit reason for the Academic Director report.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={4}
+            label="Reason"
+            value={cancelDialog.reason}
+            onChange={(event) => setCancelDialog((current) => ({ ...current, reason: event.target.value }))}
+            disabled={busy}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={busy} onClick={() => setCancelDialog({ open: false, issueId: null, reason: '' })}>
+            Back
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={busy || !cancelDialog.reason.trim()}
+            onClick={() => performCancel(cancelDialog.issueId, cancelDialog.reason)}
+          >
+            Cancel issue
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={!!issuePreview} onClose={() => setIssuePreview(null)} fullWidth maxWidth="lg">
         <DialogTitle>{issuePreview?.title || 'Issue preview'}</DialogTitle>
         <DialogContent dividers>

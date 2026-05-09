@@ -39,8 +39,8 @@ async function renderFinalSyllabusPdf(syllabus, destPath) {
     instructor,
     program,
     sections: [
-      { title: 'Clean rendered text', bodyHtml: cleanHtml },
-      { title: 'Text with red/green changes', bodyHtml: revisionHtml },
+      { title: 'Clear text version:', bodyHtml: cleanHtml },
+      { title: 'Text with red/green changes:', bodyHtml: revisionHtml },
     ],
   });
 
@@ -154,7 +154,15 @@ function generateSubmissionReport(syllabus) {
   const skippedForReport = recsForReport.filter((r) => r.decision === 'skipped' || r.decision === 'pending');
   const criticalForReport = recsForReport.filter((r) => r.priority === 'critical' || r.priority === 'high');
   const acceptedCriticalForReport = acceptedForReport.filter((r) => r.priority === 'critical' || r.priority === 'high');
+  const auditOverridesForReport = rejectedForReport.filter((r) =>
+    (r.priority === 'critical' || r.priority === 'high') && String(r.decisionReason || '').trim()
+  );
   const formatReportItem = (r) => `  - ${r.title}${r.category ? ` (${getCategoryLabel(r.category)})` : ''}`;
+  const formatRejectedItem = (r) => {
+    const reason = String(r.decisionReason || '').trim();
+    const priorityLabel = (r.priority === 'critical' || r.priority === 'high') ? ' [audit override]' : '';
+    return `${formatReportItem(r)}${priorityLabel}${reason ? ` - Reason: ${reason}` : ''}`;
+  };
   const reportLines = [
     `Course: ${syllabus.course?.name || syllabus.title}`,
     `Instructor: ${syllabus.instructor?.firstName || ''} ${syllabus.instructor?.lastName || ''}`.trim(),
@@ -167,9 +175,12 @@ function generateSubmissionReport(syllabus) {
     '',
     'Critical/high items fixed:',
     ...(acceptedCriticalForReport.length ? acceptedCriticalForReport.map(formatReportItem) : ['  - None']),
+    '',
+    'Critical/high audit overrides:',
+    ...(auditOverridesForReport.length ? auditOverridesForReport.map(formatRejectedItem) : ['  - None']),
   ];
   if (rejectedForReport.length) {
-    reportLines.push('', 'Items the instructor declined:', ...rejectedForReport.map(formatReportItem));
+    reportLines.push('', 'Items the instructor declined:', ...rejectedForReport.map(formatRejectedItem));
   }
   return reportLines.join('\n');
 }

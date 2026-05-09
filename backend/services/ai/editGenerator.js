@@ -185,6 +185,7 @@ KIND-SPECIFIC REQUIREMENTS for category "cases":
 - Use web search to find concrete published case studies (Harvard Business Publishing, Ivey, INSEAD, Stanford, MIT Sloan, Berkeley Haas, or reputable open business school collections). Provide a real source URL when available. Do not use cases from syllabus
 - Produce 3-5 case cards per recommendation.
 - Each card includes: id, title, sourceLabel, sourceUrl, fitLabel, summary, previewText, AND its own "edits" array. The card's edits insert (insertAfter / appendDoc) syllabus-ready text describing the case in the relevant week/session.
+- Prefer insertAfter or appendDoc for every card. Avoid replace/delete for case cards; never create overlapping replacement ranges across different cards.
 
 Course context: ${syllabusTitle || 'Untitled course'}
 

@@ -8,6 +8,7 @@ const {
   buildSingleRecPreviewState,
   recomputeSyllabusState,
   isRecApplicable,
+  validateRecEdits,
 } = require('./applyEdits');
 const {
   renderFinalSyllabusPdf,
@@ -64,6 +65,7 @@ module.exports = {
   getEditableSyllabusText,
   applyAcceptedDecisions,
   isRecApplicable,
+  validateRecEdits,
   buildAcceptedState,
   resolveEditsForRec,
 

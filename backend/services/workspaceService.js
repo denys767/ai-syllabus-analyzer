@@ -19,6 +19,7 @@ const CATEGORY_TO_BLOCK = {
 };
 
 const BLOCK_KEYS = ['templateCompliance', 'learningOutcomes', 'cases', 'policies'];
+const ISSUE_MESSAGE_KINDS = ['before-after', 'choice', 'case-cards'];
 
 function blockOf(category) {
   return CATEGORY_TO_BLOCK[category] || 'templateCompliance';
@@ -36,7 +37,47 @@ function nextPendingIssue(syllabus) {
 }
 
 function isBlockingRejectedIssue(rec) {
-  return rec?.decision === 'rejected' && ['critical', 'high'].includes(rec.priority);
+  const hasAuditReason = String(rec?.decisionReason || '').trim().length > 0;
+  return rec?.decision === 'rejected' && ['critical', 'high'].includes(rec.priority) && !hasAuditReason;
+}
+
+function needsCancellationReason(issue) {
+  return ['critical', 'high'].includes(issue?.priority);
+}
+
+function clonePlain(value) {
+  if (value === undefined || value === null) return value;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+function appliedSelectionOf(issue) {
+  return issue?.beforeAfter?.payload?.appliedSelection || null;
+}
+
+function appendDecisionHistory(issue, action, next = {}) {
+  issue.decisionHistory = Array.isArray(issue.decisionHistory) ? issue.decisionHistory : [];
+  issue.decisionHistory.push({
+    action,
+    previousDecision: issue.decision || null,
+    previousAppliedSelection: clonePlain(appliedSelectionOf(issue)),
+    previousReason: issue.decisionReason || null,
+    previousRespondedAt: issue.respondedAt || null,
+    resultingDecision: next.decision || null,
+    selection: clonePlain(next.selection || null),
+    reason: next.reason || null,
+    at: new Date(),
+  });
+}
+
+async function invalidatePreviewPdf(syllabus) {
+  if (syllabus.previewPdf?.path) {
+    try { await fs.promises.unlink(syllabus.previewPdf.path); } catch { /* best-effort stale preview cleanup */ }
+  }
+  syllabus.previewPdf = undefined;
 }
 
 function getIssueCounts(syllabus) {
@@ -86,6 +127,25 @@ function buildEditBlocks(syllabus, issue) {
       after: edit.action === 'delete' ? '' : String(edit.newText || ''),
     };
   });
+}
+
+function buildIssueMessage(conversation, syllabus, issue) {
+  return {
+    conversationId: conversation._id,
+    role: 'ai',
+    kind: issue.beforeAfter.kind || 'before-after',
+    content: `${issue.title}\n\n${issue.description}`,
+    payload: {
+      before: issue.beforeAfter.before,
+      after: issue.beforeAfter.after,
+      priority: issue.priority,
+      category: issue.category,
+      groupTag: issue.groupTag,
+      editBlocks: buildEditBlocks(syllabus, issue),
+      ...(issue.beforeAfter.payload || {}),
+    },
+    relatedIssueId: issue.id,
+  };
 }
 
 function assertReadyForFinal(syllabus) {
@@ -177,7 +237,7 @@ async function nextIssueMessage(conversation) {
           conversationId: conversation._id,
           role: 'ai',
           kind: 'submission-cta',
-          content: 'Syllabus ready for submission. All required criteria are met. The Academic Director will receive a summary report automatically.',
+          content: 'Syllabus ready for submission. All open review items are resolved or documented. The Academic Director will receive a summary report automatically.',
         });
       }
       return null;
@@ -210,20 +270,7 @@ async function nextIssueMessage(conversation) {
     }
   }
 
-  const issueMessage = {
-    conversationId: conversation._id,
-    role: 'ai',
-    kind: issue.beforeAfter.kind || 'before-after',
-    content: `${issue.title}\n\n${issue.description}`,
-    payload: {
-      before: issue.beforeAfter.before,
-      after: issue.beforeAfter.after,
-      priority: issue.priority,
-      editBlocks: buildEditBlocks(syllabus, issue),
-      ...(issue.beforeAfter.payload || {}),
-    },
-    relatedIssueId: issue.id,
-  };
+  const issueMessage = buildIssueMessage(conversation, syllabus, issue);
 
   if (alreadyCurrent) {
     const updated = await Message.findOneAndUpdate(
@@ -243,7 +290,7 @@ async function nextIssueMessage(conversation) {
   return issue;
 }
 
-async function applyDecision(conversation, issueId, decision, selection = null) {
+async function applyDecision(conversation, issueId, decision, selection = null, reason = null) {
   const syllabus = await Syllabus.findById(conversation.syllabusId);
   if (!syllabus) {
     const e = new Error('Syllabus not found');
@@ -258,9 +305,10 @@ async function applyDecision(conversation, issueId, decision, selection = null) 
     throw e;
   }
 
-  if (decision === 'rejected' && ['critical', 'high'].includes(issue.priority)) {
-    const e = new Error('Critical and high-priority issues must be resolved before submission and cannot be cancelled.');
-    e.statusCode = 409;
+  const normalizedReason = String(reason || '').trim();
+  if (decision === 'rejected' && needsCancellationReason(issue) && !normalizedReason) {
+    const e = new Error('A cancellation reason is required for critical and high-priority issues.');
+    e.statusCode = 400;
     throw e;
   }
 
@@ -270,13 +318,20 @@ async function applyDecision(conversation, issueId, decision, selection = null) 
       e.statusCode = 409;
       throw e;
     }
-    if (!aiService.isRecApplicable(syllabus, issue, selection)) {
-      const e = new Error('The recommendation no longer applies to the current syllabus text; please re-analyze.');
+    const validation = aiService.validateRecEdits(syllabus, issue, selection);
+    if (!validation.ok) {
+      const isStale = validation.code === 'STALE_DOC_VERSION';
+      const e = new Error(isStale
+        ? 'The recommendation no longer applies to the current syllabus text; please re-analyze.'
+        : `Recommendation edits are invalid: ${validation.reason || 'unknown validation error'}`);
       e.statusCode = 409;
-      e.code = 'STALE_DOC_VERSION';
-      e.retryable = true;
+      if (isStale) {
+        e.code = 'STALE_DOC_VERSION';
+        e.retryable = true;
+      }
       throw e;
     }
+    appendDecisionHistory(issue, 'accepted', { decision: 'accepted', selection });
     if (selection) {
       issue.beforeAfter.payload = {
         ...(issue.beforeAfter.payload || {}),
@@ -285,16 +340,16 @@ async function applyDecision(conversation, issueId, decision, selection = null) 
     }
     issue.decision = decision;
     issue.decidedVia = 'chat';
+    issue.decisionReason = undefined;
     issue.respondedAt = new Date();
     aiService.applyAcceptedDecisions(syllabus);
-    if (syllabus.previewPdf?.path) {
-      try { await fs.promises.unlink(syllabus.previewPdf.path); } catch { /* best-effort stale preview cleanup */ }
-    }
-    syllabus.previewPdf = undefined;
+    await invalidatePreviewPdf(syllabus);
     syllabus.editingStatus = 'ready';
   } else {
+    appendDecisionHistory(issue, 'rejected', { decision: 'rejected', reason: normalizedReason || null });
     issue.decision = decision;
     issue.decidedVia = 'chat';
+    issue.decisionReason = normalizedReason || undefined;
     issue.respondedAt = new Date();
   }
 
@@ -319,16 +374,86 @@ async function confirmIssue(conversation, issueId, selection = null) {
   return syllabus;
 }
 
-async function cancelIssue(conversation, issueId) {
-  const syllabus = await applyDecision(conversation, issueId, 'rejected');
+async function cancelIssue(conversation, issueId, reason = null) {
+  const normalizedReason = String(reason || '').trim();
+  const syllabus = await applyDecision(conversation, issueId, 'rejected', null, normalizedReason);
   await Message.create({
     conversationId: conversation._id,
     role: 'user',
     kind: 'text',
-    content: 'Cancelled.',
+    content: normalizedReason ? `Cancelled.\n\nReason: ${normalizedReason}` : 'Cancelled.',
     relatedIssueId: issueId,
   });
   await nextIssueMessage(conversation);
+  return syllabus;
+}
+
+async function findReopenAnchor(conversation, issueId, anchorMessageId = null) {
+  const query = {
+    conversationId: conversation._id,
+    relatedIssueId: issueId,
+    role: 'ai',
+    kind: { $in: ISSUE_MESSAGE_KINDS },
+  };
+
+  const anchor = anchorMessageId
+    ? await Message.findOne({ ...query, _id: anchorMessageId })
+    : await Message.findOne(query).sort({ createdAt: -1, _id: -1 });
+
+  if (!anchor) {
+    const e = new Error('Could not find the issue card to reopen.');
+    e.statusCode = 409;
+    throw e;
+  }
+  return anchor;
+}
+
+async function reopenIssue(conversation, issueId, anchorMessageId = null) {
+  const syllabus = await Syllabus.findById(conversation.syllabusId);
+  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  if (syllabus.status === 'submitted' || conversation.status === 'submitted') {
+    throw Object.assign(new Error('Submitted syllabi cannot be reopened.'), { statusCode: 409 });
+  }
+
+  const issue = findIssue(syllabus, issueId);
+  if (!issue || !['accepted', 'rejected'].includes(issue.decision)) {
+    const e = new Error('Only resolved issues can be reopened.');
+    e.statusCode = 409;
+    throw e;
+  }
+
+  const anchor = await findReopenAnchor(conversation, issueId, anchorMessageId);
+  await Message.deleteMany({
+    conversationId: conversation._id,
+    $or: [
+      { createdAt: { $gt: anchor.createdAt } },
+      { createdAt: anchor.createdAt, _id: { $gt: anchor._id } },
+    ],
+  });
+
+  appendDecisionHistory(issue, 'reopened', { decision: 'pending' });
+  issue.decision = 'pending';
+  issue.decidedVia = null;
+  issue.decisionReason = undefined;
+  issue.respondedAt = undefined;
+  if (issue.beforeAfter?.payload) {
+    issue.beforeAfter.payload = {
+      ...(issue.beforeAfter.payload || {}),
+      appliedSelection: null,
+    };
+  }
+
+  aiService.applyAcceptedDecisions(syllabus);
+  await invalidatePreviewPdf(syllabus);
+  syllabus.editingStatus = 'ready';
+  await syllabus.save();
+
+  conversation.currentIssueId = issue.id;
+  conversation.lastDecisionAt = new Date();
+  await recomputeReadiness(conversation, syllabus);
+  await conversation.save();
+
+  await Message.findByIdAndUpdate(anchor._id, { $set: buildIssueMessage(conversation, syllabus, issue) });
   return syllabus;
 }
 
@@ -521,6 +646,7 @@ module.exports = {
   nextIssueMessage,
   confirmIssue,
   cancelIssue,
+  reopenIssue,
   freeChatMessage,
   previewFinalPdf,
   previewIssueChange,

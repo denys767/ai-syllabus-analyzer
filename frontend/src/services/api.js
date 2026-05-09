@@ -105,6 +105,7 @@ class ApiService {
     start: (syllabusId) => this.client.post(`/chat/${syllabusId}/start`),
     confirm: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/confirm`, body),
     cancel: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/cancel`, body),
+    reopen: (syllabusId, issueId, body = {}) => this.client.post(`/chat/${syllabusId}/issues/${issueId}/reopen`, body),
     sendMessage: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/message`, body),
     preview: (syllabusId) => this.client.post(`/chat/${syllabusId}/preview`, {}, { responseType: 'blob', timeout: 60000 }),
     issuePreview: (syllabusId, issueId, selection = null) =>

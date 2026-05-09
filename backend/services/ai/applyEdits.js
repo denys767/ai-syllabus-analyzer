@@ -18,6 +18,46 @@ function rangesOverlap(a, b) {
   return a && b && a.from <= b.to && b.from <= a.to;
 }
 
+function mergeText(first, second) {
+  return [first, second]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function coalesceKey(edit) {
+  if (edit.action === 'insertAfter') return `insertAfter:${edit.afterLine}`;
+  if (edit.action === 'insertBefore') return `insertBefore:${edit.beforeLine}`;
+  if (edit.action === 'appendDoc') return 'appendDoc';
+  if (edit.action === 'replace') return `replace:${edit.fromLine}:${edit.toLine}`;
+  return null;
+}
+
+function coalesceCaseCardEdits(edits) {
+  const result = [];
+  const mergeable = new Map();
+
+  for (const edit of edits) {
+    const key = coalesceKey(edit);
+    if (!key) {
+      result.push(edit);
+      continue;
+    }
+
+    const existing = mergeable.get(key);
+    if (existing) {
+      existing.newText = mergeText(existing.newText, edit.newText);
+      continue;
+    }
+
+    const copy = { ...edit };
+    mergeable.set(key, copy);
+    result.push(copy);
+  }
+
+  return result;
+}
+
 function resolveEditsForRec(rec, selection) {
   const ba = rec && rec.beforeAfter;
   if (!ba || !ba.payload || ba.payload.source !== 'line-edits') return [];
@@ -38,9 +78,21 @@ function resolveEditsForRec(rec, selection) {
     const selectedIds = Array.isArray(sel.caseIds) && sel.caseIds.length
       ? sel.caseIds
       : [sel.caseId || fallbackId].filter(Boolean);
-    raw = (ba.payload.cards || [])
-      .filter((card) => selectedIds.some((id) => String(id) === String(card.id)))
-      .flatMap((card) => card.edits || []);
+    const cardsById = new Map((ba.payload.cards || []).map((card) => [String(card.id), card]));
+    const selectedCards = [];
+    const seen = new Set();
+    for (const id of selectedIds) {
+      const key = String(id);
+      if (seen.has(key)) continue;
+      const card = cardsById.get(key);
+      if (!card) continue;
+      seen.add(key);
+      selectedCards.push(card);
+    }
+    raw = coalesceCaseCardEdits(
+      selectedCards.flatMap((card) => card.edits || []).map(normalizeEdit).filter(Boolean)
+    );
+    return raw;
   } else {
     raw = ba.payload.edits || [];
   }
@@ -275,23 +327,36 @@ function recomputeSyllabusState(syllabus) {
   syllabus.revisionMarkup = revisionMarkup;
 }
 
+function validateRecEdits(syllabus, rec, selection = null) {
+  if (!rec || !rec.beforeAfter || !rec.beforeAfter.payload) {
+    return { ok: false, reason: 'missing previewable edits' };
+  }
+  if (rec.beforeAfter.payload.source !== 'line-edits') {
+    return { ok: false, reason: 'unsupported edit source' };
+  }
+  const original = String(syllabus.extractedText || '');
+  const doc = toLineDoc(original);
+  if (rec.beforeAfter.payload.docVersion && rec.beforeAfter.payload.docVersion !== doc.sha1) {
+    return { ok: false, reason: 'stale document version', code: 'STALE_DOC_VERSION' };
+  }
+  const effectiveSelection = selection || rec.beforeAfter.payload.appliedSelection;
+  const edits = resolveEditsForRec(rec, effectiveSelection);
+  if (!edits.length) return { ok: false, reason: 'no edits' };
+  const result = validateEdits(edits, doc);
+  if (!result.ok) return { ok: false, reason: result.reason };
+  return { ok: true, edits };
+}
+
 /**
  * Used by workspaceService to check whether a rec can still be applied.
  */
 function isRecApplicable(syllabus, rec, selection = null) {
-  if (!rec || !rec.beforeAfter || !rec.beforeAfter.payload) return false;
-  if (rec.beforeAfter.payload.source !== 'line-edits') return false;
-  const original = String(syllabus.extractedText || '');
-  const doc = toLineDoc(original);
-  if (rec.beforeAfter.payload.docVersion && rec.beforeAfter.payload.docVersion !== doc.sha1) return false;
-  const effectiveSelection = selection || rec.beforeAfter.payload.appliedSelection;
-  const edits = resolveEditsForRec(rec, effectiveSelection);
-  if (!edits.length) return false;
-  return validateEdits(edits, doc).ok;
+  return validateRecEdits(syllabus, rec, selection).ok;
 }
 
 module.exports = {
   resolveEditsForRec,
+  validateRecEdits,
   buildRevisionMarkupFromEdits,
   buildAcceptedState,
   buildSingleRecPreviewMarkup,
