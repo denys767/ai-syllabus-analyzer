@@ -23,7 +23,8 @@ const EDIT_PROTOCOL = `EDIT PROTOCOL — read carefully:
   - "insertBefore": { "action": "insertBefore", "beforeLine": N, "newText": "..." } — inserts newText before line N.
   - "appendDoc": { "action": "appendDoc", "newText": "..." } — appends newText at the end of the document.
 - DO NOT quote syllabus text in your output. Use line numbers only — the system reconstructs the original text from those lines.
-- Make sure changes don't conflict with each other. For example, if you replace lines 10-12 with new text, you cannot have another edit that also modifies lines 10-12 or inserts text at line 10, 11, or 12.
+- Make sure changes don't conflict with each other. For example, if you replace lines 10-12 with new text, you cannot have another edit that also modifies lines 10-12 or inserts text at line 10, 11, or 12. 
+- If you've already generated content for a topic, avoid generating more content for that topic to avoid dublication
 - newText is the FINAL text the syllabus should contain (not a diff). Multi-line newText is allowed via "\\n".
 - Edit ranges within ONE recommendation must NOT overlap.
 - Do NOT invent dates, instructor names, grading weights, required readings, or case titles unless implied by the syllabus or recommendation.
