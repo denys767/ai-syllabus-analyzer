@@ -28,7 +28,18 @@ const Sidebar = ({ onItemClick }) => {
     if (path === '/workspace') {
       const userId = user?.id || user?._id || 'anon';
       const lastChatId = localStorage.getItem(`pt.lastChat.v1.${userId}`);
-      navigate(lastChatId ? `/workspace/${lastChatId}` : path);
+      let targetId = lastChatId;
+      try {
+        const tabs = JSON.parse(localStorage.getItem(`pt.openTabs.v1.${userId}`) || '[]');
+        if (targetId && Array.isArray(tabs) && tabs.length && !tabs.some((tab) => tab.id === targetId)) {
+          localStorage.removeItem(`pt.lastChat.v1.${userId}`);
+          targetId = null;
+        }
+      } catch {
+        // Ignore malformed local storage and fall back to the plain workspace.
+        targetId = null;
+      }
+      navigate(targetId ? `/workspace/${targetId}` : path);
     } else {
       navigate(path);
     }

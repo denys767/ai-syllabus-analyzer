@@ -45,6 +45,17 @@ function readOpenTabs(key) {
 function writeOpenTabs(key, tabs) {
   localStorage.setItem(key, JSON.stringify(tabs));
 }
+function removeWorkspaceReference(tabsKey, lastChatKey, syllabusId) {
+  try {
+    const tabs = readOpenTabs(tabsKey);
+    writeOpenTabs(tabsKey, tabs.filter((tab) => tab.id !== syllabusId));
+    if (localStorage.getItem(lastChatKey) === syllabusId) {
+      localStorage.removeItem(lastChatKey);
+    }
+  } catch {
+    // Browser storage cleanup is best-effort; routing below is authoritative.
+  }
+}
 
 const REV_DEL_OPEN = '[[KSE_DEL]]';
 const REV_DEL_CLOSE = '[[/KSE_DEL]]';
@@ -180,9 +191,19 @@ const ProfessorTutorWorkspace = () => {
         setMessages(started?.messages || []);
       }
     } catch (err) {
+      if (err.response?.status === 404) {
+        removeWorkspaceReference(tabsKey, lastChatKey, id);
+        setOpenTabs(readOpenTabs(tabsKey));
+        setSyllabus(null);
+        setConversation(null);
+        setMessages([]);
+        setError('');
+        navigate('/workspace', { replace: true });
+        return;
+      }
       setError(err.response?.data?.message || err.message || 'Failed to load syllabus');
     }
-  }, [ensureTab]);
+  }, [ensureTab, lastChatKey, navigate, tabsKey]);
 
   // Load when route param changes
   useEffect(() => {

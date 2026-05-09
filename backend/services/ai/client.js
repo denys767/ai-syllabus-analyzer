@@ -4,10 +4,24 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const aiRequestTimeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS || 130000);
 
 const envModel = (process.env.LLM_MODEL || '').trim();
-const llmModel = envModel && envModel.startsWith('gpt-') ? envModel : 'gpt-5-nano';
+const llmModel = envModel && envModel.startsWith('gpt-') ? envModel : 'gpt-5.4-mini';
+const reasoningEffort = (process.env.LLM_REASONING_EFFORT || 'medium').trim();
+const maxOutputTokens = Number(process.env.LLM_MAX_OUTPUT_TOKENS || 0);
+
+function supportsReasoning(model) {
+  const value = String(model || '');
+  return value.startsWith('gpt-5') || /^o\d/.test(value);
+}
 
 async function createResponse(params) {
-  return openai.responses.create(params, { timeout: aiRequestTimeoutMs });
+  const request = { ...params };
+  if (!request.reasoning && supportsReasoning(request.model || llmModel)) {
+    request.reasoning = { effort: reasoningEffort };
+  }
+  if (!request.max_output_tokens && Number.isFinite(maxOutputTokens) && maxOutputTokens > 0) {
+    request.max_output_tokens = maxOutputTokens;
+  }
+  return openai.responses.create(request, { timeout: aiRequestTimeoutMs });
 }
 
 function safeParseJSON(text) {
@@ -45,5 +59,7 @@ module.exports = {
   safeParseJSON,
   clipText,
   llmModel,
+  reasoningEffort,
+  maxOutputTokens,
   aiRequestTimeoutMs,
 };

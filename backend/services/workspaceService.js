@@ -408,6 +408,23 @@ async function findReopenAnchor(conversation, issueId, anchorMessageId = null) {
   return anchor;
 }
 
+function resetIssueForReopen(issue, context = {}) {
+  appendDecisionHistory(issue, 'reopened', {
+    decision: 'pending',
+    reason: context.reason || null,
+  });
+  issue.decision = 'pending';
+  issue.decidedVia = null;
+  issue.decisionReason = undefined;
+  issue.respondedAt = undefined;
+  if (issue.beforeAfter?.payload) {
+    issue.beforeAfter.payload = {
+      ...(issue.beforeAfter.payload || {}),
+      appliedSelection: null,
+    };
+  }
+}
+
 async function reopenIssue(conversation, issueId, anchorMessageId = null) {
   const syllabus = await Syllabus.findById(conversation.syllabusId);
   if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
@@ -423,6 +440,26 @@ async function reopenIssue(conversation, issueId, anchorMessageId = null) {
   }
 
   const anchor = await findReopenAnchor(conversation, issueId, anchorMessageId);
+  const laterMessages = await Message.find({
+    conversationId: conversation._id,
+    role: 'ai',
+    kind: { $in: ISSUE_MESSAGE_KINDS },
+    relatedIssueId: { $ne: null },
+    $or: [
+      { createdAt: { $gt: anchor.createdAt } },
+      { createdAt: anchor.createdAt, _id: { $gt: anchor._id } },
+    ],
+  }).sort({ createdAt: 1, _id: 1 }).lean();
+
+  const resetIssueIds = [issue.id];
+  const seenIssueIds = new Set(resetIssueIds.map(String));
+  for (const message of laterMessages) {
+    const relatedIssueId = String(message.relatedIssueId || '');
+    if (!relatedIssueId || seenIssueIds.has(relatedIssueId)) continue;
+    seenIssueIds.add(relatedIssueId);
+    resetIssueIds.push(relatedIssueId);
+  }
+
   await Message.deleteMany({
     conversationId: conversation._id,
     $or: [
@@ -431,16 +468,12 @@ async function reopenIssue(conversation, issueId, anchorMessageId = null) {
     ],
   });
 
-  appendDecisionHistory(issue, 'reopened', { decision: 'pending' });
-  issue.decision = 'pending';
-  issue.decidedVia = null;
-  issue.decisionReason = undefined;
-  issue.respondedAt = undefined;
-  if (issue.beforeAfter?.payload) {
-    issue.beforeAfter.payload = {
-      ...(issue.beforeAfter.payload || {}),
-      appliedSelection: null,
-    };
+  for (const resetIssueId of resetIssueIds) {
+    const issueToReset = findIssue(syllabus, resetIssueId);
+    if (!issueToReset || !['accepted', 'rejected'].includes(issueToReset.decision)) continue;
+    resetIssueForReopen(issueToReset, {
+      reason: resetIssueId === issue.id ? null : `Rolled back by reopening ${issue.id}`,
+    });
   }
 
   aiService.applyAcceptedDecisions(syllabus);
