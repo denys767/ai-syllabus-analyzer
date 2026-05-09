@@ -7,7 +7,7 @@ const Profile = () => {
   const { user, updateProfile } = useAuth();
   const [firstName, setFirstName] = useState(user?.firstName || '');
   const [lastName, setLastName] = useState(user?.lastName || '');
-  const [email, setEmail] = useState(user?.email || '');
+  const [email] = useState(user?.email || '');
   const [newEmail, setNewEmail] = useState('');
   const [emailChangeMsg, setEmailChangeMsg] = useState('');
   const [emailChangeErr, setEmailChangeErr] = useState('');

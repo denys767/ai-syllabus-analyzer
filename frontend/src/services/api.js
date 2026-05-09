@@ -12,7 +12,6 @@ class ApiService {
       },
     });
 
-    // Request interceptor
     this.client.interceptors.request.use(
       (config) => {
         const token = localStorage.getItem('token');
@@ -21,25 +20,20 @@ class ApiService {
         }
         return config;
       },
-      (error) => {
-        return Promise.reject(error);
-      }
+      (error) => Promise.reject(error)
     );
 
-    // Response interceptor with 429 backoff
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
         const cfg = error.config || {};
         const status = error.response?.status;
 
-        // Don't trigger logout for login endpoint failures
         if (status === 401 && !cfg.url?.includes('/auth/login')) {
           localStorage.removeItem('token');
           window.dispatchEvent(new CustomEvent('auth_logout'));
         }
 
-        // Simple 429 retry with exponential backoff, up to 3 attempts
         if (status === 429 && !cfg.__retryCount) cfg.__retryCount = 0;
         if (status === 429 && cfg.__retryCount < 3) {
           cfg.__retryCount += 1;
@@ -65,243 +59,101 @@ class ApiService {
 
   // Auth endpoints
   auth = {
-    login: (email, password) =>
-      this.client.post('/auth/login', { email, password }),
-    
-    register: (userData) =>
-      this.client.post('/auth/register', userData),
-    
-    getProfile: () =>
-      this.client.get('/auth/profile'),
-    
-    updateProfile: (data) =>
-      this.client.put('/auth/profile', data),
-    
-    forgotPassword: (email) =>
-      this.client.post('/auth/forgot-password', { email }),
-    
-    resetPassword: (token, password) =>
-      this.client.post('/auth/reset-password', { token, password }),
-    
-    verifyEmail: (token) =>
-      this.client.post('/auth/verify-email', { token }),
-    resendVerification: (email) =>
-      this.client.post('/auth/resend-verification', { email }),
-    
-    logout: () =>
-      this.client.post('/auth/logout'),
+    login: (email, password) => this.client.post('/auth/login', { email, password }),
+    register: (userData) => this.client.post('/auth/register', userData),
+    getProfile: () => this.client.get('/auth/profile'),
+    updateProfile: (data) => this.client.put('/auth/profile', data),
+    forgotPassword: (email) => this.client.post('/auth/forgot-password', { email }),
+    resetPassword: (token, password) => this.client.post('/auth/reset-password', { token, password }),
+    verifyEmail: (token) => this.client.post('/auth/verify-email', { token }),
+    resendVerification: (email) => this.client.post('/auth/resend-verification', { email }),
+    logout: () => this.client.post('/auth/logout'),
   };
 
-  // User self-service endpoints (non-admin)
   user = {
     changePassword: (currentPassword, newPassword) =>
       this.client.put('/users/change-password', { currentPassword, newPassword }),
     deleteAccount: (password) =>
       this.client.delete('/users/account', { data: { password } }),
-    updateSettings: (data) =>
-      this.client.put('/users/settings', data)
+    updateSettings: (data) => this.client.put('/users/settings', data),
+    getStats: () => this.client.get('/users/stats'),
   };
 
-  // Email change flow
   emailChange = {
     request: (newEmail) => this.client.post('/users/email-change/request', { newEmail }),
-    confirm: (token) => this.client.post('/users/email-change/confirm', { token })
+    confirm: (token) => this.client.post('/users/email-change/confirm', { token }),
   };
 
-  // Syllabus endpoints
   syllabus = {
-    upload: (formData) =>
+    upload: (formData, config = {}) =>
       this.client.post('/syllabus/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        ...config,
+        headers: { 'Content-Type': 'multipart/form-data', ...(config.headers || {}) },
       }),
-    
-    getAll: (params = {}) =>
-      this.client.get('/reports/catalog', { params }),
-    
-    getMySyllabi: (params = {}) =>
-      this.client.get('/syllabus/my-syllabi', { params }),
-    
-    getSyllabus: (id) =>
-      this.client.get(`/syllabus/${id}`),
-    
-    getSyllabusStatus: (id) =>
-      this.client.get(`/syllabus/${id}/status`),
-    
-    updateRecommendation: (syllabusId, recommendationId, data) =>
-      this.client.put(`/syllabus/${syllabusId}/recommendations/${recommendationId}`, data),
-    
-    deleteSyllabus: (id) =>
-      this.client.delete(`/syllabus/${id}`),
-
-    requestDiffPdf: (id) =>
-      this.client.post(`/syllabus/${id}/generate-diff-pdf`),
-
-    getEditingStatus: (id) =>
-      this.client.get(`/syllabus/${id}/editing-status`),
-
-    downloadEditedPdf: (id) =>
-      this.client.get(`/syllabus/${id}/download-edited-pdf`, { responseType: 'blob' }),
+    getMySyllabi: (params = {}) => this.client.get('/syllabus/my-syllabi', { params }),
+    getSyllabus: (id) => this.client.get(`/syllabus/${id}`),
+    getSyllabusStatus: (id) => this.client.get(`/syllabus/${id}/status`),
+    deleteSyllabus: (id) => this.client.delete(`/syllabus/${id}`),
+    update: (id, data) => this.client.put(`/syllabus/${id}`, data),
+    reanalyze: (id) => this.client.post(`/syllabus/${id}/analyze`),
+    download: (id) => this.client.get(`/syllabus/${id}/download`, { responseType: 'blob' }),
   };
 
-  // Survey endpoints
-  surveys = {
-    getAll: (params = {}) =>
-      this.client.get('/surveys', { params }),
-    
-    getSurvey: (id) =>
-      this.client.get(`/surveys/${id}`),
-    
-    submitResponse: (surveyId, data) =>
-      this.client.post(`/surveys/${surveyId}/responses`, data),
-    
-    create: (data) =>
-      this.client.post('/surveys', data),
-    
-    update: (id, data) =>
-      this.client.put(`/surveys/${id}`, data),
-    
-    delete: (id) =>
-      this.client.delete(`/surveys/${id}`),
-    
-    getResponses: (id, params = {}) =>
-      this.client.get(`/surveys/${id}/responses`, { params }),
+  // Phase 2 will populate this namespace with the chat-first flow.
+  chat = {
+    get: (syllabusId) => this.client.get(`/chat/${syllabusId}`),
+    start: (syllabusId) => this.client.post(`/chat/${syllabusId}/start`),
+    confirm: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/confirm`, body),
+    cancel: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/cancel`, body),
+    reopen: (syllabusId, issueId, body = {}) => this.client.post(`/chat/${syllabusId}/issues/${issueId}/reopen`, body),
+    sendMessage: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/message`, body),
+    preview: (syllabusId) => this.client.post(`/chat/${syllabusId}/preview`, {}, { responseType: 'blob', timeout: 60000 }),
+    issuePreview: (syllabusId, issueId, selection = null) =>
+      this.client.post(
+        `/chat/${syllabusId}/issues/${issueId}/preview`,
+        selection ? { selection } : {},
+        { timeout: 60000 }
+      ),
+    submit: (syllabusId) => this.client.post(`/chat/${syllabusId}/submit`),
   };
 
-  // AI endpoints
-  ai = {
-    challenge: (data) =>
-      this.client.post('/ai/challenge', data),
-    
-    generateCases: (data) =>
-      this.client.post('/ai/generate-cases', data),
-    
-    getTeachingMethods: (data) =>
-      this.client.post('/ai/teaching-methods', data),
+  // Phase 6 will populate the cabinet namespace.
+  cabinet = {
+    getSyllabi: (params = {}) => this.client.get('/cabinet/syllabi', { params }),
+    getMetrics: () => this.client.get('/cabinet/metrics'),
+    getUsers: (params = {}) => this.client.get('/cabinet/users', { params }),
+    createUser: (data) => this.client.post('/cabinet/users', data),
+    listPrograms: () => this.client.get('/cabinet/programs'),
+    createProgram: (data) => this.client.post('/cabinet/programs', data),
+    updateProgram: (id, data) => this.client.put(`/cabinet/programs/${id}`, data),
+    deleteProgram: (id) => this.client.delete(`/cabinet/programs/${id}`),
+    deleteSyllabus: (id) => this.client.delete(`/syllabus/${id}`),
+    resendSubmission: (syllabusId) => this.client.post(`/cabinet/syllabi/${syllabusId}/resend-submission`),
+    updateUserPrograms: (userId, programIds) => this.client.put(`/cabinet/users/${userId}/programs`, { programIds }),
   };
 
-  // Reports endpoints
-  reports = {
-    getSyllabusReport: (id) =>
-      this.client.get(`/reports/syllabus/${id}`),
-    
-    getAnalytics: (params = {}) =>
-      this.client.get('/reports/analytics', { params }),
-    
-    getManagerSummary: () =>
-      this.client.get('/reports/manager-summary'),
-    
-    exportData: (type, params = {}) =>
-      this.client.get(`/reports/export/${type}`, { 
-        params,
-        responseType: 'blob'
-      }),
-  };
-
-  // Utility for downloading binary (modified syllabus)
-  syllabusDownloadModified(id){
-    return this.client.get(`/syllabus/${id}/download-modified`, { responseType: 'blob' });
-  }
-
-  // Policies endpoints
   policies = {
-    getAll: (params = {}) =>
-      this.client.get('/policies', { params }),
-    
-    getPolicy: (id) =>
-      this.client.get(`/policies/${id}`),
-    
+    getAll: (params = {}) => this.client.get('/policies', { params }),
+    getPolicy: (id) => this.client.get(`/policies/${id}`),
     create: (data) =>
       this.client.post('/policies', data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       }),
-    
     update: (id, data) =>
       this.client.put(`/policies/${id}`, data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       }),
-    
-    delete: (id) =>
-      this.client.delete(`/policies/${id}`),
-    
-    acknowledge: (id) =>
-      this.client.post(`/policies/${id}/acknowledge`),
-    
-    getStatus: (id) =>
-      this.client.get(`/policies/${id}/status`),
-    
-    downloadFile: (id) =>
-      this.client.get(`/policies/${id}/download`, {
-        responseType: 'blob'
-      })
-  };
-
-  // Admin endpoints
-  admin = {
-    getUsers: (params = {}) =>
-      this.client.get('/admin/users', { params }),
-    
-    getUser: (id) =>
-      this.client.get(`/admin/users/${id}`),
-    
-    updateUser: (id, data) =>
-      this.client.put(`/admin/users/${id}`, data),
-    
-    deleteUser: (id) =>
-      this.client.delete(`/admin/users/${id}`),
-    
-    bulkUserAction: (data) =>
-      this.client.post('/admin/users/bulk-action', data),
-    
-    getStatistics: (params = {}) =>
-      this.client.get('/admin/statistics', { params }),
-    
-    getAuditLogs: (params = {}) =>
-      this.client.get('/admin/audit-logs', { params }),
-    
-    getSystemHealth: () =>
-      this.client.get('/admin/health'),
-  };
-
-  // Cluster management endpoints (admin/manager)
-  clusters = {
-    // list all historical configs
-    list: () => this.client.get('/clusters'),
-    // current active
-    current: () => this.client.get('/clusters/current'),
-    // create new config
-    create: (data) => this.client.post('/clusters', data),
-    // activate specific config
-    activate: (id) => this.client.patch(`/clusters/${id}/activate`),
-    // update config
-    update: (id, data) => this.client.put(`/clusters/${id}`, data),
-    // delete config
-    delete: (id) => this.client.delete(`/clusters/${id}`),
-    // survey responses (raw)
-    surveyResponses: (params = {}) => this.client.get('/clusters/surveys', { params }),
-    // survey insights aggregate
-    surveyInsights: () => this.client.get('/clusters/surveys/insights'),
-    // delete single survey response
-    deleteSurveyResponse: (id) => this.client.delete(`/clusters/surveys/${id}`),
-    // clear all survey responses
-    clearSurveyResponses: () => this.client.delete('/clusters/surveys/all')
+    delete: (id) => this.client.delete(`/policies/${id}`),
+    acknowledge: (id) => this.client.post(`/policies/${id}/acknowledge`),
+    getStatus: (id) => this.client.get(`/policies/${id}/status`),
+    downloadFile: (id) => this.client.get(`/policies/${id}/download`, { responseType: 'blob' }),
   };
 
   // Generic methods
-  get(url, config = {}) {
-    return this.client.get(url, config);
-  }
-
-  post(url, data = {}, config = {}) {
-    return this.client.post(url, data, config);
-  }
-
-  put(url, data = {}, config = {}) {
-    return this.client.put(url, data, config);
-  }
-
-  delete(url, config = {}) {
-    return this.client.delete(url, config);
-  }
+  get(url, config = {}) { return this.client.get(url, config); }
+  post(url, data = {}, config = {}) { return this.client.post(url, data, config); }
+  put(url, data = {}, config = {}) { return this.client.put(url, data, config); }
+  delete(url, config = {}) { return this.client.delete(url, config); }
 }
 
 const api = new ApiService();

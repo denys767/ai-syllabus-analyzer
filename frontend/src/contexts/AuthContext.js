@@ -50,13 +50,26 @@ const authReducer = (state, action) => {
   }
 };
 
+// Wipe per-user workspace tab caches so a user who signs in next on this
+// browser cannot observe the previous user's syllabus tabs.
+const clearWorkspaceTabCaches = () => {
+  try {
+    const stale = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('pt.openTabs.v1')) stale.push(k);
+    }
+    stale.forEach((k) => localStorage.removeItem(k));
+  } catch { /* ignore quota / privacy-mode errors */ }
+};
+
 export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
   useEffect(() => {
     const initializeAuth = async () => {
       const token = localStorage.getItem('token');
-      
+
       if (token) {
         try {
           api.setAuthToken(token);
@@ -68,6 +81,7 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
           console.error('Auth initialization failed:', error);
           localStorage.removeItem('token');
+          clearWorkspaceTabCaches();
           dispatch({ type: 'LOGOUT' });
         }
       } else {
@@ -77,6 +91,7 @@ export const AuthProvider = ({ children }) => {
 
     // Automatic logout handler for 401 error
     const handleAuthLogout = () => {
+      clearWorkspaceTabCaches();
       dispatch({ type: 'LOGOUT' });
     };
 
@@ -114,6 +129,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('token');
+    clearWorkspaceTabCaches();
     api.setAuthToken(null);
     dispatch({ type: 'LOGOUT' });
   };

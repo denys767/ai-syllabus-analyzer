@@ -10,21 +10,19 @@ require('dotenv').config();
 
 // Import routes
 const authRoutes = require('./routes/auth');
-const surveyRoutes = require('./routes/surveys');
 const syllabusRoutes = require('./routes/syllabus');
-const aiRoutes = require('./routes/ai');
-const reportRoutes = require('./routes/reports');
-const adminRoutes = require('./routes/admin');
+const chatRoutes = require('./routes/chat');
+const cabinetRoutes = require('./routes/cabinet');
 const userRoutes = require('./routes/users');
-const googleFormsRoutes = require('./routes/googleForms');
-const clusterRoutes = require('./routes/clusters');
 const policiesRoutes = require('./routes/policies');
+
+const Program = require('./models/Program');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const DEFAULT_REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS || '20000', 10);
 const AI_REQUEST_TIMEOUT_MS = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '130000', 10);
-const LONG_RUNNING_PATHS = ['/api/ai/challenge', '/api/ai/challenge/respond'];
+const LONG_RUNNING_PATHS = ['/api/chat'];
 
 // Basic in-memory health flags
 let dbConnected = false;
@@ -80,7 +78,7 @@ const limiter = rateLimit({
     const p = req.path || '';
     if (req.method === 'OPTIONS') return true; // never rate-limit preflight
     if (req.headers.authorization) return true; // skip global limiter for authenticated traffic
-    return p === '/health' || p.startsWith('/api/google-forms');
+    return p === '/health';
   }
 });
 app.use(limiter);
@@ -170,7 +168,7 @@ mongoose.connection.on('error', (err) => {
 app.use((req, res, next) => {
   const p = req.path || '';
   if (req.method === 'OPTIONS') return next(); // let CORS preflight pass
-  if (!dbConnected && p !== '/health' && !p.startsWith('/api/google-forms')) {
+  if (!dbConnected && p !== '/health') {
     return res.status(503).json({ message: 'Service temporarily unavailable (database)' });
   }
   next();
@@ -201,18 +199,21 @@ async function initializeAdmin() {
   } catch (error) {
     console.error('❌ Error initializing admin:', error);
   }
+
+  try {
+    await Program.seedDefaults();
+    console.log('✅ Programs seeded');
+  } catch (error) {
+    console.error('❌ Error seeding programs:', error);
+  }
 }
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/surveys', surveyRoutes);
 app.use('/api/syllabus', syllabusRoutes);
-app.use('/api/ai', aiRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/cabinet', cabinetRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/google-forms', googleFormsRoutes);
-app.use('/api/clusters', clusterRoutes);
 app.use('/api/policies', policiesRoutes);
 
 // Health check endpoint

@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "scripts": {
+    "stop-ports": "node stop-ports.js"
+  }
+}

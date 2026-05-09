@@ -12,22 +12,12 @@ import ResetPassword from './components/Auth/ResetPassword';
 import VerifyEmail from './components/Auth/VerifyEmail';
 
 // Main pages
-import Dashboard from './pages/Dashboard';
-import SyllabiList from './pages/SyllabiList';
-import SyllabusUpload from './pages/SyllabusUpload';
-import SyllabusAnalysis from './pages/SyllabusAnalysis';
+import ProfessorTutorWorkspace from './pages/ProfessorTutorWorkspace';
+import Cabinet from './pages/Cabinet';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import PoliciesPage from './pages/PoliciesPage';
 import ConfirmEmailChange from './pages/ConfirmEmailChange';
-
-// Admin pages
-import AdminDashboard from './pages/Admin/AdminDashboard';
-import UserManagement from './components/Admin/UserManagement';
-
-// Manager pages
-import ManagerDashboard from './pages/Manager/ManagerDashboard';
-import ManagerReports from './pages/Manager/ManagerReports';
 
 function App() {
   const { user, isLoading } = useAuth();
@@ -46,16 +36,18 @@ function App() {
     );
   }
 
+  const defaultRoute = (user?.role === 'admin' || user?.role === 'manager') ? '/cabinet' : '/workspace';
+
   return (
     <Routes>
       {/* Public routes */}
       <Route
         path="/login"
-        element={user ? <Navigate to="/dashboard" replace /> : <Login />}
+        element={user ? <Navigate to={defaultRoute} replace /> : <Login />}
       />
       <Route path="/confirm-email-change" element={<ConfirmEmailChange />} />
-  <Route path="/reset-password" element={<ResetPassword />} />
-  <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
 
       {/* Protected routes */}
       <Route
@@ -66,73 +58,24 @@ function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-  <Route path="profile" element={<Profile />} />
-  <Route path="settings" element={<Settings />} />
+        <Route index element={<Navigate to={defaultRoute} replace />} />
+        <Route path="workspace" element={<ProfessorTutorWorkspace />} />
+        <Route path="workspace/:syllabusId" element={<ProfessorTutorWorkspace />} />
+        <Route
+          path="cabinet"
+          element={
+            <ProtectedRoute requiredRoles={['admin', 'manager', 'instructor']}>
+              <Cabinet />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="profile" element={<Profile />} />
+        <Route path="settings" element={<Settings />} />
         <Route path="policies" element={<PoliciesPage />} />
-        
-        {/* Syllabus routes for instructors */}
-        <Route path="syllabi" element={<SyllabiList />} />
-        <Route 
-          path="syllabi/upload" 
-          element={
-            <ProtectedRoute requiredRoles={['instructor', 'manager']}>
-              <SyllabusUpload />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="syllabi/:id" 
-          element={
-            <ProtectedRoute requiredRoles={['instructor', 'admin', 'manager']}>
-              <SyllabusAnalysis />
-            </ProtectedRoute>
-          } 
-        />
-        
-  {/* AI Challenger removed from global routes; use per-syllabus panel instead */}
-        
-        {/* Admin routes */}
-        <Route
-          path="admin"
-          element={
-            <ProtectedRoute requiredRoles={['admin']}>
-              <AdminDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="admin/users"
-          element={
-            <ProtectedRoute requiredRoles={['admin']}>
-              <UserManagement />
-            </ProtectedRoute>
-          }
-        />
-  {/* admin/analytics route removed (deprecated aggregated reports) */}
-
-        {/* Manager routes */}
-        <Route
-          path="manager"
-          element={
-            <ProtectedRoute requiredRoles={['manager', 'admin']}>
-              <ManagerDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="manager/reports"
-          element={
-            <ProtectedRoute requiredRoles={['manager', 'admin']}>
-              <ManagerReports />
-            </ProtectedRoute>
-          }
-        />
       </Route>
 
       {/* 404 route */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to={defaultRoute} replace />} />
     </Routes>
   );
 }

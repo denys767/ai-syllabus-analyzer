@@ -8,8 +8,6 @@ import {
   Menu,
   MenuItem,
   Divider,
-  Badge,
-  Tooltip,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -84,7 +82,7 @@ const Header = ({ onMenuClick, drawerOpen }) => {
         sx={{ 
           flexGrow: 1,
           fontWeight: 600,
-          color: 'text.primary'
+          color: 'common.white'
         }}
       >
         AI Syllabus Analyzer
@@ -161,9 +159,8 @@ const Header = ({ onMenuClick, drawerOpen }) => {
               {user?.email}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {user?.role === 'instructor' ? 'Instructor' : 
-               user?.role === 'admin' ? 'Administrator' : 
-               user?.role === 'manager' ? 'Manager' : user?.role}
+              {user?.role === 'instructor' ? 'Instructor' :
+               user?.role === 'admin' ? 'Administrator' : user?.role}
             </Typography>
           </Box>
           

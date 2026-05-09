@@ -12,12 +12,10 @@ import {
   Chip,
 } from '@mui/material';
 import {
-  Dashboard,
+  Forum,
   AdminPanelSettings,
-  People,
   School,
-  Assessment,
-  Policy
+  Policy,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -27,27 +25,46 @@ const Sidebar = ({ onItemClick }) => {
   const { user } = useAuth();
 
   const handleNavigation = (path) => {
-    navigate(path);
-    if (onItemClick) {
-      onItemClick();
+    if (path === '/workspace') {
+      const userId = user?.id || user?._id || 'anon';
+      const lastChatId = localStorage.getItem(`pt.lastChat.v1.${userId}`);
+      let targetId = lastChatId;
+      try {
+        const tabs = JSON.parse(localStorage.getItem(`pt.openTabs.v1.${userId}`) || '[]');
+        if (targetId && Array.isArray(tabs) && tabs.length && !tabs.some((tab) => tab.id === targetId)) {
+          localStorage.removeItem(`pt.lastChat.v1.${userId}`);
+          targetId = null;
+        }
+      } catch {
+        // Ignore malformed local storage and fall back to the plain workspace.
+        targetId = null;
+      }
+      navigate(targetId ? `/workspace/${targetId}` : path);
+    } else {
+      navigate(path);
     }
+    if (onItemClick) onItemClick();
   };
 
   const isActive = (path) => {
-    // Exact match for main paths
-    if (path === '/dashboard' || path === '/manager' || path === '/admin') {
-      return location.pathname === path;
+    if (path === '/workspace' || path === '/cabinet') {
+      return location.pathname === path || location.pathname.startsWith(path + '/');
     }
-    // For other nested paths, we check the beginning
-    return location.pathname === path || location.pathname.startsWith(path + '/');
+    return location.pathname === path;
   };
 
-  const instructorItems = [
+  const items = [
     {
-      text: 'Dashboard',
-      icon: <Dashboard />,
-      path: '/dashboard',
-      roles: ['instructor', 'admin'],
+      text: 'Chat',
+      icon: <Forum />,
+      path: '/workspace',
+      roles: ['instructor', 'admin', 'manager'],
+    },
+    {
+      text: 'Cabinet',
+      icon: <AdminPanelSettings />,
+      path: '/cabinet',
+      roles: ['admin', 'manager', 'instructor'],
     },
     {
       text: 'Documents',
@@ -55,106 +72,16 @@ const Sidebar = ({ onItemClick }) => {
       path: '/policies',
       roles: ['instructor', 'admin', 'manager'],
     },
-  // AI Challenger available inside individual syllabus view; no global route
-  ];
+  ].filter((item) => item.roles.includes(user?.role));
 
-  const managerItems = [
-    {
-      text: 'Manager Dashboard',
-      icon: <Dashboard />,
-      path: '/manager',
-      roles: ['manager', 'admin'],
-    },
-    {
-      text: 'Reports',
-      icon: <Assessment />,
-      path: '/manager/reports',
-      roles: ['manager','admin'],
-    },
-    {
-      text: 'Documents',
-      icon: <Policy />,
-      path: '/policies',
-      roles: ['manager','admin'],
-    },
-  ];
-
-  const adminItems = [
-    {
-      text: 'Admin Panel',
-      icon: <AdminPanelSettings />,
-      path: '/admin',
-      roles: ['admin'],
-    },
-    {
-      text: 'User Management',
-      icon: <People />,
-      path: '/admin/users',
-      roles: ['admin'],
-    },
-    // Removed deprecated analytics route (/admin/analytics)
-  ];
-
-  const getRoleBasedMenuItems = () => {
-    let items = [];
-    
-    switch (user?.role) {
-      case 'admin':
-        // Admin: instructor + admin, WITHOUT manager (to avoid duplicate 'Reports')
-        items = [
-          ...instructorItems.filter((item) => item.path !== '/syllabi'),
-          ...adminItems
-        ];
-        break;
-      case 'manager':
-        items = managerItems;
-        break;
-      case 'instructor':
-      default:
-        items = instructorItems;
-        break;
-    }
-
-    // Remove duplicates by path
-    const uniqueItems = items.filter(
-      (item, index, self) => index === self.findIndex((t) => t.path === item.path)
-    );
-
-    return uniqueItems;
-  };
-
-  const hasRole = (roles) => {
-    return roles.includes(user?.role);
-  };
-
-  const getRoleBadge = () => {
-    const roleColors = {
-      'admin': 'error',
-      'manager': 'warning', 
-      'instructor': 'primary',
-    };
-
-    const roleLabels = {
-      'admin': 'Admin',
-      'manager': 'Manager',
-      'instructor': 'Instructor',
-    };
-
-    return (
-      <Chip
-        label={roleLabels[user?.role] || user?.role}
-        color={roleColors[user?.role] || 'default'}
-        size="small"
-        sx={{ ml: 1 }}
-      />
-    );
-  };
+  const roleColors = { admin: 'error', instructor: 'primary', manager: 'warning' };
+  const roleLabels = { admin: 'Admin', instructor: 'Instructor', manager: 'Manager' };
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Toolbar 
-        sx={{ 
-          display: 'flex', 
+      <Toolbar
+        sx={{
+          display: 'flex',
           alignItems: 'center',
           px: 2,
           borderBottom: '1px solid',
@@ -165,51 +92,52 @@ const Sidebar = ({ onItemClick }) => {
         <Typography variant="h6" color="primary" fontWeight="600">
           KSE
         </Typography>
-        {getRoleBadge()}
+        {user?.role && (
+          <Chip
+            label={roleLabels[user.role] || user.role}
+            color={roleColors[user.role] || 'default'}
+            size="small"
+            sx={{ ml: 1 }}
+          />
+        )}
       </Toolbar>
 
       <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
         <List sx={{ px: 1, py: 2 }}>
-          {getRoleBasedMenuItems()
-            .filter(item => hasRole(item.roles))
-            .map((item) => (
-              <ListItem key={item.text} disablePadding>
-                <ListItemButton
-                  selected={isActive(item.path)}
-                  onClick={() => handleNavigation(item.path)}
+          {items.map((item) => (
+            <ListItem key={item.text} disablePadding>
+              <ListItemButton
+                selected={isActive(item.path)}
+                onClick={() => handleNavigation(item.path)}
+                sx={{
+                  borderRadius: 2,
+                  mb: 0.5,
+                  '&.Mui-selected': {
+                    backgroundColor: 'primary.main',
+                    color: 'primary.contrastText',
+                    '&:hover': { backgroundColor: 'primary.dark' },
+                    '& .MuiListItemIcon-root': { color: 'primary.contrastText' },
+                  },
+                }}
+              >
+                <ListItemIcon
                   sx={{
-                    borderRadius: 2,
-                    mb: 0.5,
-                    '&.Mui-selected': {
-                      backgroundColor: 'primary.main',
-                      color: 'primary.contrastText',
-                      '&:hover': {
-                        backgroundColor: 'primary.dark',
-                      },
-                      '& .MuiListItemIcon-root': {
-                        color: 'primary.contrastText',
-                      },
-                    },
+                    minWidth: 40,
+                    color: isActive(item.path) ? 'inherit' : 'text.secondary',
                   }}
                 >
-                  <ListItemIcon
-                    sx={{
-                      minWidth: 40,
-                      color: isActive(item.path) ? 'inherit' : 'text.secondary',
-                    }}
-                  >
-                    {item.icon}
-                  </ListItemIcon>
-                  <ListItemText 
-                    primary={item.text}
-                    primaryTypographyProps={{
-                      fontWeight: isActive(item.path) ? 600 : 400,
-                      fontSize: '0.875rem',
-                    }}
-                  />
-                </ListItemButton>
-              </ListItem>
-            ))}
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText
+                  primary={item.text}
+                  primaryTypographyProps={{
+                    fontWeight: isActive(item.path) ? 600 : 400,
+                    fontSize: '0.875rem',
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
+          ))}
         </List>
       </Box>
 

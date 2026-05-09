@@ -112,7 +112,7 @@ const Register = () => {
     try {
       const { confirmPassword, ...registrationData } = formData;
       await register(registrationData);
-      navigate('/dashboard');
+      navigate('/');
     } catch (err) {
       setError(err.message || 'Registration error');
     } finally {

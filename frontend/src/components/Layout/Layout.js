@@ -6,14 +6,9 @@ import {
   Drawer,
   AppBar,
   Toolbar,
-  List,
-  Typography,
-  Divider,
-  IconButton,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
-import { Menu as MenuIcon, ChevronLeft } from '@mui/icons-material';
 
 import Sidebar from './Sidebar';
 import Header from './Header';
