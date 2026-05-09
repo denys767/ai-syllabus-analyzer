@@ -2,20 +2,36 @@ import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, Card, CardContent, Button, Chip, Alert,
   Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress,
-  Grid
+  Grid, TextField, MenuItem, Stack, FormControlLabel, Checkbox
 } from '@mui/material';
 import {
-  CheckCircle, Warning, Description, Visibility, Download
+  CheckCircle, Warning, Description, Visibility, Download, UploadFile, Delete
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import api from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
+
+const emptyUploadForm = {
+  title: '',
+  type: 'ai-policy',
+  content: '',
+  isRequired: true,
+  file: null,
+};
 
 const PolicyReader = () => {
+  const { user } = useAuth();
   const [policies, setPolicies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedPolicy, setSelectedPolicy] = useState(null);
   const [acknowledging, setAcknowledging] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadForm, setUploadForm] = useState(emptyUploadForm);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     loadPolicies();
@@ -66,6 +82,62 @@ const PolicyReader = () => {
     }
   };
 
+  const resetUploadForm = () => {
+    setUploadForm(emptyUploadForm);
+    setUploadOpen(false);
+  };
+
+  const handleCreatePolicy = async () => {
+    const title = uploadForm.title.trim();
+    const content = uploadForm.content.trim();
+    if (!title) {
+      setError('Document title is required');
+      return;
+    }
+    if (!content && !uploadForm.file) {
+      setError('Add either document text or an attachment');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('type', uploadForm.type);
+    formData.append('contentType', 'markdown');
+    formData.append('isRequired', String(uploadForm.isRequired));
+    if (content) formData.append('content', content);
+    if (uploadForm.file) formData.append('file', uploadForm.file);
+
+    try {
+      setUploading(true);
+      setError('');
+      await api.policies.create(formData);
+      resetUploadForm();
+      await loadPolicies();
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Failed to upload document');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeletePolicy = async () => {
+    if (!deleteTarget?._id) return;
+    try {
+      setDeleting(true);
+      setError('');
+      await api.policies.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      if (selectedPolicy?._id === deleteTarget._id) {
+        setSelectedPolicy(null);
+      }
+      await loadPolicies();
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Failed to delete document');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const getTypeLabel = (type) => {
     switch (type) {
       case 'ai-policy': return 'AI Policy';
@@ -94,9 +166,16 @@ const PolicyReader = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
-        Documents for Review
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 4 }}>
+        <Typography variant="h4">
+          Documents for Review
+        </Typography>
+        {isAdmin && (
+          <Button variant="contained" startIcon={<UploadFile />} onClick={() => setUploadOpen(true)}>
+            Upload document
+          </Button>
+        )}
+      </Box>
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
@@ -126,7 +205,7 @@ const PolicyReader = () => {
                 </Box>
 
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  {policy.content.substring(0, 200)}...
+                  {(policy.content || '').substring(0, 200)}...
                 </Typography>
 
                 {policy.attachedFile && (
@@ -201,6 +280,19 @@ const PolicyReader = () => {
                     disabled={acknowledging}
                   >
                     {acknowledging ? 'Confirming...' : 'Confirm Acknowledgment'}
+                  </Button>
+                )}
+
+                {isAdmin && (
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    color="error"
+                    startIcon={<Delete />}
+                    onClick={() => setDeleteTarget(policy)}
+                    sx={{ mt: 1 }}
+                  >
+                    Delete
                   </Button>
                 )}
               </Box>
@@ -278,6 +370,16 @@ const PolicyReader = () => {
               </Box>
             </DialogContent>
             <DialogActions>
+              {isAdmin && (
+                <Button
+                  color="error"
+                  startIcon={<Delete />}
+                  onClick={() => setDeleteTarget(selectedPolicy)}
+                >
+                  Delete
+                </Button>
+              )}
+              <Box sx={{ flexGrow: 1 }} />
               <Button onClick={() => setSelectedPolicy(null)}>Close</Button>
               {!selectedPolicy.isAcknowledged && (
                 <Button
@@ -295,6 +397,91 @@ const PolicyReader = () => {
             </DialogActions>
           </>
         )}
+      </Dialog>
+
+      <Dialog open={uploadOpen} onClose={() => !uploading && resetUploadForm()} maxWidth="sm" fullWidth>
+        <DialogTitle>Upload document</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Title"
+              value={uploadForm.title}
+              onChange={(event) => setUploadForm((form) => ({ ...form, title: event.target.value }))}
+              disabled={uploading}
+              fullWidth
+              required
+            />
+            <TextField
+              select
+              label="Document type"
+              value={uploadForm.type}
+              onChange={(event) => setUploadForm((form) => ({ ...form, type: event.target.value }))}
+              disabled={uploading}
+              fullWidth
+            >
+              <MenuItem value="ai-policy">AI Policy</MenuItem>
+              <MenuItem value="academic-integrity">Academic Integrity</MenuItem>
+              <MenuItem value="teaching-tips">Teaching Tips</MenuItem>
+            </TextField>
+            <TextField
+              label="Summary or markdown text"
+              value={uploadForm.content}
+              onChange={(event) => setUploadForm((form) => ({ ...form, content: event.target.value }))}
+              disabled={uploading}
+              fullWidth
+              multiline
+              minRows={5}
+              helperText="Optional when attaching a file."
+            />
+            <Button variant="outlined" component="label" startIcon={<UploadFile />} disabled={uploading}>
+              {uploadForm.file ? uploadForm.file.name : 'Choose file'}
+              <input
+                hidden
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,.md"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  setUploadForm((form) => ({
+                    ...form,
+                    file,
+                    title: form.title || file?.name?.replace(/\.[^.]+$/, '') || '',
+                  }));
+                }}
+              />
+            </Button>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={uploadForm.isRequired}
+                  onChange={(event) => setUploadForm((form) => ({ ...form, isRequired: event.target.checked }))}
+                  disabled={uploading}
+                />
+              }
+              label="Require acknowledgment"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={resetUploadForm} disabled={uploading}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreatePolicy} disabled={uploading}>
+            {uploading ? 'Uploading...' : 'Upload'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onClose={() => !deleting && setDeleteTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete document?</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary">
+            This will permanently remove "{deleteTarget?.title}" and its attached file.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={handleDeletePolicy} disabled={deleting}>
+            {deleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

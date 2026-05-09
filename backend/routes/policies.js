@@ -7,6 +7,12 @@ const fs = require('fs').promises;
 
 const router = express.Router();
 
+function parseBoolean(value, defaultValue = true) {
+  if (value === undefined || value === null || value === '') return defaultValue;
+  if (typeof value === 'boolean') return value;
+  return String(value).toLowerCase() === 'true';
+}
+
 // Multer configuration for file uploads
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
@@ -99,7 +105,7 @@ router.post('/',
       if (req.file) await fs.unlink(req.file.path).catch(() => {});
       return res.status(400).json({ message: 'Назва обов\'язкова' });
     }
-    if (!req.body.content || !req.body.content.trim()) {
+    if ((!req.body.content || !req.body.content.trim()) && !req.file) {
       if (req.file) await fs.unlink(req.file.path).catch(() => {});
       return res.status(400).json({ message: 'Зміст обов\'язковий' });
     }
@@ -112,14 +118,15 @@ router.post('/',
       return res.status(400).json({ message: 'Невірний тип документа' });
     }
 
-    const { title, content, type, contentType = 'markdown', isRequired = true } = req.body;
+    const { title, type, contentType = 'markdown' } = req.body;
+    const content = req.body.content?.trim() || (req.file ? 'See attached file.' : '');
 
     const policyData = {
-      title,
+      title: title.trim(),
       content,
       contentType,
       type,
-      isRequired,
+      isRequired: parseBoolean(req.body.isRequired, true),
       createdBy: req.user.userId
     };
 
