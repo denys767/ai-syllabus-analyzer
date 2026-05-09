@@ -58,7 +58,7 @@ function buildSyllabusContextBlock() {
   return `**KSE SYLLABUS TEMPLATE (target structure for the revised sections):**
 ${SYLLABUS_TEMPLATE}
 
-**MBA-27 LEARNING OUTCOMES (reference these by exact ID when relevant — do NOT invent new ones):**
+**MBA-27 LEARNING OUTCOMES:**
 ${losText}`;
 }
 
