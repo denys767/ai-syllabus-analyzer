@@ -80,15 +80,14 @@ function buildFrontendUrl(pathWithQuery) {
 }
 
 // Єдиний лист-запрошення: користувач переходить за посиланням встановлення паролю.
-// Після встановлення паролю бекенд також автоматично верифікує email (isVerified=true).
-// Таким чином один токен = і підтвердження пошти, і первинне задання паролю.
+// Встановлення пароля за посиланням підтверджує володіння поштою.
 async function sendInvitationEmail(email, resetToken) {
   const setPasswordUrl = buildFrontendUrl(`/reset-password?token=${encodeURIComponent(resetToken)}`);
   const subject = 'Ваш обліковий запис створено — встановіть пароль та активуйте доступ';
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#333">
       <h2>Ласкаво просимо до KSE AI Syllabus Analyzer</h2>
-      <p>Адміністратор створив для вас обліковий запис. Щоб активувати його, встановіть власний пароль. Після цього ваш email буде автоматично підтверджено.</p>
+      <p>Адміністратор створив для вас обліковий запис. Щоб активувати його, встановіть власний пароль.</p>
       <p style="margin:24px 0">
         <a href="${setPasswordUrl}" style="background:#1976d2;color:#fff;padding:12px 18px;border-radius:6px;text-decoration:none;display:inline-block">Встановити пароль</a>
       </p>

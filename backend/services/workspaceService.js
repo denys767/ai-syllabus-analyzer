@@ -3,7 +3,7 @@ const path = require('path');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Syllabus = require('../models/Syllabus');
-const aiService = require('./aiService');
+const aiService = require('./ai');
 const { toLineDoc, sliceLines } = require('./ai/lineDoc');
 
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -96,9 +96,9 @@ function getFinalGateError(syllabus) {
   if (!pending.length && !blockers.length) return null;
 
   const parts = [];
-  if (pending.length) parts.push(`${pending.length} open issue${pending.length === 1 ? '' : 's'}`);
-  if (blockers.length) parts.push(`${blockers.length} declined critical/high blocker${blockers.length === 1 ? '' : 's'}`);
-  const err = new Error(`Syllabus is not ready for final preview or submission: ${parts.join(', ')}`);
+  if (pending.length) parts.push(`нерозглянутих рекомендацій: ${pending.length}`);
+  if (blockers.length) parts.push(`відхилених критичних/важливих блокерів: ${blockers.length}`);
+  const err = new Error(`Силабус ще не готовий до фінального перегляду чи відправки (${parts.join(', ')})`);
   err.statusCode = 409;
   err.pendingIssues = pending.map((r) => ({ id: r.id, title: r.title, priority: r.priority }));
   err.blockers = blockers.map((r) => ({ id: r.id, title: r.title, priority: r.priority }));
@@ -115,11 +115,11 @@ function buildEditBlocks(syllabus, issue) {
     if (edit.action === 'replace' || edit.action === 'delete') {
       before = sliceLines(doc, edit.fromLine, edit.toLine);
     } else if (edit.action === 'insertAfter') {
-      before = `Insertion after line ${edit.afterLine}`;
+      before = `Вставка після рядка ${edit.afterLine}`;
     } else if (edit.action === 'insertBefore') {
-      before = `Insertion before line ${edit.beforeLine}`;
+      before = `Вставка перед рядком ${edit.beforeLine}`;
     } else {
-      before = 'Append to end of syllabus';
+      before = 'Додати в кінець силабусу';
     }
     return {
       index: index + 1,
@@ -180,7 +180,7 @@ async function getOrCreateConversation(syllabusId, userId) {
   if (convo) return convo;
 
   const syllabus = await Syllabus.findById(syllabusId);
-  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  if (!syllabus) throw Object.assign(new Error('Силабус не знайдено'), { statusCode: 404 });
 
   convo = await Conversation.create({
     syllabusId,
@@ -195,8 +195,8 @@ async function getOrCreateConversation(syllabusId, userId) {
   const critical = recs.filter((r) => r.priority === 'critical' && r.decision === 'pending').length;
   const improvements = recs.filter((r) => r.priority !== 'critical' && r.decision === 'pending').length;
   const summary = recs.length === 0
-    ? `Hi! I've finished analysing "${syllabus.title}" and didn't find any blocking issues. You can preview the final syllabus or upload a new one anytime.`
-    : `Hi! I've finished analysing "${syllabus.title}". I found ${critical} critical issue${critical === 1 ? '' : 's'} and ${improvements} area${improvements === 1 ? '' : 's'} to improve. Let's walk through them one at a time.`;
+    ? `Вітаю! Я завершив аналіз силабусу «${syllabus.title}» і не знайшов суттєвих проблем. Ви можете переглянути фінальний силабус або завантажити новий у будь-який момент.`
+    : `Вітаю! Я завершив аналіз силабусу «${syllabus.title}». Знайдено критичних проблем: ${critical}, зон для покращення: ${improvements}. Пройдемо їх по одній.`;
 
   await Message.create({
     conversationId: convo._id,
@@ -210,7 +210,7 @@ async function getOrCreateConversation(syllabusId, userId) {
 
 async function nextIssueMessage(conversation) {
   const syllabus = await Syllabus.findById(conversation.syllabusId);
-  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  if (!syllabus) throw Object.assign(new Error('Силабус не знайдено'), { statusCode: 404 });
 
   const activeIssue = conversation.currentIssueId ? findIssue(syllabus, conversation.currentIssueId) : null;
   let issue = activeIssue?.decision === 'pending' ? activeIssue : nextPendingIssue(syllabus);
@@ -237,7 +237,7 @@ async function nextIssueMessage(conversation) {
           conversationId: conversation._id,
           role: 'ai',
           kind: 'submission-cta',
-          content: 'Syllabus ready for submission. All open review items are resolved or documented. The Academic Director will receive a summary report automatically.',
+          content: 'Силабус готовий до відправки. Усі рекомендації розглянуто або обґрунтовано. Академічний директор автоматично отримає підсумковий звіт.',
         });
       }
       return null;
@@ -263,7 +263,7 @@ async function nextIssueMessage(conversation) {
         conversation.status = 'error';
       }
       await conversation.save();
-      const e = new Error('AI generation failed; please retry');
+      const e = new Error('Не вдалося згенерувати рекомендацію. Спробуйте ще раз.');
       e.statusCode = 503;
       e.retryable = true;
       throw e;
@@ -293,28 +293,28 @@ async function nextIssueMessage(conversation) {
 async function applyDecision(conversation, issueId, decision, selection = null, reason = null) {
   const syllabus = await Syllabus.findById(conversation.syllabusId);
   if (!syllabus) {
-    const e = new Error('Syllabus not found');
+    const e = new Error('Силабус не знайдено');
     e.statusCode = 404;
     throw e;
   }
 
   const issue = findIssue(syllabus, issueId);
   if (!issue || issue.decision !== 'pending') {
-    const e = new Error('Issue not pending or not found');
+    const e = new Error('Рекомендацію не знайдено або її вже розглянуто');
     e.statusCode = 409;
     throw e;
   }
 
   const normalizedReason = String(reason || '').trim();
   if (decision === 'rejected' && needsCancellationReason(issue) && !normalizedReason) {
-    const e = new Error('A cancellation reason is required for critical and high-priority issues.');
+    const e = new Error('Для критичних і важливих рекомендацій потрібно вказати причину скасування.');
     e.statusCode = 400;
     throw e;
   }
 
   if (decision === 'accepted') {
     if (!issue.beforeAfter || !issue.beforeAfter.payload) {
-      const e = new Error('Issue does not have a Before/After preview to apply');
+      const e = new Error('Для цієї рекомендації немає попереднього перегляду змін');
       e.statusCode = 409;
       throw e;
     }
@@ -322,8 +322,8 @@ async function applyDecision(conversation, issueId, decision, selection = null, 
     if (!validation.ok) {
       const isStale = validation.code === 'STALE_DOC_VERSION';
       const e = new Error(isStale
-        ? 'The recommendation no longer applies to the current syllabus text; please re-analyze.'
-        : `Recommendation edits are invalid: ${validation.reason || 'unknown validation error'}`);
+        ? 'Рекомендація більше не відповідає поточному тексту силабусу. Запустіть повторний аналіз.'
+        : `Правки рекомендації некоректні: ${validation.reason || 'невідома помилка валідації'}`);
       e.statusCode = 409;
       if (isStale) {
         e.code = 'STALE_DOC_VERSION';
@@ -367,7 +367,7 @@ async function confirmIssue(conversation, issueId, selection = null) {
     conversationId: conversation._id,
     role: 'user',
     kind: 'text',
-    content: 'Confirmed.',
+    content: 'Підтверджено.',
     relatedIssueId: issueId,
   });
   await nextIssueMessage(conversation);
@@ -381,7 +381,7 @@ async function cancelIssue(conversation, issueId, reason = null) {
     conversationId: conversation._id,
     role: 'user',
     kind: 'text',
-    content: normalizedReason ? `Cancelled.\n\nReason: ${normalizedReason}` : 'Cancelled.',
+    content: normalizedReason ? `Скасовано.\n\nПричина: ${normalizedReason}` : 'Скасовано.',
     relatedIssueId: issueId,
   });
   await nextIssueMessage(conversation);
@@ -401,7 +401,7 @@ async function findReopenAnchor(conversation, issueId, anchorMessageId = null) {
     : await Message.findOne(query).sort({ createdAt: -1, _id: -1 });
 
   if (!anchor) {
-    const e = new Error('Could not find the issue card to reopen.');
+    const e = new Error('Не вдалося знайти картку рекомендації для повторного відкриття.');
     e.statusCode = 409;
     throw e;
   }
@@ -427,14 +427,14 @@ function resetIssueForReopen(issue, context = {}) {
 
 async function reopenIssue(conversation, issueId, anchorMessageId = null) {
   const syllabus = await Syllabus.findById(conversation.syllabusId);
-  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  if (!syllabus) throw Object.assign(new Error('Силабус не знайдено'), { statusCode: 404 });
   if (syllabus.status === 'submitted' || conversation.status === 'submitted') {
-    throw Object.assign(new Error('Submitted syllabi cannot be reopened.'), { statusCode: 409 });
+    throw Object.assign(new Error('Відправлені силабуси не можна відкрити повторно.'), { statusCode: 409 });
   }
 
   const issue = findIssue(syllabus, issueId);
   if (!issue || !['accepted', 'rejected'].includes(issue.decision)) {
-    const e = new Error('Only resolved issues can be reopened.');
+    const e = new Error('Повторно відкрити можна лише розглянуті рекомендації.');
     e.statusCode = 409;
     throw e;
   }
@@ -472,7 +472,7 @@ async function reopenIssue(conversation, issueId, anchorMessageId = null) {
     const issueToReset = findIssue(syllabus, resetIssueId);
     if (!issueToReset || !['accepted', 'rejected'].includes(issueToReset.decision)) continue;
     resetIssueForReopen(issueToReset, {
-      reason: resetIssueId === issue.id ? null : `Rolled back by reopening ${issue.id}`,
+      reason: resetIssueId === issue.id ? null : `Скасовано через повторне відкриття ${issue.id}`,
     });
   }
 
@@ -492,7 +492,7 @@ async function reopenIssue(conversation, issueId, anchorMessageId = null) {
 
 async function freeChatMessage(conversation, userText) {
   const syllabus = await Syllabus.findById(conversation.syllabusId).populate('instructor', 'firstName lastName');
-  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  if (!syllabus) throw Object.assign(new Error('Силабус не знайдено'), { statusCode: 404 });
 
   await Message.create({
     conversationId: conversation._id,
@@ -515,7 +515,7 @@ async function freeChatMessage(conversation, userText) {
       conversation.status = 'error';
     }
     await conversation.save();
-    const e = new Error('AI reply failed; please retry');
+    const e = new Error('Не вдалося отримати відповідь AI. Спробуйте ще раз.');
     e.statusCode = 503;
     e.retryable = true;
     throw e;
@@ -530,33 +530,20 @@ async function freeChatMessage(conversation, userText) {
   return aiMessage;
 }
 
-async function previewIssueChange(syllabusId, issueId, selection = null) {
-  const syllabus = await Syllabus.findById(syllabusId)
-    .populate('programId', 'name')
-    .populate('instructor', 'firstName lastName');
-  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
-  const issue = (syllabus.recommendations || []).find((r) => r.id === issueId);
-  if (!issue) throw Object.assign(new Error('Issue not found'), { statusCode: 404 });
-  if (!issue.beforeAfter || !issue.beforeAfter.payload) {
-    throw Object.assign(new Error('Issue has no preview to render'), { statusCode: 409 });
-  }
-  return aiService.renderIssuePreviewPdf(syllabus, issueId, selection);
-}
-
 async function previewIssueChangeText(syllabusId, issueId, selection = null) {
   const syllabus = await Syllabus.findById(syllabusId)
     .populate('programId', 'name')
     .populate('instructor', 'firstName lastName');
-  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  if (!syllabus) throw Object.assign(new Error('Силабус не знайдено'), { statusCode: 404 });
   const issue = (syllabus.recommendations || []).find((r) => r.id === issueId);
-  if (!issue) throw Object.assign(new Error('Issue not found'), { statusCode: 404 });
+  if (!issue) throw Object.assign(new Error('Рекомендацію не знайдено'), { statusCode: 404 });
   if (!issue.beforeAfter || !issue.beforeAfter.payload) {
-    throw Object.assign(new Error('Issue has no preview to render'), { statusCode: 409 });
+    throw Object.assign(new Error('Для цієї рекомендації немає попереднього перегляду'), { statusCode: 409 });
   }
   const preview = aiService.buildIssuePreview(syllabus, issueId, selection);
   return {
     issueId,
-    title: issue.title || 'Preview',
+    title: issue.title || 'Попередній перегляд',
     kind: issue.beforeAfter.kind || 'before-after',
     originalText: preview.originalText,
     previewText: preview.previewText,
@@ -567,7 +554,7 @@ async function previewIssueChangeText(syllabusId, issueId, selection = null) {
 
 async function previewFinalPdf(syllabusId) {
   const syllabus = await Syllabus.findById(syllabusId).populate('programId', 'name').lean();
-  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
+  if (!syllabus) throw Object.assign(new Error('Силабус не знайдено'), { statusCode: 404 });
   assertReadyForFinal(syllabus);
 
   const conversation = await Conversation.findOne({ syllabusId });
@@ -594,15 +581,30 @@ async function previewFinalPdf(syllabusId) {
 }
 
 async function submitSyllabus(syllabusId) {
-  const syllabus = await Syllabus.findById(syllabusId)
+  // Атомарне захоплення: паралельний submit отримає 409, а не відправить лист двічі
+  const syllabus = await Syllabus.findOneAndUpdate(
+    { _id: syllabusId, status: { $ne: 'submitted' }, submitting: { $ne: true } },
+    { $set: { submitting: true } },
+    { new: true }
+  )
     .populate('programId', 'name academicDirectorEmail')
     .populate('instructor', 'firstName lastName email');
-  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
-  if (syllabus.status === 'submitted') {
-    throw Object.assign(new Error('Already submitted'), { statusCode: 409 });
+  if (!syllabus) {
+    const exists = await Syllabus.exists({ _id: syllabusId });
+    if (!exists) throw Object.assign(new Error('Силабус не знайдено'), { statusCode: 404 });
+    throw Object.assign(new Error('Силабус уже відправлено або відправка триває'), { statusCode: 409 });
   }
-  assertReadyForFinal(syllabus);
 
+  try {
+    assertReadyForFinal(syllabus);
+    return await finalizeSubmission(syllabus, syllabusId);
+  } catch (err) {
+    await Syllabus.updateOne({ _id: syllabusId }, { $set: { submitting: false } }).catch(() => {});
+    throw err;
+  }
+}
+
+async function finalizeSubmission(syllabus, syllabusId) {
   // Render final PDF (always fresh on submit — ignore preview cache).
   const outDir = path.join(__dirname, '../uploads/pdfs');
   fs.mkdirSync(outDir, { recursive: true });
@@ -637,6 +639,7 @@ async function submitSyllabus(syllabusId) {
 
   await Syllabus.findByIdAndUpdate(syllabusId, {
     status: 'submitted',
+    submitting: false,
     submittedAt: new Date(),
     submittedPdfPath: pdfPath,
     submissionEmailStatus: emailStatus,
@@ -650,10 +653,10 @@ async function submitSyllabus(syllabusId) {
 
   if (conversation) {
     const adEmail = syllabus.programId?.academicDirectorEmail;
-    const courseName = syllabus.course?.name || 'your syllabus';
+    const courseName = syllabus.course?.name || 'ваш силабус';
     const confirmationText = emailStatus === 'sent' && adEmail
-      ? `Your syllabus for **${courseName}** has been submitted. A confirmation email with the final PDF was sent to the Academic Director (${adEmail}).`
-      : `Your syllabus for **${courseName}** has been submitted. The email to the Academic Director could not be delivered — please contact the program office directly.`;
+      ? `Силабус **${courseName}** відправлено. Лист із фінальним PDF надіслано академічному директору (${adEmail}).`
+      : `Силабус **${courseName}** відправлено. Лист академічному директору не вдалося доставити — зверніться, будь ласка, до офісу програми.`;
 
     await Message.create({
       conversationId: conversation._id,
@@ -667,10 +670,12 @@ async function submitSyllabus(syllabusId) {
 async function getConversationView(syllabusId, { limit = 200 } = {}) {
   const conversation = await Conversation.findOne({ syllabusId });
   if (!conversation) return null;
-  const messages = await Message.find({ conversationId: conversation._id })
-    .sort({ createdAt: 1 })
+  // Беремо ОСТАННІ `limit` повідомлень і повертаємо їх за зростанням часу
+  const latest = await Message.find({ conversationId: conversation._id })
+    .sort({ createdAt: -1, _id: -1 })
     .limit(limit)
     .lean();
+  const messages = latest.reverse();
   return { conversation: conversation.toObject(), messages };
 }
 
@@ -682,7 +687,6 @@ module.exports = {
   reopenIssue,
   freeChatMessage,
   previewFinalPdf,
-  previewIssueChange,
   previewIssueChangeText,
   submitSyllabus,
   getConversationView,

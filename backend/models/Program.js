@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const validator = require('validator');
 
 const DEFAULT_PROGRAMS = [
   { code: 'MBA', name: 'MBA' },
@@ -14,7 +15,7 @@ const programSchema = new mongoose.Schema({
     type: String,
     trim: true,
     lowercase: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Invalid email'],
+    validate: [(v) => !v || validator.isEmail(v), 'Вкажіть коректний email'],
   },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });

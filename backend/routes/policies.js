@@ -1,11 +1,19 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Policy = require('../models/Policy');
-const { auth, authorize } = require('../middleware/auth');
+const { auth, requireRole } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
 
 const router = express.Router();
+
+router.param('id', (req, res, next, id) => {
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ message: 'Некоректний id документа' });
+  }
+  next();
+});
 
 function parseBoolean(value, defaultValue = true) {
   if (value === undefined || value === null || value === '') return defaultValue;
@@ -35,7 +43,7 @@ const upload = multer({
     if (allowedTypes.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Непідтримуваний тип файлу. Дозволено: PDF, DOC, DOCX, TXT, MD'));
+      cb(Object.assign(new Error('Непідтримуваний тип файлу. Дозволено: PDF, DOC, DOCX, TXT, MD'), { statusCode: 400 }));
     }
   }
 });
@@ -63,7 +71,7 @@ router.get('/', auth, async (req, res) => {
     res.json({ policies: policiesWithStatus });
   } catch (error) {
     console.error('Get policies error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 
@@ -85,20 +93,16 @@ router.get('/:id', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Get policy error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 
 // Create new policy (admin only)
 router.post('/', 
   auth, 
-  authorize('admin'), 
+  requireRole('admin'), 
   upload.single('file'),
   async (req, res) => {
-  console.log('POST /policies - Creating policy');
-  console.log('User:', req.user);
-  console.log('Body:', req.body);
-  console.log('File:', req.file);
   try {
     // Manual validation since we can't use express-validator array with multer
     if (!req.body.title || !req.body.title.trim()) {
@@ -119,7 +123,7 @@ router.post('/',
     }
 
     const { title, type, contentType = 'markdown' } = req.body;
-    const content = req.body.content?.trim() || (req.file ? 'See attached file.' : '');
+    const content = req.body.content?.trim() || (req.file ? 'Див. прикріплений файл.' : '');
 
     const policyData = {
       title: title.trim(),
@@ -154,14 +158,14 @@ router.post('/',
       await fs.unlink(req.file.path).catch(() => {});
     }
     console.error('Create policy error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 
 // Update policy (admin only)
 router.put('/:id', 
   auth, 
-  authorize('admin'), 
+  requireRole('admin'), 
   upload.single('file'),
   async (req, res) => {
   try {
@@ -194,6 +198,9 @@ router.put('/:id',
 
     const { title, content, contentType, type, isRequired, isActive } = req.body;
 
+    // Версію піднімаємо, порівнюючи з поточним значенням ДО присвоєння
+    let contentChanged = content !== undefined && content !== policy.content;
+
     if (title !== undefined) policy.title = title;
     if (content !== undefined) policy.content = content;
     if (contentType !== undefined) policy.contentType = contentType;
@@ -215,10 +222,11 @@ router.put('/:id',
         size: req.file.size,
         path: req.file.path
       };
+      contentChanged = true;
     }
 
-    // Increment version if content changed
-    if (content !== undefined && content !== policy.content) {
+    // Нова версія вимагає повторного ознайомлення
+    if (contentChanged) {
       policy.version += 1;
     }
 
@@ -233,12 +241,12 @@ router.put('/:id',
       await fs.unlink(req.file.path).catch(() => {});
     }
     console.error('Update policy error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 
 // Delete policy (admin only)
-router.delete('/:id', auth, authorize('admin'), async (req, res) => {
+router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
   try {
     const policy = await Policy.findById(req.params.id);
 
@@ -256,7 +264,7 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
     res.json({ message: 'Документ видалено успішно' });
   } catch (error) {
     console.error('Delete policy error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 
@@ -269,16 +277,21 @@ router.post('/:id/acknowledge', auth, async (req, res) => {
       return res.status(404).json({ message: 'Документ не знайдено' });
     }
 
-    // Check if already acknowledged
+    // Підтвердження чинне лише для поточної версії документа
     if (policy.isAcknowledgedBy(req.user.userId)) {
       return res.status(400).json({ message: 'Документ вже підтверджено' });
     }
 
-    // Add acknowledgment
-    policy.acknowledgments.push({
-      user: req.user.userId,
-      version: policy.version
-    });
+    const existing = policy.acknowledgments.find((ack) => ack.user.toString() === req.user.userId);
+    if (existing) {
+      existing.version = policy.version;
+      existing.acknowledgedAt = new Date();
+    } else {
+      policy.acknowledgments.push({
+        user: req.user.userId,
+        version: policy.version
+      });
+    }
 
     await policy.save();
 
@@ -288,7 +301,7 @@ router.post('/:id/acknowledge', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Acknowledge policy error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 
@@ -315,7 +328,7 @@ router.get('/:id/status', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Get acknowledgment status error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 
@@ -342,7 +355,7 @@ router.get('/:id/download', auth, async (req, res) => {
     res.download(policy.attachedFile.path, policy.attachedFile.originalName);
   } catch (error) {
     console.error('Download file error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ message: 'Внутрішня помилка сервера' });
   }
 });
 

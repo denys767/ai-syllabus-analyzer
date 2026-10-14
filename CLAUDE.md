@@ -10,21 +10,23 @@ AI-аналізатор силабусів MBA для Kyiv School of Economics. 
 
 - **Backend:** Node.js, Express 4, MongoDB/Mongoose, OpenAI Responses API, Nodemailer, Mammoth, pdf-parse, Puppeteer, JWT.
 - **Frontend:** React 18 (CRA, `react-scripts`), React Router 6, MUI 5, Axios, react-markdown + remark-gfm. Proxy на `http://localhost:5000`.
-- **Тестів немає.** Перевірки: `node -c <file>` для змінених файлів backend і `npm run build` у `frontend/`.
+- **Тести (backend):** Jest + supertest + mongodb-memory-server (системний `/usr/bin/mongod`, `MONGOMS_SYSTEM_BINARY`), каталог `backend/test/`, запуск `cd backend && npm test`. Frontend тестів немає.
+- **Перевірки:** `npm test` і `node -c <file>` для змінених файлів backend, `npm run build` у `frontend/`.
 
 ## 3. Структура
 
 ```
 backend/
-  server.js               Express: middleware, rate limits, таймаути, DB-guard, маршрути, bootstrap admin + seed програм
-  middleware/auth.js      auth (JWT + перевірка існування/isActive), authorize(...roles), requireVerification
-  middleware/roles.js     admin
-  routes/                 auth, syllabus, chat, cabinet, users, policies, googleForms (НЕ підключений у server.js)
-  models/                 User, Syllabus (вбудовані recommendations), Conversation, Message, Program, Policy, Survey, StudentCluster, PracticalIdea
+  server.js               Express (експортує `app`, слухає порт лише при `node server.js`): fail-fast env, middleware, rate limits, таймаути, DB-guard, error handler, bootstrap admin + seed програм, фонові sweepers
+  middleware/auth.js      `auth` (JWT + роль і isActive з БД), `requireRole('admin')`
+  utils/tokens.js         SHA-256 хеші токенів reset/invite/email-change
+  routes/                 auth (login, forgot/reset, profile), syllabus, chat, cabinet, users (self-service), policies
+  models/                 User, Syllabus (вбудовані recommendations), Conversation, Message, Program, Policy
   services/workspaceService.js  логіка чату: nextIssue, confirm/cancel/reopen, gate фіналу, preview, submit
   services/emailService.js      Nodemailer (Gmail або SMTP)
-  services/aiService.js         shim → ./ai
-  services/pdfService.js        порожній, не використовується
+  services/analysisRunner.js    фоновий запуск аналізу (помилка → status=error + analysisError)
+  services/syllabusCleanup.js   каскадне видалення, sweepers (завислі аналізи, uploads/pdfs старші 7 днів)
+  services/userService.js       isLastActiveAdmin
   services/ai/
     orchestrator.js     analyzeSyllabus: аналіз → рекомендації → edits → статус in_progress
     analyzer.js         LLM (JSON) → structure + recommendations
@@ -36,7 +38,7 @@ backend/
     chatReply.js        вільний чат з контекстом поточної картки
     client.js           обгортка OpenAI: createResponse, safeParseJSON, clipText
     constants.js        шаблон KSE, 9 MBA-27 outcomes, мітки категорій
-  scripts / ../scripts/migrate-v2.js  одноразова міграція даних (idempotent, --dry-run)
+  ../scripts/migrate-v2.js, migrate-v3-cleanup.js  одноразові міграції даних (idempotent, --dry-run)
 frontend/src/
   App.js                маршрути і захист за ролями
   services/api.js       Axios: Bearer з localStorage.token, 401 → auth_logout, 429 retry
@@ -64,15 +66,17 @@ instructions.txt        ТЗ українською (розділи 2.1–4)
 - **Syllabus:** `recommendations[]` з `decision` (`pending`/`accepted`/`rejected`/`skipped`), `decidedVia`, `decisionReason`, `decisionHistory[]`, `beforeAfter` (`kind`: `before-after`/`choice`/`case-cards`, `payload` з `docVersion`, `options`/`cards`, `appliedSelection`). Статуси: `analyzing`/`in_progress`/`submitted`/`error`. `submissionEmailStatus`: `pending`/`sent`/`failed`.
 - **Conversation:** `currentIssueId`, `status` (`active`/`submitted`/`abandoned`/`error`), `readiness`, `consecutiveAiFailures` (після 3 збоїв → `status=error`).
 - **Message:** `kind` ∈ `text`, `before-after`, `choice`, `case-cards`, `submission-cta`; `relatedIssueId`.
-- **User.role:** `instructor`, `admin`. Роль `manager` видалена (див. розділ 9).
+- **User.role:** `instructor`, `admin`. Роль `manager` видалена (див. розділ 9). Верифікації email немає: єдине джерело акаунтів — інвайт адміна (`POST /cabinet/users`), токени reset/invite/email-change зберігаються як SHA-256.
 - **Program:** `code` (unique, uppercase), `academicDirectorEmail`. Seed: MBA, EMBA, CORPORATE, INTENSIVE.
 
 ## 5. Бізнес-правила (з коду, не з ТЗ)
 
 **Доступ**
 - Чат: читання для власника або admin; **мутації тільки для власника** (`gateMutate`). Admin має read-only доступ до чату.
-- Силабус `analyze`/`download`/`delete`: власник або admin (`isOwnerOrAdmin`).
-- Cabinet (програми, користувачі, `resend-submission`, cleanup uploads): admin. Instructor бачить тільки свої силабуси.
+- Силабус `download`/`delete`/`GET /:id`/`/status`: власник або admin. `analyze` і `PUT /:id`: тільки власник. `analyze` → 409 для `analyzing`/`submitted`; re-analyze видаляє Conversation+Messages і скидає `editedText`/`revisionMarkup`/`previewPdf`.
+- Cabinet (програми, користувачі, `resend-submission`, cleanup uploads): admin. `PATCH /cabinet/users/:id` (`isActive`, `role`); 409, якщо зміна (або `DELETE /users/account`) лишає систему без активного адміна. Видалення програми з силабусами → 409. Instructor (будь-яка роль ≠ admin) бачить тільки свої силабуси. `/cabinet/syllabi` віддає проєкцію (без текстів), `limit` ≤ 100.
+- Роль береться з БД на кожен запит (не з JWT).
+- Rate limits: суворий per-IP на `/api/auth/login|forgot-password|reset-password` (`LOGIN_RATE_LIMIT_*`), загальний per-IP на сайт і на `/api`.
 - Policies: створення/зміна/видалення — admin; `acknowledge` — будь-який авторизований.
 - Ролі в системі: тільки `instructor` і `admin`. Дефолтний маршрут: admin → `/cabinet`, інші → `/workspace`.
 - Створення користувачів: ролі `instructor` або `admin` (`routes/auth.js` `create-user`).
@@ -90,7 +94,8 @@ instructions.txt        ТЗ українською (розділи 2.1–4)
 - Email не налаштований або не відправився → `submissionEmailStatus=failed`, у чаті повідомлення про необхідність звернутися до офісу програми.
 
 **Файли**
-- Ліміт upload 10 MB (повідомлення в `routes/syllabus.js`). Типи: PDF/DOC/DOCX (фільтр не перевірявся детально).
+- Ліміт upload 10 MB (`MAX_FILE_SIZE`, 413). Формат — за розширенням І magic bytes (PDF `%PDF`, DOCX `PK`). `.doc` → 415 (конвертація — окрема фаза).
+- Фонові задачі на старті: завислі `analyzing` (> 3×`AI_REQUEST_TIMEOUT_MS`) → `error`; `uploads/pdfs` старші 7 днів без посилань видаляються щодоби. `cleanup-uploads` не чіпає файли молодші 10 хв.
 
 ## 6. Правила змін у коді
 
@@ -105,23 +110,20 @@ instructions.txt        ТЗ українською (розділи 2.1–4)
 - **Секрети:** не комітити `.env`, ключі, SMTP-паролі. Шаблон — `backend/example.env`.
 - **`frontend/build/`:** не змінювати і не комітити хеш-шум без потреби. Збірка потрібна лише для перевірки.
 - **Мова UI:** користувацькі тексти в бекенді і фронтенді — українською (як у поточних повідомленнях помилок і чату).
-- **Перевірки перед закриттям задачі:** `node -c` для змінених backend-файлів; `cd frontend && npm run build`.
+- **Перевірки перед закриттям задачі:** `cd backend && npm test`; `node -c` для змінених backend-файлів; `cd frontend && npm run build`.
 
 ## 7. Конфігурація (ключові env)
 
-- Backend: `MONGODB_URI`, `JWT_SECRET`, `OPENAI_API_KEY`, `LLM_MODEL` (default `gpt-5.4-mini`), `LLM_REASONING_EFFORT` (default `medium`), `LLM_MAX_OUTPUT_TOKENS`, `FRONTEND_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `REQUEST_TIMEOUT_MS` (20000), `AI_REQUEST_TIMEOUT_MS` (130000), `RATE_LIMIT_*`, `AUTH_RATE_LIMIT_*`, `CHAT_MESSAGE_RATE_LIMIT` (30), `GMAIL_USER`/`GMAIL_PASS` або `SMTP_*`, `PUPPETEER_EXECUTABLE_PATH`, `GF_WEBHOOK_SECRET`.
+- Backend (без `MONGODB_URI`, `JWT_SECRET`, `OPENAI_API_KEY` сервер не стартує): `MONGODB_URI`, `JWT_SECRET`, `OPENAI_API_KEY`, `LLM_MODEL` (default `gpt-5.4-mini`), `LLM_REASONING_EFFORT` (default `medium`), `LLM_MAX_OUTPUT_TOKENS`, `FRONTEND_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `REQUEST_TIMEOUT_MS` (20000), `AI_REQUEST_TIMEOUT_MS` (130000), `RATE_LIMIT_*`, `AUTH_RATE_LIMIT_*`, `LOGIN_RATE_LIMIT_*`, `CHAT_MESSAGE_RATE_LIMIT` (30), `GMAIL_USER`/`GMAIL_PASS` або `SMTP_*`, `PUPPETEER_EXECUTABLE_PATH`.
 - Frontend: `REACT_APP_API_URL` (default `http://localhost:5000/api`).
 
 Запуск: `cd backend && npm run dev` (порт 5000), `cd frontend && npm start` (порт 3000). Порти звільняє `npm run stop-ports` з кореня.
 
 ## 8. Відомі прогалини
 
-- Аналіз кластерів студентів, опитування (`Survey`, `StudentCluster`), `PracticalIdea` і AI-челенджер (ТЗ 2.1, 2.3) у пайплайні **не реалізовані**. Категорії `student-clusters` і `plagiarism` є в enum, але аналізатор їх не генерує. Перевірка подібності вимкнена (`skipped: true`).
-- `routes/googleForms.js` не підключений у `server.js`.
-- `services/pdfService.js` порожній, `services/aiService.js` — лише shim.
-- Більшість залежностей у `package.json` із `"latest"`. Збірка не відтворювана.
-- Немає автоматичних тестів для `applyEdits`/`workspaceService` (стан, reopen, gate).
-- Не перевірено права доступу в `GET /api/syllabus/:id/status` і `/:id/download` на предмет перевірки власника. Перевірити перед змінами.
+- Аналіз кластерів студентів, опитування (моделі видалені) і AI-челенджер (ТЗ 2.1, 2.3) у пайплайні **не реалізовані**. Категорії `student-clusters` і `plagiarism` є в enum, але аналізатор їх не генерує. Перевірка подібності вимкнена (`skipped: true`).
+- Немає автоматичних тестів для `applyEdits` і reopen/gate-логіки `workspaceService` (є тести auth, upload, analyze guard, submit, getConversationView).
+- Права доступу в `GET /api/syllabus/:id/status` і `/:id/download` перевіряються (власник або admin) — прогалину закрито.
 
 ## 9. Рішення щодо ролей
 

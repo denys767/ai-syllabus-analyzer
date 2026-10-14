@@ -3,102 +3,44 @@ const User = require('../models/User');
 
 const auth = async (req, res, next) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const header = req.header('Authorization') || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
 
     if (!token) {
-      console.log('Auth middleware: No token provided');
-      return res.status(401).json({
-        message: 'Access denied. No token provided.'
-      });
+      return res.status(401).json({ message: 'Доступ заборонено. Токен не надано.' });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // Verify user still exists and is active
-    const user = await User.findById(decoded.userId);
+
+    // Роль і активність беремо з БД, а не з JWT: зміни діють одразу
+    const user = await User.findById(decoded.userId).select('email role isActive');
     if (!user || !user.isActive) {
-      console.log('Auth middleware: User not found or inactive', decoded.userId);
-      return res.status(401).json({
-        message: 'Access denied. User not found or inactive.'
-      });
+      return res.status(401).json({ message: 'Доступ заборонено. Користувача не знайдено або деактивовано.' });
     }
 
-    req.user = decoded;
+    req.user = { userId: String(user._id), email: user.email, role: user.role };
     next();
   } catch (error) {
-    console.log('Auth middleware error:', error.message);
     if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        message: 'Access denied. Invalid token.'
-      });
-    } else if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        message: 'Access denied. Token expired.'
-      });
+      return res.status(401).json({ message: 'Доступ заборонено. Недійсний токен.' });
     }
-    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Доступ заборонено. Термін дії токена минув.' });
+    }
     console.error('Auth middleware error:', error);
-    res.status(500).json({
-      message: 'Internal server error during authentication'
-    });
+    res.status(500).json({ message: 'Внутрішня помилка сервера під час автентифікації' });
   }
 };
 
-// Role-based access control middleware
-const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      console.log('Authorize: No user in request');
-      return res.status(401).json({
-        message: 'Access denied. Authentication required.'
-      });
-    }
-
-    console.log('Authorize check:', {
-      userRole: req.user.role,
-      requiredRoles: roles,
-      userId: req.user.userId,
-      fullUser: req.user
-    });
-
-    if (!roles.includes(req.user.role)) {
-      console.log(`Access denied. Insufficient permissions. (Ваша роль: ${req.user.role}, потрібна: ${roles.join(', ')})`);
-      return res.status(403).json({
-        message: `Access denied. Insufficient permissions. (Ваша роль: ${req.user.role}, потрібна: ${roles.join(', ')})`
-      });
-    }
-
-    console.log('Authorization successful');
-    next();
-  };
-};
-
-// Check if user is verified
-const requireVerification = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.userId);
-    
-    if (!user.isVerified) {
-      return res.status(403).json({
-        message: 'Email verification required. Please verify your email before proceeding.'
-      });
-    }
-
-    next();
-  } catch (error) {
-    console.error('Verification check error:', error);
-    res.status(500).json({
-      message: 'Internal server error during verification check'
-    });
+// Єдиний middleware перевірки ролі: requireRole('admin')
+const requireRole = (...roles) => (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Доступ заборонено. Потрібна автентифікація.' });
   }
+  if (!roles.includes(req.user.role)) {
+    return res.status(403).json({ message: 'Доступ заборонено. Недостатньо прав.' });
+  }
+  next();
 };
 
-// Use centralized role middleware to avoid duplication
-const { admin } = require('./roles');
-
-module.exports = {
-  auth,
-  authorize,
-  requireVerification,
-  admin
-};
+module.exports = { auth, requireRole };

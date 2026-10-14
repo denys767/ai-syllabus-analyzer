@@ -33,22 +33,6 @@ const syllabusSchema = new mongoose.Schema({
       default: Date.now
     }
   },
-  modifiedFile: {
-    filename: String,
-    originalName: String,
-    mimetype: { type: String, default: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-    size: Number,
-    path: String,
-    generatedAt: Date
-  },
-  editedPdf: {
-    filename: String,
-    originalName: String,
-    mimetype: { type: String, default: 'application/pdf' },
-    size: Number,
-    path: String,
-    generatedAt: Date
-  },
   // Cached preview of the clean final syllabus PDF; invalidated when conversation has new decisions after generatedAt
   previewPdf: {
     path: String,
@@ -84,27 +68,11 @@ const syllabusSchema = new mongoose.Schema({
   },
   analysis: {
     templateCompliance: {
-      missingElements: [String],
-      recommendations: [String]
+      missingElements: [String]
     },
     learningObjectivesAlignment: {
       alignedObjectives: [String],
-      missingObjectives: [String],
-      recommendations: [String]
-    },
-    studentClusterAnalysis: {
-      dominantClusters: [{
-        cluster: String,
-        percentage: Number,
-        recommendations: [String]
-      }],
-      suggestedCases: [{
-        company: String,
-        cluster: String,
-        description: String,
-        relevance: Number
-      }],
-      adaptationRecommendations: [String]
+      missingObjectives: [String]
     },
     plagiarismCheck: {
       similarSyllabi: [{
@@ -154,7 +122,7 @@ const syllabusSchema = new mongoose.Schema({
     },
     decidedVia: {
       type: String,
-      enum: ['chat', 'admin-override'],
+      enum: ['chat'],
       default: null
     },
     decisionReason: String,
@@ -191,32 +159,32 @@ const syllabusSchema = new mongoose.Schema({
     },
     respondedAt: Date
   }],
-  vectorEmbedding: [Number],
   editingStatus: {
     type: String,
     enum: ['idle', 'processing', 'ready', 'error'],
     default: 'idle'
-  },
-  editingError: {
-    type: String
   },
   status: {
     type: String,
     enum: ['analyzing', 'in_progress', 'submitted', 'error'],
     default: 'analyzing'
   },
-  version: {
-    type: Number,
-    default: 1
+  // Коли розпочато поточний аналіз (для відновлення завислих) і текст останньої помилки
+  analysisStartedAt: Date,
+  analysisError: String,
+  // Прапорець атомарного захоплення під час submit (захист від подвійної відправки)
+  submitting: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
 });
 
 syllabusSchema.index({ instructor: 1, createdAt: -1 });
-syllabusSchema.index({ 'course.code': 1, 'course.year': 1 });
 syllabusSchema.index({ status: 1 });
 syllabusSchema.index({ programId: 1, status: 1 });
+syllabusSchema.index({ programId: 1, updatedAt: -1 });
 
 syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
   const fs = fsPromises || require('fs').promises;
@@ -226,8 +194,6 @@ syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
   };
   try {
     await tryUnlink(this.originalFile?.path);
-    await tryUnlink(this.editedPdf?.path);
-    await tryUnlink(this.modifiedFile?.path);
     await tryUnlink(this.previewPdf?.path);
     await tryUnlink(this.submittedPdfPath);
   } catch (e) {
@@ -237,7 +203,7 @@ syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
 
 syllabusSchema.statics.cleanupFilesByFilter = async function(filter = {}) {
   const fs = require('fs').promises;
-  const docs = await this.find(filter).select('originalFile.path editedPdf.path modifiedFile.path previewPdf.path submittedPdfPath');
+  const docs = await this.find(filter).select('originalFile.path previewPdf.path submittedPdfPath');
   for (const doc of docs) {
     await doc.cleanupFiles(fs);
   }
