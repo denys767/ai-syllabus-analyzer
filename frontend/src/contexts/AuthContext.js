@@ -118,7 +118,7 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Login error';
+      const errorMessage = error.response?.data?.message || 'Помилка входу';
       throw new Error(errorMessage);
     }
   };
@@ -138,7 +138,7 @@ export const AuthProvider = ({ children }) => {
       });
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Profile update error';
+      const errorMessage = error.response?.data?.message || 'Помилка оновлення профілю';
       return { success: false, error: errorMessage };
     }
   };
@@ -148,7 +148,7 @@ export const AuthProvider = ({ children }) => {
       await api.auth.forgotPassword(email);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Password recovery error';
+      const errorMessage = error.response?.data?.message || 'Помилка відновлення пароля';
       return { success: false, error: errorMessage };
     }
   };
@@ -158,7 +158,7 @@ export const AuthProvider = ({ children }) => {
       await api.auth.resetPassword(token, password);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Password reset error';
+      const errorMessage = error.response?.data?.message || 'Помилка скидання пароля';
       return { success: false, error: errorMessage };
     }
   };
@@ -168,7 +168,7 @@ export const AuthProvider = ({ children }) => {
       await api.user.changePassword(currentPassword, newPassword);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Password change error';
+      const errorMessage = error.response?.data?.message || 'Помилка зміни пароля';
       return { success: false, error: errorMessage };
     }
   };
@@ -179,7 +179,7 @@ export const AuthProvider = ({ children }) => {
       logout();
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Account deletion error';
+      const errorMessage = error.response?.data?.message || 'Помилка видалення облікового запису';
       return { success: false, error: errorMessage };
     }
   };

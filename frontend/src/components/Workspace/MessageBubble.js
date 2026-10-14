@@ -174,14 +174,14 @@ function optionDisplayText(option) {
 }
 
 const CATEGORY_LABELS = {
-  'template-compliance': 'Template Compliance',
-  'learning-objectives': 'Learning Outcomes Alignment',
-  'content-quality': 'Content Quality',
-  cases: 'Case Recommendations',
-  'student-clusters': 'Student Cluster Fit',
-  plagiarism: 'Plagiarism',
-  policy: 'Course Policies',
-  other: 'Other',
+  'template-compliance': 'Відповідність шаблону',
+  'learning-objectives': 'Відповідність результатам навчання',
+  'content-quality': 'Якість контенту',
+  cases: 'Рекомендації кейсів',
+  'student-clusters': 'Відповідність кластерам студентів',
+  plagiarism: 'Плагіат',
+  policy: 'Політики курсу',
+  other: 'Інше',
 };
 
 function categoryLabel(issue, message) {
@@ -206,7 +206,7 @@ const ResolvedActions = ({ message, onIssuePreview, onReopen, busy }) => (
       disabled={busy}
       onClick={() => onIssuePreview && onIssuePreview(message.relatedIssueId)}
     >
-      Preview
+      Переглянути
     </Button>
     <Button
       size="small"
@@ -215,7 +215,7 @@ const ResolvedActions = ({ message, onIssuePreview, onReopen, busy }) => (
       disabled={busy}
       onClick={() => onReopen && onReopen(message.relatedIssueId, message._id)}
     >
-      Reopen
+      Повернутися
     </Button>
   </Stack>
 );
@@ -225,7 +225,7 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onReopen, onIssuePre
   const after = message.payload?.after;
   const editBlocks = Array.isArray(message.payload?.editBlocks) ? message.payload.editBlocks : null;
   const editCount = Array.isArray(message.payload?.edits) ? message.payload.edits.length : 1;
-  const beforeParts = editBlocks ? editBlocks.map((block) => block.before) : (editCount > 1 ? splitTextIntoParagraphs(before) : [before || '(missing section)']);
+  const beforeParts = editBlocks ? editBlocks.map((block) => block.before) : (editCount > 1 ? splitTextIntoParagraphs(before) : [before || '(розділ відсутній)']);
   const afterParts = editBlocks ? editBlocks.map((block) => block.after) : (editCount > 1 ? splitTextIntoParagraphs(after) : [after || '']);
   const blockCount = Math.max(beforeParts.length, afterParts.length, 1);
   const panelSx = {
@@ -261,21 +261,21 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onReopen, onIssuePre
           <Box key={index}>
             {blockCount > 1 && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 700 }}>
-                Change {index + 1}
+                Зміна {index + 1}
               </Typography>
             )}
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
               <Box sx={beforePanelSx}>
                 <Typography variant="overline" display="block" sx={beforeLabelSx}>
-                  Before
+                  Було
                 </Typography>
                 <MarkdownText sx={{ color: 'text.primary' }}>
-                  {beforeParts[index] || '(missing section)'}
+                  {beforeParts[index] || '(розділ відсутній)'}
                 </MarkdownText>
               </Box>
               <Box sx={afterPanelSx}>
                 <Typography variant="overline" display="block" sx={afterLabelSx}>
-                  After
+                  Стало
                 </Typography>
                 <MarkdownText sx={{ color: 'text.primary' }}>
                   {afterParts[index] || ''}
@@ -295,7 +295,7 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onReopen, onIssuePre
             disabled={busy}
             onClick={() => onConfirm(message.relatedIssueId)}
           >
-            Confirm change
+            Прийняти
           </Button>
           <Button
             size="small"
@@ -304,7 +304,7 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onReopen, onIssuePre
             disabled={busy}
             onClick={() => onIssuePreview && onIssuePreview(message.relatedIssueId)}
           >
-            Preview
+            Переглянути
           </Button>
           <Button
             size="small"
@@ -314,7 +314,7 @@ const BeforeAfter = ({ message, issue, onConfirm, onCancel, onReopen, onIssuePre
             disabled={busy}
             onClick={() => onCancel(message.relatedIssueId)}
           >
-            Cancel
+            Відхилити
           </Button>
         </Stack>
       )}
@@ -330,10 +330,10 @@ const SubmissionCta = ({ message, onPreview, onSubmit, busy }) => (
     <MarkdownText sx={{ mb: 1.5 }}>{message.content}</MarkdownText>
     <Stack direction="row" spacing={1}>
       <Button size="small" variant="outlined" startIcon={<Visibility />} disabled={busy} onClick={onPreview}>
-        Preview final syllabus
+        Переглянути фінальний силабус
       </Button>
       <Button size="small" variant="contained" endIcon={<Send />} disabled={busy} onClick={onSubmit}>
-        Submit
+        Надіслати
       </Button>
     </Stack>
   </Bubble>
@@ -392,7 +392,7 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIssueP
           fullWidth
           multiline
           minRows={4}
-          label="Your policy text"
+          label="Ваш текст політики"
           value={customText}
           onChange={(event) => setCustomText(event.target.value)}
           disabled={!isCurrent || busy}
@@ -404,7 +404,7 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIssueP
           fullWidth
           multiline
           minRows={2}
-          label="Optional custom note"
+          label="Додаткова примітка (необов’язково)"
           value={customNote}
           onChange={(event) => setCustomNote(event.target.value)}
           disabled={!isCurrent || busy}
@@ -424,7 +424,7 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIssueP
               customMode ? { customText: customText.trim() } : { optionId: effectiveOptionId, customNote: customNote.trim() }
             )}
           >
-            {customMode ? 'Apply my text' : 'Apply selected'}
+            {customMode ? 'Застосувати мій текст' : 'Застосувати вибране'}
           </Button>
           <Button
             size="small"
@@ -432,7 +432,7 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIssueP
             disabled={busy}
             onClick={() => setCustomMode((value) => !value)}
           >
-            {customMode ? 'Back to options' : 'Write my own'}
+            {customMode ? 'Назад до варіантів' : 'Написати власний'}
           </Button>
           <Button
             size="small"
@@ -444,7 +444,7 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIssueP
               { optionId: effectiveOptionId, customNote: customNote.trim() }
             )}
           >
-            Preview
+            Переглянути
           </Button>
           <Button
             size="small"
@@ -454,7 +454,7 @@ const ChoiceMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIssueP
             disabled={busy}
             onClick={() => onCancel(message.relatedIssueId)}
           >
-            Cancel
+            Відхилити
           </Button>
         </Stack>
       )}
@@ -490,7 +490,7 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIss
       <CategoryChip issue={issue} message={message} />
       <MarkdownText sx={{ mb: 1.5 }}>{message.content}</MarkdownText>
       {message.payload?.week && (
-        <Chip size="small" label={`Case Recommendations - ${message.payload.week}`} sx={{ mb: 1.5 }} />
+        <Chip size="small" label={`Рекомендації кейсів — ${message.payload.week}`} sx={{ mb: 1.5 }} />
       )}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1.25, mb: 1.5 }}>
         {cards.map((card) => (
@@ -518,14 +518,14 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIss
                   <Link href={card.sourceUrl} target="_blank" rel="noreferrer">
                     {card.sourceLabel || card.sourceUrl}
                   </Link>
-                ) : (card.sourceLabel || 'Source not provided')}
+                ) : (card.sourceLabel || 'Джерело не вказано')}
               </Typography>
               <MarkdownText sx={{ color: 'text.secondary' }}>
                 {card.summary}
               </MarkdownText>
               <Stack direction="row" spacing={1}>
                 <Button size="small" variant="text" onClick={() => setPreviewCard(card)}>
-                  Details
+                  Деталі
                 </Button>
               </Stack>
             </Stack>
@@ -542,7 +542,7 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIss
             startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <Check />}
             onClick={() => onConfirm(message.relatedIssueId, { caseIds: effectiveCaseIds })}
           >
-            Add selected
+            Додати вибране
           </Button>
           <Button
             size="small"
@@ -554,7 +554,7 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIss
               { caseIds: effectiveCaseIds }
             )}
           >
-            Preview selected
+            Переглянути вибране
           </Button>
           <Button
             size="small"
@@ -564,7 +564,7 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIss
             disabled={busy}
             onClick={() => onCancel(message.relatedIssueId)}
           >
-            Cancel
+            Відхилити
           </Button>
         </Stack>
       )}
@@ -579,7 +579,7 @@ const CaseCardsMessage = ({ message, issue, onConfirm, onCancel, onReopen, onIss
           </MarkdownText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPreviewCard(null)}>Close</Button>
+          <Button onClick={() => setPreviewCard(null)}>Закрити</Button>
         </DialogActions>
       </Dialog>
     </Bubble>

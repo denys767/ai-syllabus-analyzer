@@ -55,19 +55,19 @@ const Sidebar = ({ onItemClick }) => {
 
   const items = [
     {
-      text: 'Chat',
+      text: 'Чат',
       icon: <Forum />,
       path: '/workspace',
       roles: ['instructor', 'admin'],
     },
     {
-      text: 'Cabinet',
+      text: 'Кабінет',
       icon: <AdminPanelSettings />,
       path: '/cabinet',
       roles: ['admin'],
     },
     {
-      text: 'Documents',
+      text: 'Документи',
       icon: <Policy />,
       path: '/policies',
       roles: ['instructor', 'admin'],
@@ -75,7 +75,7 @@ const Sidebar = ({ onItemClick }) => {
   ].filter((item) => item.roles.includes(user?.role));
 
   const roleColors = { admin: 'error', instructor: 'primary' };
-  const roleLabels = { admin: 'Admin', instructor: 'Instructor' };
+  const roleLabels = { admin: 'Адміністратор', instructor: 'Викладач' };
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

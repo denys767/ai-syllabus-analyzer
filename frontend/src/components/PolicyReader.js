@@ -43,7 +43,7 @@ const PolicyReader = () => {
       const response = await api.policies.getAll();
       setPolicies(response.data.policies);
     } catch (err) {
-      setError('Failed to load documents');
+      setError('Не вдалося завантажити документи');
       console.error(err);
     } finally {
       setLoading(false);
@@ -57,7 +57,7 @@ const PolicyReader = () => {
       // Refresh policies to update acknowledgment status
       await loadPolicies();
     } catch (err) {
-      setError('Failed to confirm acknowledgment');
+      setError('Не вдалося підтвердити ознайомлення');
       console.error(err);
     } finally {
       setAcknowledging(false);
@@ -77,7 +77,7 @@ const PolicyReader = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError('Failed to download file');
+      setError('Не вдалося завантажити файл');
       console.error(err);
     }
   };
@@ -91,11 +91,11 @@ const PolicyReader = () => {
     const title = uploadForm.title.trim();
     const content = uploadForm.content.trim();
     if (!title) {
-      setError('Document title is required');
+      setError('Вкажіть назву документа');
       return;
     }
     if (!content && !uploadForm.file) {
-      setError('Add either document text or an attachment');
+      setError('Додайте текст документа або файл');
       return;
     }
 
@@ -114,7 +114,7 @@ const PolicyReader = () => {
       resetUploadForm();
       await loadPolicies();
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Failed to upload document');
+      setError(err.response?.data?.message || err.message || 'Не вдалося завантажити документ');
     } finally {
       setUploading(false);
     }
@@ -132,7 +132,7 @@ const PolicyReader = () => {
       }
       await loadPolicies();
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Failed to delete document');
+      setError(err.response?.data?.message || err.message || 'Не вдалося видалити документ');
     } finally {
       setDeleting(false);
     }
@@ -140,9 +140,9 @@ const PolicyReader = () => {
 
   const getTypeLabel = (type) => {
     switch (type) {
-      case 'ai-policy': return 'AI Policy';
-      case 'academic-integrity': return 'Academic Integrity';
-      case 'teaching-tips': return 'Teaching Tips';
+      case 'ai-policy': return 'Політика щодо AI';
+      case 'academic-integrity': return 'Академічна доброчесність';
+      case 'teaching-tips': return 'Поради з викладання';
       default: return type;
     }
   };
@@ -168,11 +168,11 @@ const PolicyReader = () => {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 4 }}>
         <Typography variant="h4">
-          Documents for Review
+          Документи для ознайомлення
         </Typography>
         {isAdmin && (
           <Button variant="contained" startIcon={<UploadFile />} onClick={() => setUploadOpen(true)}>
-            Upload document
+            Завантажити документ
           </Button>
         )}
       </Box>
@@ -211,7 +211,7 @@ const PolicyReader = () => {
                 {policy.attachedFile && (
                   <Chip
                     icon={<Description />}
-                    label={`File: ${policy.attachedFile.originalName}`}
+                    label={`Файл: ${policy.attachedFile.originalName}`}
                     size="small"
                     sx={{ mb: 1 }}
                     variant="outlined"
@@ -225,14 +225,14 @@ const PolicyReader = () => {
                     <Warning color="warning" />
                   )}
                   <Typography variant="body2">
-                    {policy.isAcknowledged ? 'Acknowledged' : 'Not Acknowledged'}
+                    {policy.isAcknowledged ? 'Ознайомлено' : 'Не ознайомлено'}
                   </Typography>
                 </Box>
 
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   {policy.isRequired && (
                     <Chip
-                      label="Required"
+                      label="Обов’язковий"
                       color="error"
                       size="small"
                       variant="outlined"
@@ -257,7 +257,7 @@ const PolicyReader = () => {
                     onClick={() => handleDownloadFile(policy._id)}
                     sx={{ mb: 1 }}
                   >
-                    Download File
+                    Завантажити файл
                   </Button>
                 )}
                 
@@ -268,7 +268,7 @@ const PolicyReader = () => {
                   onClick={() => setSelectedPolicy(policy)}
                   sx={{ mb: 1 }}
                 >
-                  View
+                  Переглянути
                 </Button>
 
                 {!policy.isAcknowledged && (
@@ -279,7 +279,7 @@ const PolicyReader = () => {
                     onClick={() => handleAcknowledge(policy._id)}
                     disabled={acknowledging}
                   >
-                    {acknowledging ? 'Confirming...' : 'Confirm Acknowledgment'}
+                    {acknowledging ? 'Підтвердження…' : 'Підтвердити ознайомлення'}
                   </Button>
                 )}
 
@@ -292,7 +292,7 @@ const PolicyReader = () => {
                     onClick={() => setDeleteTarget(policy)}
                     sx={{ mt: 1 }}
                   >
-                    Delete
+                    Видалити
                   </Button>
                 )}
               </Box>
@@ -355,7 +355,7 @@ const PolicyReader = () => {
                 {selectedPolicy.attachedFile && (
                   <Box sx={{ mt: 3, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
                     <Typography variant="subtitle2" gutterBottom>
-                      Attached File:
+                      Прикріплений файл:
                     </Typography>
                     <Button
                       variant="outlined"
@@ -376,11 +376,11 @@ const PolicyReader = () => {
                   startIcon={<Delete />}
                   onClick={() => setDeleteTarget(selectedPolicy)}
                 >
-                  Delete
+                  Видалити
                 </Button>
               )}
               <Box sx={{ flexGrow: 1 }} />
-              <Button onClick={() => setSelectedPolicy(null)}>Close</Button>
+              <Button onClick={() => setSelectedPolicy(null)}>Закрити</Button>
               {!selectedPolicy.isAcknowledged && (
                 <Button
                   variant="contained"
@@ -391,7 +391,7 @@ const PolicyReader = () => {
                   }}
                   disabled={acknowledging}
                 >
-                  Confirm Acknowledgment
+                  Підтвердити ознайомлення
                 </Button>
               )}
             </DialogActions>
@@ -400,11 +400,11 @@ const PolicyReader = () => {
       </Dialog>
 
       <Dialog open={uploadOpen} onClose={() => !uploading && resetUploadForm()} maxWidth="sm" fullWidth>
-        <DialogTitle>Upload document</DialogTitle>
+        <DialogTitle>Завантажити документ</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
-              label="Title"
+              label="Назва"
               value={uploadForm.title}
               onChange={(event) => setUploadForm((form) => ({ ...form, title: event.target.value }))}
               disabled={uploading}
@@ -413,28 +413,28 @@ const PolicyReader = () => {
             />
             <TextField
               select
-              label="Document type"
+              label="Тип документа"
               value={uploadForm.type}
               onChange={(event) => setUploadForm((form) => ({ ...form, type: event.target.value }))}
               disabled={uploading}
               fullWidth
             >
-              <MenuItem value="ai-policy">AI Policy</MenuItem>
-              <MenuItem value="academic-integrity">Academic Integrity</MenuItem>
-              <MenuItem value="teaching-tips">Teaching Tips</MenuItem>
+              <MenuItem value="ai-policy">Політика щодо AI</MenuItem>
+              <MenuItem value="academic-integrity">Академічна доброчесність</MenuItem>
+              <MenuItem value="teaching-tips">Поради з викладання</MenuItem>
             </TextField>
             <TextField
-              label="Summary or markdown text"
+              label="Короткий опис або текст у markdown"
               value={uploadForm.content}
               onChange={(event) => setUploadForm((form) => ({ ...form, content: event.target.value }))}
               disabled={uploading}
               fullWidth
               multiline
               minRows={5}
-              helperText="Optional when attaching a file."
+              helperText="Необов’язково, якщо додано файл."
             />
             <Button variant="outlined" component="label" startIcon={<UploadFile />} disabled={uploading}>
-              {uploadForm.file ? uploadForm.file.name : 'Choose file'}
+              {uploadForm.file ? uploadForm.file.name : 'Обрати файл'}
               <input
                 hidden
                 type="file"
@@ -457,29 +457,29 @@ const PolicyReader = () => {
                   disabled={uploading}
                 />
               }
-              label="Require acknowledgment"
+              label="Вимагати ознайомлення"
             />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={resetUploadForm} disabled={uploading}>Cancel</Button>
+          <Button onClick={resetUploadForm} disabled={uploading}>Скасувати</Button>
           <Button variant="contained" onClick={handleCreatePolicy} disabled={uploading}>
-            {uploading ? 'Uploading...' : 'Upload'}
+            {uploading ? 'Завантаження…' : 'Завантажити'}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={!!deleteTarget} onClose={() => !deleting && setDeleteTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Delete document?</DialogTitle>
+        <DialogTitle>Видалити документ?</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary">
-            This will permanently remove "{deleteTarget?.title}" and its attached file.
+            Документ «{deleteTarget?.title}» і прикріплений файл буде видалено назавжди.
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>Скасувати</Button>
           <Button color="error" variant="contained" onClick={handleDeletePolicy} disabled={deleting}>
-            {deleting ? 'Deleting...' : 'Delete'}
+            {deleting ? 'Видалення…' : 'Видалити'}
           </Button>
         </DialogActions>
       </Dialog>
