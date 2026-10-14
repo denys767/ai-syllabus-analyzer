@@ -75,11 +75,19 @@ async function sweepOldPdfs({ maxAgeMs = PDF_MAX_AGE_MS } = {}) {
   return deleted;
 }
 
+// Прапорець submitting міг лишитись після падіння процесу посеред відправки
+async function releaseStuckSubmits() {
+  const result = await Syllabus.updateMany({ submitting: true }, { $set: { submitting: false } });
+  if (result.modifiedCount) console.warn(`[sweep] знято прапорець submitting: ${result.modifiedCount}`);
+  return result.modifiedCount;
+}
+
 function startBackgroundSweepers() {
   const run = () => {
     sweepOldPdfs().catch((e) => console.error('[sweep] pdf error:', e.message));
   };
   sweepStuckAnalyses().catch((e) => console.error('[sweep] analyses error:', e.message));
+  releaseStuckSubmits().catch((e) => console.error('[sweep] submits error:', e.message));
   run();
   const timer = setInterval(run, SWEEP_INTERVAL_MS);
   timer.unref();
@@ -91,5 +99,6 @@ module.exports = {
   deleteConversationsFor,
   sweepStuckAnalyses,
   sweepOldPdfs,
+  releaseStuckSubmits,
   startBackgroundSweepers,
 };
