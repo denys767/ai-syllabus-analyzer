@@ -11,11 +11,13 @@
     "clean": "rm -rf node_modules package-lock.json && npm install"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.9.12",
     "adm-zip": "^0.5.17",
     "bcryptjs": "latest",
     "cors": "latest",
     "csv-parser": "latest",
     "csv-writer": "latest",
+    "diff": "^8.0.4",
     "diff-match-patch": "latest",
     "dotenv": "latest",
     "exceljs": "latest",
@@ -24,6 +26,7 @@
     "express-validator": "latest",
     "helmet": "latest",
     "jsonwebtoken": "latest",
+    "jszip": "^3.10.2",
     "mammoth": "latest",
     "markdown-it": "^14.1.1",
     "moment": "latest",
@@ -31,6 +34,7 @@
     "mongoose": "latest",
     "multer": "latest",
     "natural": "latest",
+    "node-diff3": "^3.2.1",
     "nodemailer": "latest",
     "openai": "latest",
     "pdf-parse": "latest",
@@ -41,6 +45,7 @@
     "docx": "^9.0.3"
   },
   "devDependencies": {
+    "docx": "^9.11.0",
     "jest": "latest",
     "nodemon": "latest",
     "supertest": "latest"
