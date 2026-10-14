@@ -34,12 +34,13 @@ async function analyzeSyllabus(syllabusId) {
       },
       recommendations: syllabus.recommendations,
       status: 'in_progress',
+      $unset: { analysisError: '' },
     });
 
     return true;
   } catch (error) {
     console.error('Analysis error:', error.message);
-    await Syllabus.findByIdAndUpdate(syllabusId, { status: 'error' });
+    await Syllabus.findByIdAndUpdate(syllabusId, { status: 'error', analysisError: error.message });
     throw error;
   }
 }
