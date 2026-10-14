@@ -72,7 +72,6 @@ export const AuthProvider = ({ children }) => {
 
       if (token) {
         try {
-          api.setAuthToken(token);
           const response = await api.auth.getProfile();
           dispatch({
             type: 'SET_USER',
@@ -105,13 +104,12 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-  // IMPORTANT: do not enable global isLoading during login attempt,
-  // to avoid unmounting <App /> and losing entered form data / error messages.
-  const response = await api.auth.login(email, password);
+      // Не вмикаємо глобальний isLoading під час входу, щоб не розмонтувати <App />
+      // і не втратити введені дані та повідомлення про помилку.
+      const response = await api.auth.login(email, password);
       const { user, token } = response.data;
 
       localStorage.setItem('token', token);
-      api.setAuthToken(token);
 
       dispatch({
         type: 'LOGIN_SUCCESS',
@@ -120,17 +118,14 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Login error';
+      const errorMessage = error.response?.data?.message || 'Помилка входу';
       throw new Error(errorMessage);
     }
   };
 
-  const register = async () => ({ success: false, error: 'Public registration is disabled. Contact administrator.' });
-
   const logout = () => {
     localStorage.removeItem('token');
     clearWorkspaceTabCaches();
-    api.setAuthToken(null);
     dispatch({ type: 'LOGOUT' });
   };
 
@@ -143,7 +138,7 @@ export const AuthProvider = ({ children }) => {
       });
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Profile update error';
+      const errorMessage = error.response?.data?.message || 'Помилка оновлення профілю';
       return { success: false, error: errorMessage };
     }
   };
@@ -153,7 +148,7 @@ export const AuthProvider = ({ children }) => {
       await api.auth.forgotPassword(email);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Password recovery error';
+      const errorMessage = error.response?.data?.message || 'Помилка відновлення пароля';
       return { success: false, error: errorMessage };
     }
   };
@@ -163,7 +158,7 @@ export const AuthProvider = ({ children }) => {
       await api.auth.resetPassword(token, password);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Password reset error';
+      const errorMessage = error.response?.data?.message || 'Помилка скидання пароля';
       return { success: false, error: errorMessage };
     }
   };
@@ -173,7 +168,7 @@ export const AuthProvider = ({ children }) => {
       await api.user.changePassword(currentPassword, newPassword);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Password change error';
+      const errorMessage = error.response?.data?.message || 'Помилка зміни пароля';
       return { success: false, error: errorMessage };
     }
   };
@@ -184,7 +179,7 @@ export const AuthProvider = ({ children }) => {
       logout();
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Account deletion error';
+      const errorMessage = error.response?.data?.message || 'Помилка видалення облікового запису';
       return { success: false, error: errorMessage };
     }
   };
@@ -195,13 +190,12 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: state.isAuthenticated,
     isLoading: state.isLoading,
     login,
-  register,
     logout,
     updateProfile,
     forgotPassword,
     resetPassword,
-  changePassword,
-  deleteAccount,
+    changePassword,
+    deleteAccount,
   };
 
   return (

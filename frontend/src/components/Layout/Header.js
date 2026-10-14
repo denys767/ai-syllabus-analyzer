@@ -67,7 +67,7 @@ const Header = ({ onMenuClick, drawerOpen }) => {
     <Toolbar>
       <IconButton
         color="inherit"
-        aria-label="open drawer"
+        aria-label="відкрити меню"
         edge="start"
         onClick={onMenuClick}
         sx={{ mr: 2 }}
@@ -85,7 +85,7 @@ const Header = ({ onMenuClick, drawerOpen }) => {
           color: 'common.white'
         }}
       >
-        AI Syllabus Analyzer
+        AI-аналізатор силабусів
       </Typography>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -97,20 +97,20 @@ const Header = ({ onMenuClick, drawerOpen }) => {
           onChange={handleThemeChange}
           sx={{ mr: 1, bgcolor: 'background.paper', borderRadius: 2, '& .MuiToggleButton-root': { py: 0.5 } }}
         >
-          <ToggleButton value="system" aria-label="system" title="System theme">
+          <ToggleButton value="system" aria-label="system" title="Системна тема">
             <BrightnessAuto fontSize="small" />
           </ToggleButton>
-          <ToggleButton value="light" aria-label="light" title="Light theme">
+          <ToggleButton value="light" aria-label="light" title="Світла тема">
             <LightMode fontSize="small" />
           </ToggleButton>
-          <ToggleButton value="dark" aria-label="dark" title="Dark theme">
+          <ToggleButton value="dark" aria-label="dark" title="Темна тема">
             <DarkMode fontSize="small" />
           </ToggleButton>
         </ToggleButtonGroup>
         {/* User menu */}
         <IconButton
           size="large"
-          aria-label="account of current user"
+          aria-label="обліковий запис"
           aria-controls="menu-appbar"
           aria-haspopup="true"
           onClick={handleMenu}
@@ -159,8 +159,8 @@ const Header = ({ onMenuClick, drawerOpen }) => {
               {user?.email}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {user?.role === 'instructor' ? 'Instructor' :
-               user?.role === 'admin' ? 'Administrator' : user?.role}
+              {user?.role === 'instructor' ? 'Викладач' :
+               user?.role === 'admin' ? 'Адміністратор' : user?.role}
             </Typography>
           </Box>
           
@@ -168,19 +168,19 @@ const Header = ({ onMenuClick, drawerOpen }) => {
           
           <MenuItem onClick={handleProfile}>
             <AccountCircle sx={{ mr: 2 }} />
-            Profile
+            Профіль
           </MenuItem>
           
           <MenuItem onClick={handleSettings}>
             <Settings sx={{ mr: 2 }} />
-            Settings
+            Налаштування
           </MenuItem>
           
           <Divider />
           
           <MenuItem onClick={handleLogout}>
             <Logout sx={{ mr: 2 }} />
-            Logout
+            Вийти
           </MenuItem>
         </Menu>
       </Box>

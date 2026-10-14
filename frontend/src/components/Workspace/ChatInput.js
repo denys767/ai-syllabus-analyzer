@@ -25,7 +25,7 @@ const ChatInput = ({ onSend, disabled }) => {
         size="small"
         multiline
         maxRows={4}
-        placeholder="Type a message..."
+        placeholder="Введіть повідомлення…"
         value={text}
         disabled={disabled || sending}
         onChange={(e) => setText(e.target.value)}

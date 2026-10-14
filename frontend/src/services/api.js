@@ -2,6 +2,9 @@ import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+// LLM-backed calls can take up to ~2 minutes on the server.
+const LLM_REQUEST = { timeout: 130000 };
+
 class ApiService {
   constructor() {
     this.client = axios.create({
@@ -34,8 +37,11 @@ class ApiService {
           window.dispatchEvent(new CustomEvent('auth_logout'));
         }
 
-        if (status === 429 && !cfg.__retryCount) cfg.__retryCount = 0;
-        if (status === 429 && cfg.__retryCount < 3) {
+        const isGet = (cfg.method || 'get').toLowerCase() === 'get';
+        if (status === 429 && isGet) {
+          cfg.__retryCount = cfg.__retryCount || 0;
+        }
+        if (status === 429 && isGet && cfg.__retryCount < 3) {
           cfg.__retryCount += 1;
           const retryAfterHeader = error.response?.headers?.['retry-after'];
           const serverDelay = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : null;
@@ -49,24 +55,13 @@ class ApiService {
     );
   }
 
-  setAuthToken(token) {
-    if (token) {
-      this.client.defaults.headers.common.Authorization = `Bearer ${token}`;
-    } else {
-      delete this.client.defaults.headers.common.Authorization;
-    }
-  }
-
   // Auth endpoints
   auth = {
     login: (email, password) => this.client.post('/auth/login', { email, password }),
-    register: (userData) => this.client.post('/auth/register', userData),
     getProfile: () => this.client.get('/auth/profile'),
     updateProfile: (data) => this.client.put('/auth/profile', data),
     forgotPassword: (email) => this.client.post('/auth/forgot-password', { email }),
     resetPassword: (token, password) => this.client.post('/auth/reset-password', { token, password }),
-    verifyEmail: (token) => this.client.post('/auth/verify-email', { token }),
-    resendVerification: (email) => this.client.post('/auth/resend-verification', { email }),
     logout: () => this.client.post('/auth/logout'),
   };
 
@@ -76,7 +71,6 @@ class ApiService {
     deleteAccount: (password) =>
       this.client.delete('/users/account', { data: { password } }),
     updateSettings: (data) => this.client.put('/users/settings', data),
-    getStats: () => this.client.get('/users/stats'),
   };
 
   emailChange = {
@@ -90,34 +84,30 @@ class ApiService {
         ...config,
         headers: { 'Content-Type': 'multipart/form-data', ...(config.headers || {}) },
       }),
-    getMySyllabi: (params = {}) => this.client.get('/syllabus/my-syllabi', { params }),
     getSyllabus: (id) => this.client.get(`/syllabus/${id}`),
-    getSyllabusStatus: (id) => this.client.get(`/syllabus/${id}/status`),
     deleteSyllabus: (id) => this.client.delete(`/syllabus/${id}`),
-    update: (id, data) => this.client.put(`/syllabus/${id}`, data),
     reanalyze: (id) => this.client.post(`/syllabus/${id}/analyze`),
-    download: (id) => this.client.get(`/syllabus/${id}/download`, { responseType: 'blob' }),
   };
 
-  // Phase 2 will populate this namespace with the chat-first flow.
   chat = {
     get: (syllabusId) => this.client.get(`/chat/${syllabusId}`),
-    start: (syllabusId) => this.client.post(`/chat/${syllabusId}/start`),
-    confirm: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/confirm`, body),
-    cancel: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/cancel`, body),
-    reopen: (syllabusId, issueId, body = {}) => this.client.post(`/chat/${syllabusId}/issues/${issueId}/reopen`, body),
-    sendMessage: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/message`, body),
-    preview: (syllabusId) => this.client.post(`/chat/${syllabusId}/preview`, {}, { responseType: 'blob', timeout: 60000 }),
+    start: (syllabusId) => this.client.post(`/chat/${syllabusId}/start`, {}, LLM_REQUEST),
+    confirm: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/confirm`, body, LLM_REQUEST),
+    cancel: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/cancel`, body, LLM_REQUEST),
+    reopen: (syllabusId, issueId, body = {}) =>
+      this.client.post(`/chat/${syllabusId}/issues/${issueId}/reopen`, body, LLM_REQUEST),
+    sendMessage: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/message`, body, LLM_REQUEST),
+    preview: (syllabusId) =>
+      this.client.post(`/chat/${syllabusId}/preview`, {}, { ...LLM_REQUEST, responseType: 'blob' }),
     issuePreview: (syllabusId, issueId, selection = null) =>
       this.client.post(
         `/chat/${syllabusId}/issues/${issueId}/preview`,
         selection ? { selection } : {},
-        { timeout: 60000 }
+        LLM_REQUEST
       ),
-    submit: (syllabusId) => this.client.post(`/chat/${syllabusId}/submit`),
+    submit: (syllabusId) => this.client.post(`/chat/${syllabusId}/submit`, {}, LLM_REQUEST),
   };
 
-  // Phase 6 will populate the cabinet namespace.
   cabinet = {
     getSyllabi: (params = {}) => this.client.get('/cabinet/syllabi', { params }),
     getMetrics: () => this.client.get('/cabinet/metrics'),
@@ -127,13 +117,12 @@ class ApiService {
     createProgram: (data) => this.client.post('/cabinet/programs', data),
     updateProgram: (id, data) => this.client.put(`/cabinet/programs/${id}`, data),
     deleteProgram: (id) => this.client.delete(`/cabinet/programs/${id}`),
-    deleteSyllabus: (id) => this.client.delete(`/syllabus/${id}`),
+    updateUser: (id, data) => this.client.patch(`/cabinet/users/${id}`, data),
     resendSubmission: (syllabusId) => this.client.post(`/cabinet/syllabi/${syllabusId}/resend-submission`),
   };
 
   policies = {
     getAll: (params = {}) => this.client.get('/policies', { params }),
-    getPolicy: (id) => this.client.get(`/policies/${id}`),
     create: (data) =>
       this.client.post('/policies', data, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -144,15 +133,9 @@ class ApiService {
       }),
     delete: (id) => this.client.delete(`/policies/${id}`),
     acknowledge: (id) => this.client.post(`/policies/${id}/acknowledge`),
-    getStatus: (id) => this.client.get(`/policies/${id}/status`),
     downloadFile: (id) => this.client.get(`/policies/${id}/download`, { responseType: 'blob' }),
   };
 
-  // Generic methods
-  get(url, config = {}) { return this.client.get(url, config); }
-  post(url, data = {}, config = {}) { return this.client.post(url, data, config); }
-  put(url, data = {}, config = {}) { return this.client.put(url, data, config); }
-  delete(url, config = {}) { return this.client.delete(url, config); }
 }
 
 const api = new ApiService();

@@ -25,6 +25,8 @@ import IssuesPanel from '../components/Workspace/IssuesPanel';
 import MessageBubble, { MarkdownText } from '../components/Workspace/MessageBubble';
 import ChatInput from '../components/Workspace/ChatInput';
 
+const ANALYSIS_POLL_LIMIT_MS = 10 * 60 * 1000;
+
 // Per-user key so a different user signed in on the same browser cannot
 // see the previous user's syllabus tabs.
 const OPEN_TABS_KEY_PREFIX = 'pt.openTabs.v1.';
@@ -132,6 +134,8 @@ const ProfessorTutorWorkspace = () => {
   const [issuePreview, setIssuePreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [cancelDialog, setCancelDialog] = useState({ open: false, issueId: null, reason: '' });
+  const [pollTimedOut, setPollTimedOut] = useState(false);
+  const [pollEpoch, setPollEpoch] = useState(0);
   const pollRef = useRef(null);
   const threadEndRef = useRef(null);
   const lastTabsKeyRef = useRef(tabsKey);
@@ -169,7 +173,7 @@ const ProfessorTutorWorkspace = () => {
       if (tabs.some((t) => t.id === id)) {
         return tabs.map((t) => (t.id === id && title ? { ...t, title } : t));
       }
-      return [...tabs, { id, title: title || 'Syllabus' }];
+      return [...tabs, { id, title: title || 'Силабус' }];
     });
   }, []);
 
@@ -184,7 +188,7 @@ const ProfessorTutorWorkspace = () => {
       setConversation(chat?.conversation || null);
       setMessages(chat?.messages || []);
       ensureTab(id, syl.course?.name || syl.title);
-      // Auto-bootstrap once analysis is done and there's no conversation yet
+      // Автостарт чату, коли аналіз завершено, а розмови ще немає
       if (syl.status === 'in_progress' && !chat?.conversation) {
         const { data: started } = await api.chat.start(id);
         setConversation(started?.conversation || null);
@@ -201,7 +205,7 @@ const ProfessorTutorWorkspace = () => {
         navigate('/workspace', { replace: true });
         return;
       }
-      setError(err.response?.data?.message || err.message || 'Failed to load syllabus');
+      setError(err.response?.data?.message || err.message || 'Не вдалося завантажити силабус');
     }
   }, [ensureTab, lastChatKey, navigate, tabsKey]);
 
@@ -218,13 +222,23 @@ const ProfessorTutorWorkspace = () => {
     refresh(syllabusId).finally(() => setLoading(false));
   }, [syllabusId, refresh]);
 
-  // Poll status while analyzing
+  // Опитування статусу під час аналізу; після ANALYSIS_POLL_LIMIT_MS зупиняємось і пропонуємо повторити.
+  const status = syllabus?.status;
   useEffect(() => {
     clearInterval(pollRef.current);
-    if (!syllabus || syllabus.status !== 'analyzing') return;
-    pollRef.current = setInterval(() => refresh(syllabusId), 5000);
+    if (status !== 'analyzing') return undefined;
+    setPollTimedOut(false);
+    const startedAt = Date.now();
+    pollRef.current = setInterval(() => {
+      if (Date.now() - startedAt > ANALYSIS_POLL_LIMIT_MS) {
+        clearInterval(pollRef.current);
+        setPollTimedOut(true);
+        return;
+      }
+      refresh(syllabusId);
+    }, 5000);
     return () => clearInterval(pollRef.current);
-  }, [syllabus, syllabusId, refresh]);
+  }, [status, syllabusId, pollEpoch, refresh]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -256,7 +270,7 @@ const ProfessorTutorWorkspace = () => {
       const { data: syl } = await api.syllabus.getSyllabus(syllabusId);
       setSyllabus(syl);
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Action failed');
+      setError(err.response?.data?.message || err.message || 'Не вдалося виконати дію');
     } finally {
       setBusy(false);
     }
@@ -274,7 +288,7 @@ const ProfessorTutorWorkspace = () => {
       setSyllabus(syl);
       setCancelDialog({ open: false, issueId: null, reason: '' });
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Action failed');
+      setError(err.response?.data?.message || err.message || 'Не вдалося виконати дію');
     } finally {
       setBusy(false);
     }
@@ -300,7 +314,22 @@ const ProfessorTutorWorkspace = () => {
       const { data: syl } = await api.syllabus.getSyllabus(syllabusId);
       setSyllabus(syl);
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Reopen failed');
+      setError(err.response?.data?.message || err.message || 'Не вдалося повернутися до рекомендації');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReanalyze = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.syllabus.reanalyze(syllabusId);
+      setPollTimedOut(false);
+      setPollEpoch((n) => n + 1);
+      await refresh(syllabusId);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Не вдалося повторити аналіз');
     } finally {
       setBusy(false);
     }
@@ -313,7 +342,7 @@ const ProfessorTutorWorkspace = () => {
       setConversation(data?.conversation || null);
       setMessages(data?.messages || []);
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Send failed');
+      setError(err.response?.data?.message || err.message || 'Не вдалося надіслати повідомлення');
     }
   };
 
@@ -326,7 +355,7 @@ const ProfessorTutorWorkspace = () => {
       window.open(url, '_blank');
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
-      setError('Preview generation failed. Please try again.');
+      setError('Не вдалося сформувати попередній перегляд. Спробуйте ще раз.');
     } finally {
       setBusy(false);
     }
@@ -339,7 +368,7 @@ const ProfessorTutorWorkspace = () => {
       const { data } = await api.chat.issuePreview(syllabusId, issueId, selection);
       setIssuePreview(data);
     } catch (err) {
-      setError(err.response?.data?.message || 'Issue preview failed. Please try again.');
+      setError(err.response?.data?.message || 'Не вдалося показати зміни. Спробуйте ще раз.');
     } finally {
       setPreviewLoading(false);
     }
@@ -355,7 +384,7 @@ const ProfessorTutorWorkspace = () => {
       const { data: syl } = await api.syllabus.getSyllabus(syllabusId);
       setSyllabus(syl);
     } catch (err) {
-      setError(err.response?.data?.message || 'Submission failed. Please try again.');
+      setError(err.response?.data?.message || 'Не вдалося надіслати. Спробуйте ще раз.');
     } finally {
       setBusy(false);
     }
@@ -378,7 +407,7 @@ const ProfessorTutorWorkspace = () => {
             label={
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Box sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {t.title || 'Untitled'}
+                  {t.title || 'Без назви'}
                 </Box>
                 <IconButton
                   size="small"
@@ -392,7 +421,7 @@ const ProfessorTutorWorkspace = () => {
           />
         ))}
       </Tabs>
-      <Tooltip title="New syllabus">
+      <Tooltip title="Новий силабус">
         <IconButton size="small" onClick={() => navigate('/workspace')}>
           <Add fontSize="small" />
         </IconButton>
@@ -423,12 +452,21 @@ const ProfessorTutorWorkspace = () => {
             {loading && !messages.length ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 6, gap: 2 }}>
                 <CircularProgress />
-                <Typography variant="body2" color="text.secondary">Loading conversation…</Typography>
+                <Typography variant="body2" color="text.secondary">Завантаження розмови…</Typography>
+              </Box>
+            ) : syllabus?.status === 'error' || (syllabus?.status === 'analyzing' && pollTimedOut) ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 6, gap: 2 }}>
+                <Alert severity="error">
+                  {syllabus.status === 'error'
+                    ? 'Під час аналізу силабуса сталася помилка.'
+                    : 'Аналіз триває надто довго. Спробуйте повторити.'}
+                </Alert>
+                <Button variant="contained" onClick={handleReanalyze} disabled={busy}>Повторити аналіз</Button>
               </Box>
             ) : syllabus?.status === 'analyzing' ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 6, gap: 2 }}>
                 <CircularProgress />
-                <Typography variant="body2" color="text.secondary">Reviewing your syllabus…</Typography>
+                <Typography variant="body2" color="text.secondary">Аналізуємо ваш силабус…</Typography>
               </Box>
             ) : (
               <>
@@ -451,7 +489,7 @@ const ProfessorTutorWorkspace = () => {
               </>
             )}
           </Box>
-          <ChatInput onSend={handleSend} disabled={syllabus?.status === 'analyzing'} />
+          <ChatInput onSend={handleSend} disabled={syllabus?.status === 'analyzing' || syllabus?.status === 'error'} />
         </Box>
       </Box>
       <Dialog
@@ -460,17 +498,17 @@ const ProfessorTutorWorkspace = () => {
         fullWidth
         maxWidth="sm"
       >
-        <DialogTitle>Cancellation reason required</DialogTitle>
+        <DialogTitle>Потрібна причина відхилення</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            High and critical issues can be cancelled only with an audit reason for the Academic Director report.
+            Критичні та важливі рекомендації можна відхилити лише з указанням причини — вона потрапить у звіт для академічного директора.
           </Typography>
           <TextField
             autoFocus
             fullWidth
             multiline
             minRows={4}
-            label="Reason"
+            label="Причина"
             value={cancelDialog.reason}
             onChange={(event) => setCancelDialog((current) => ({ ...current, reason: event.target.value }))}
             disabled={busy}
@@ -478,7 +516,7 @@ const ProfessorTutorWorkspace = () => {
         </DialogContent>
         <DialogActions>
           <Button disabled={busy} onClick={() => setCancelDialog({ open: false, issueId: null, reason: '' })}>
-            Back
+            Назад
           </Button>
           <Button
             variant="contained"
@@ -486,22 +524,22 @@ const ProfessorTutorWorkspace = () => {
             disabled={busy || !cancelDialog.reason.trim()}
             onClick={() => performCancel(cancelDialog.issueId, cancelDialog.reason)}
           >
-            Cancel issue
+            Відхилити рекомендацію
           </Button>
         </DialogActions>
       </Dialog>
       <Dialog open={!!issuePreview} onClose={() => setIssuePreview(null)} fullWidth maxWidth="lg">
-        <DialogTitle>{issuePreview?.title || 'Issue preview'}</DialogTitle>
+        <DialogTitle>{issuePreview?.title || 'Перегляд рекомендації'}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
             <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>Tracked changes</Typography>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Зміни у тексті</Typography>
               <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.default', maxHeight: 360, overflow: 'auto' }}>
                 <RevisionPreview markup={issuePreview?.revisionMarkup || issuePreview?.previewText || ''} />
               </Box>
             </Box>
             <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>Clean preview</Typography>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Чистий текст</Typography>
               <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper', maxHeight: 360, overflow: 'auto' }}>
                 <MarkdownText>{issuePreview?.previewText || ''}</MarkdownText>
               </Box>
@@ -509,7 +547,7 @@ const ProfessorTutorWorkspace = () => {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setIssuePreview(null)}>Close</Button>
+          <Button onClick={() => setIssuePreview(null)}>Закрити</Button>
         </DialogActions>
       </Dialog>
     </Box>

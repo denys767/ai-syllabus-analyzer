@@ -30,14 +30,14 @@ const IssuesPanel = ({ issues = [], readiness = { score: 0 }, currentIssueId }) 
   const open = issues.filter((i) => i.decision === 'pending');
   const resolved = issues.filter((i) => i.decision && i.decision !== 'pending');
   const score = readiness?.score ?? 0;
-  const scoreLabel = score === 100 ? 'Ready to submit' : score >= 75 ? 'Nearly there' : score >= 50 ? 'Making progress' : 'Needs work';
+  const scoreLabel = score === 100 ? 'Готово до надсилання' : score >= 75 ? 'Майже готово' : score >= 50 ? 'Робота триває' : 'Потрібне доопрацювання';
 
   return (
     <Box sx={{ width: 300, flexShrink: 0, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Typography variant="h6">Issues</Typography>
+        <Typography variant="h6">Рекомендації</Typography>
         <Typography variant="caption" color="text.secondary">
-          {open.length} open · {resolved.length} resolved
+          {open.length} відкритих · {resolved.length} опрацьовано
         </Typography>
       </Box>
 
@@ -84,7 +84,7 @@ const IssuesPanel = ({ issues = [], readiness = { score: 0 }, currentIssueId }) 
           })}
           {!issues.length && (
             <Box sx={{ p: 2 }}>
-              <Typography variant="body2" color="text.secondary">No issues yet.</Typography>
+              <Typography variant="body2" color="text.secondary">Рекомендацій поки немає.</Typography>
             </Box>
           )}
         </List>
@@ -93,8 +93,8 @@ const IssuesPanel = ({ issues = [], readiness = { score: 0 }, currentIssueId }) 
       <Divider />
       <Box sx={{ p: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-          <Typography variant="caption" color="text.secondary">Readiness · {score}%</Typography>
-          {score === 100 && <Chip label="Ready" size="small" color="success" />}
+          <Typography variant="caption" color="text.secondary">Готовність · {score}%</Typography>
+          {score === 100 && <Chip label="Готово" size="small" color="success" />}
         </Box>
         <LinearProgress
           variant="determinate"
