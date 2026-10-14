@@ -14,7 +14,7 @@ const Settings = () => {
   const save = async () => {
     setMsg(''); setErr('');
     try {
-  const res = await api.put('/users/settings', { theme });
+  const res = await api.user.updateSettings({ theme });
       if (res.data?.settings) setMsg('Settings saved');
   // Apply theme immediately without waiting for a fresh profile fetch
   setMode(theme);

@@ -64,7 +64,7 @@ const Sidebar = ({ onItemClick }) => {
       text: 'Cabinet',
       icon: <AdminPanelSettings />,
       path: '/cabinet',
-      roles: ['admin', 'instructor'],
+      roles: ['admin'],
     },
     {
       text: 'Documents',

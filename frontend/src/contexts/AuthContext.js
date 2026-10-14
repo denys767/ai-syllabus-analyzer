@@ -72,7 +72,6 @@ export const AuthProvider = ({ children }) => {
 
       if (token) {
         try {
-          api.setAuthToken(token);
           const response = await api.auth.getProfile();
           dispatch({
             type: 'SET_USER',
@@ -105,13 +104,12 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-  // IMPORTANT: do not enable global isLoading during login attempt,
-  // to avoid unmounting <App /> and losing entered form data / error messages.
-  const response = await api.auth.login(email, password);
+      // Не вмикаємо глобальний isLoading під час входу, щоб не розмонтувати <App />
+      // і не втратити введені дані та повідомлення про помилку.
+      const response = await api.auth.login(email, password);
       const { user, token } = response.data;
 
       localStorage.setItem('token', token);
-      api.setAuthToken(token);
 
       dispatch({
         type: 'LOGIN_SUCCESS',
@@ -125,12 +123,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async () => ({ success: false, error: 'Public registration is disabled. Contact administrator.' });
-
   const logout = () => {
     localStorage.removeItem('token');
     clearWorkspaceTabCaches();
-    api.setAuthToken(null);
     dispatch({ type: 'LOGOUT' });
   };
 
@@ -195,13 +190,12 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: state.isAuthenticated,
     isLoading: state.isLoading,
     login,
-  register,
     logout,
     updateProfile,
     forgotPassword,
     resetPassword,
-  changePassword,
-  deleteAccount,
+    changePassword,
+    deleteAccount,
   };
 
   return (

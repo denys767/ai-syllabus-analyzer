@@ -9,7 +9,6 @@ import ProtectedRoute from './components/Auth/ProtectedRoute';
 // Auth pages
 import Login from './components/Auth/Login';
 import ResetPassword from './components/Auth/ResetPassword';
-import VerifyEmail from './components/Auth/VerifyEmail';
 
 // Main pages
 import ProfessorTutorWorkspace from './pages/ProfessorTutorWorkspace';
@@ -47,7 +46,6 @@ function App() {
       />
       <Route path="/confirm-email-change" element={<ConfirmEmailChange />} />
       <Route path="/reset-password" element={<ResetPassword />} />
-      <Route path="/verify-email" element={<VerifyEmail />} />
 
       {/* Protected routes */}
       <Route
@@ -64,7 +62,7 @@ function App() {
         <Route
           path="cabinet"
           element={
-            <ProtectedRoute requiredRoles={['admin', 'instructor']}>
+            <ProtectedRoute requiredRoles={['admin']}>
               <Cabinet />
             </ProtectedRoute>
           }
