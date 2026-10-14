@@ -27,16 +27,12 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['instructor', 'admin', 'manager'],
+    enum: ['instructor', 'admin'],
     default: 'instructor'
   },
   openSyllabusIds: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Syllabus'
-  }],
-  managedProgramIds: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Program'
   }],
   avatarUrl: {
     type: String,

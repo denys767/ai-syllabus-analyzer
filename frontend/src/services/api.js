@@ -129,7 +129,6 @@ class ApiService {
     deleteProgram: (id) => this.client.delete(`/cabinet/programs/${id}`),
     deleteSyllabus: (id) => this.client.delete(`/syllabus/${id}`),
     resendSubmission: (syllabusId) => this.client.post(`/cabinet/syllabi/${syllabusId}/resend-submission`),
-    updateUserPrograms: (userId, programIds) => this.client.put(`/cabinet/users/${userId}/programs`, { programIds }),
   };
 
   policies = {

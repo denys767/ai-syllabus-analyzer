@@ -62,11 +62,7 @@ router.delete('/programs/:id', auth, admin, async (req, res) => {
 router.get('/metrics', auth, async (req, res) => {
   try {
     const filter = {};
-    if (req.user.role === 'manager') {
-      const me = await User.findById(req.user.userId).select('managedProgramIds').lean();
-      if (!me?.managedProgramIds?.length) return res.json({ total: 0, submitted: 0, inProgress: 0 });
-      filter.programId = { $in: me.managedProgramIds };
-    } else if (req.user.role === 'instructor') {
+    if (req.user.role === 'instructor') {
       filter.instructor = req.user.userId;
     }
     const [total, submitted, inProgress] = await Promise.all([
@@ -88,18 +84,7 @@ router.get('/syllabi', auth, async (req, res) => {
     const filter = {};
     if (status) filter.status = status;
 
-    if (req.user.role === 'manager') {
-      const me = await User.findById(req.user.userId).select('managedProgramIds').lean();
-      const allowed = me?.managedProgramIds || [];
-      if (!allowed.length) return res.json({ syllabi: [], total: 0, page: 1, pages: 0 });
-      // Manager can only see syllabi from their assigned programs; optional further filter.
-      const requestedProgram = program ? new mongoose.Types.ObjectId(program) : null;
-      if (requestedProgram && allowed.some((id) => id.equals(requestedProgram))) {
-        filter.programId = requestedProgram;
-      } else {
-        filter.programId = { $in: allowed };
-      }
-    } else if (req.user.role === 'instructor') {
+    if (req.user.role === 'instructor') {
       filter.instructor = new mongoose.Types.ObjectId(req.user.userId);
       if (program) filter.programId = new mongoose.Types.ObjectId(program);
     } else if (program) {
@@ -198,7 +183,6 @@ router.get('/users', auth, admin, async (req, res) => {
     const [users, total] = await Promise.all([
       User.find(filter)
         .select('-password -resetPasswordToken -resetPasswordExpires -emailChangeToken -emailChangeExpires')
-        .populate('managedProgramIds', 'name code')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
@@ -240,29 +224,6 @@ router.post('/users', auth, admin, async (req, res) => {
     }
 
     res.status(201).json({ _id: user._id, email: user.email, firstName, lastName, role });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Admin assigns programs to a manager.
-router.put('/users/:id/programs', auth, admin, async (req, res) => {
-  try {
-    const { programIds } = req.body;
-    if (!Array.isArray(programIds)) return res.status(400).json({ message: 'programIds must be an array' });
-
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    if (user.role !== 'manager') return res.status(400).json({ message: 'User is not a manager' });
-
-    const validIds = programIds
-      .filter((id) => mongoose.Types.ObjectId.isValid(id))
-      .map((id) => new mongoose.Types.ObjectId(id));
-
-    user.managedProgramIds = validIds;
-    await user.save();
-    await user.populate('managedProgramIds', 'name code');
-    res.json({ managedProgramIds: user.managedProgramIds });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

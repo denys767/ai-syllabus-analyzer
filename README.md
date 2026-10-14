@@ -189,7 +189,6 @@ Policies:
 ## Roles
 
 - `instructor`: uploads and reviews their own syllabi.
-- `manager`: reads program/cabinet data for assigned programs.
 - `admin`: manages users/programs and can view cabinet data.
 
 Chat mutation is owner-only; admins are read-only for chat conversations.

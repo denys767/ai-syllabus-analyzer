@@ -64,7 +64,7 @@ instructions.txt        ТЗ українською (розділи 2.1–4)
 - **Syllabus:** `recommendations[]` з `decision` (`pending`/`accepted`/`rejected`/`skipped`), `decidedVia`, `decisionReason`, `decisionHistory[]`, `beforeAfter` (`kind`: `before-after`/`choice`/`case-cards`, `payload` з `docVersion`, `options`/`cards`, `appliedSelection`). Статуси: `analyzing`/`in_progress`/`submitted`/`error`. `submissionEmailStatus`: `pending`/`sent`/`failed`.
 - **Conversation:** `currentIssueId`, `status` (`active`/`submitted`/`abandoned`/`error`), `readiness`, `consecutiveAiFailures` (після 3 збоїв → `status=error`).
 - **Message:** `kind` ∈ `text`, `before-after`, `choice`, `case-cards`, `submission-cta`; `relatedIssueId`.
-- **User.role:** `instructor`, `admin`, `manager` (див. розділ 9).
+- **User.role:** `instructor`, `admin`. Роль `manager` видалена (див. розділ 9).
 - **Program:** `code` (unique, uppercase), `academicDirectorEmail`. Seed: MBA, EMBA, CORPORATE, INTENSIVE.
 
 ## 5. Бізнес-правила (з коду, не з ТЗ)
@@ -72,8 +72,9 @@ instructions.txt        ТЗ українською (розділи 2.1–4)
 **Доступ**
 - Чат: читання для власника або admin; **мутації тільки для власника** (`gateMutate`). Admin має read-only доступ до чату.
 - Силабус `analyze`/`download`/`delete`: власник або admin (`isOwnerOrAdmin`).
-- Cabinet (програми, користувачі, `resend-submission`, cleanup uploads): admin.
+- Cabinet (програми, користувачі, `resend-submission`, cleanup uploads): admin. Instructor бачить тільки свої силабуси.
 - Policies: створення/зміна/видалення — admin; `acknowledge` — будь-який авторизований.
+- Ролі в системі: тільки `instructor` і `admin`. Дефолтний маршрут: admin → `/cabinet`, інші → `/workspace`.
 - Створення користувачів: ролі `instructor` або `admin` (`routes/auth.js` `create-user`).
 
 **Рішення в чаті**
@@ -122,6 +123,7 @@ instructions.txt        ТЗ українською (розділи 2.1–4)
 - Немає автоматичних тестів для `applyEdits`/`workspaceService` (стан, reopen, gate).
 - Не перевірено права доступу в `GET /api/syllabus/:id/status` і `/:id/download` на предмет перевірки власника. Перевірити перед змінами.
 
-## 9. Відкриті питання
+## 9. Рішення щодо ролей
 
-- **Роль `manager`:** README описує її як читача програм, `App.js` дає їй доступ до кабінету, а `scripts/migrate-v2.js` понижує manager до instructor. Потрібно вирішити: зберегти роль чи прибрати з enum і фронтенду.
+- Роль `manager` **видалена** з коду: enum у `User`, фронтенд (`App.js`, `Sidebar.js`, `Cabinet.js`), API `PUT /cabinet/users/:id/programs`, поле `managedProgramIds`, README.
+- `scripts/migrate-v2.js` лишається історичною міграцією і далі понижує `manager` до `instructor`. Якщо в БД ще є користувачі з `role: 'manager'`, вони не пройдуть валідацію enum при збереженні. Перед будь-яким оновленням їх треба понизити до `instructor` вручну або запустити міграцію.

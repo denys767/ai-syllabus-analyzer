@@ -3,14 +3,12 @@ import {
   Alert,
   Box,
   Button,
-  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
   IconButton,
   LinearProgress,
   MenuItem,
@@ -37,7 +35,6 @@ import {
   Edit,
   Email,
   Refresh,
-  Settings,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
@@ -253,73 +250,14 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
   );
 };
 
-// ─── Program assignment dialog (admin → manager) ──────────────────────────────
-
-const ProgramAssignDialog = ({ user, programs, open, onClose, onSaved }) => {
-  const [selected, setSelected] = useState([]);
-  const [saving, setSaving] = useState(false);
-  const [snack, setSnack] = useState('');
-
-  useEffect(() => {
-    if (open && user) {
-      setSelected((user.managedProgramIds || []).map((p) => (typeof p === 'object' ? String(p._id) : String(p))));
-    }
-  }, [open, user]);
-
-  const toggle = (id) => {
-    setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
-  };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await api.cabinet.updateUserPrograms(user._id, selected);
-      onSaved?.();
-      onClose();
-    } catch (err) {
-      setSnack(err.response?.data?.message || 'Save failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Assign programs — {user?.firstName} {user?.lastName}</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Select the programs this manager can view.
-        </Typography>
-        <Stack>
-          {programs.map((p) => (
-            <FormControlLabel
-              key={p._id}
-              control={<Checkbox checked={selected.includes(String(p._id))} onChange={() => toggle(String(p._id))} size="small" />}
-              label={`${p.name} (${p.code})`}
-            />
-          ))}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving}>
-          {saving ? <CircularProgress size={18} /> : 'Save'}
-        </Button>
-      </DialogActions>
-      <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack('')} message={snack} />
-    </Dialog>
-  );
-};
-
 // ─── Users tab ────────────────────────────────────────────────────────────────
 
-const UsersTab = ({ programs }) => {
+const UsersTab = () => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ email: '', firstName: '', lastName: '', role: 'instructor' });
   const [saving, setSaving] = useState(false);
-  const [assignTarget, setAssignTarget] = useState(null);
   const [snack, setSnack] = useState('');
 
   const load = useCallback(async () => {
@@ -364,7 +302,6 @@ const UsersTab = ({ programs }) => {
               <TableCell>Name</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Role</TableCell>
-              <TableCell>Programs</TableCell>
               <TableCell>Verified</TableCell>
               <TableCell>Joined</TableCell>
               <TableCell align="right">Actions</TableCell>
@@ -376,26 +313,12 @@ const UsersTab = ({ programs }) => {
                 <TableCell>{`${u.firstName} ${u.lastName}`}</TableCell>
                 <TableCell>{u.email}</TableCell>
                 <TableCell><Chip label={u.role} size="small" /></TableCell>
-                <TableCell>
-                  {u.role === 'manager'
-                    ? (u.managedProgramIds?.length
-                        ? u.managedProgramIds.map((p) => <Chip key={p._id} label={p.code} size="small" variant="outlined" sx={{ mr: 0.5 }} />)
-                        : <Typography variant="caption" color="text.secondary">none</Typography>)
-                    : '—'}
-                </TableCell>
                 <TableCell>{u.isVerified ? 'Yes' : 'No'}</TableCell>
                 <TableCell>{new Date(u.createdAt).toLocaleDateString()}</TableCell>
-                <TableCell align="right">
-                  {u.role === 'manager' && (
-                    <Tooltip title="Assign programs">
-                      <IconButton size="small" onClick={() => setAssignTarget(u)}><Settings fontSize="small" /></IconButton>
-                    </Tooltip>
-                  )}
-                </TableCell>
               </TableRow>
             ))}
             {!loading && rows.length === 0 && (
-              <TableRow><TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.secondary' }}>No users found</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} align="center" sx={{ py: 3, color: 'text.secondary' }}>No users found</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -411,7 +334,6 @@ const UsersTab = ({ programs }) => {
             <TextField label="Last name" size="small" fullWidth value={form.lastName} onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))} />
             <Select size="small" value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
               <MenuItem value="instructor">Instructor</MenuItem>
-              <MenuItem value="manager">Manager</MenuItem>
               <MenuItem value="admin">Admin</MenuItem>
             </Select>
           </Stack>
@@ -423,15 +345,6 @@ const UsersTab = ({ programs }) => {
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* Program assignment dialog */}
-      <ProgramAssignDialog
-        user={assignTarget}
-        programs={programs}
-        open={!!assignTarget}
-        onClose={() => setAssignTarget(null)}
-        onSaved={() => { load(); setSnack('Programs updated'); }}
-      />
 
       <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack('')} message={snack} />
     </Box>
@@ -572,7 +485,7 @@ const Cabinet = () => {
     loadMetrics();
   }, [loadPrograms, loadMetrics]);
 
-  // Manager sees only the Syllabi tab.
+  // Instructors see only the Syllabi tab.
   const tabs = isAdmin
     ? ['Syllabi', 'Users', 'Programs']
     : ['Syllabi'];
@@ -580,7 +493,7 @@ const Cabinet = () => {
   return (
     <Box sx={{ p: 3, maxWidth: 1100, mx: 'auto' }}>
       <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>
-        {isAdmin ? 'Admin Cabinet' : user?.role === 'manager' ? 'Program Cabinet' : 'My Syllabi'}
+        {isAdmin ? 'Admin Cabinet' : 'My Syllabi'}
       </Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       <MetricsRow metrics={metrics} />
@@ -588,7 +501,7 @@ const Cabinet = () => {
         {tabs.map((label) => <Tab key={label} label={label} />)}
       </Tabs>
       {tab === 0 && <SyllabiTab programs={programs} isAdmin={isAdmin} user={user} onChanged={loadMetrics} />}
-      {isAdmin && tab === 1 && <UsersTab programs={programs} />}
+      {isAdmin && tab === 1 && <UsersTab />}
       {isAdmin && tab === 2 && <ProgramsTab programs={programs} reload={loadPrograms} />}
     </Box>
   );

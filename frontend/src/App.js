@@ -36,7 +36,7 @@ function App() {
     );
   }
 
-  const defaultRoute = (user?.role === 'admin' || user?.role === 'manager') ? '/cabinet' : '/workspace';
+  const defaultRoute = user?.role === 'admin' ? '/cabinet' : '/workspace';
 
   return (
     <Routes>
@@ -64,7 +64,7 @@ function App() {
         <Route
           path="cabinet"
           element={
-            <ProtectedRoute requiredRoles={['admin', 'manager', 'instructor']}>
+            <ProtectedRoute requiredRoles={['admin', 'instructor']}>
               <Cabinet />
             </ProtectedRoute>
           }
