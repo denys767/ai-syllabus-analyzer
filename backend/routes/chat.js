@@ -17,7 +17,6 @@ const messageLimiter = rateLimit({
   legacyHeaders: false,
   // Викликається після auth, тож ключ — перевірений userId
   keyGenerator: (req) => (req.user?.userId ? `user:${req.user.userId}` : req.ip),
-  validate: { keyGeneratorIpFallback: false },
 });
 
 router.param('syllabusId', (req, res, next, id) => {
