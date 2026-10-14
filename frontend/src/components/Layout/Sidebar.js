@@ -61,10 +61,10 @@ const Sidebar = ({ onItemClick }) => {
       roles: ['instructor', 'admin'],
     },
     {
-      text: 'Кабінет',
+      text: user?.role === 'admin' ? 'Кабінет' : 'Мої силабуси',
       icon: <AdminPanelSettings />,
       path: '/cabinet',
-      roles: ['admin'],
+      roles: ['admin', 'instructor'],
     },
     {
       text: 'Документи',

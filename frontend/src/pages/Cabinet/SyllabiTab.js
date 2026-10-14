@@ -63,7 +63,7 @@ const ReadinessCell = ({ syllabus }) => {
   );
 };
 
-const SyllabiTab = ({ programs, user, onChanged }) => {
+const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -100,6 +100,14 @@ const SyllabiTab = ({ programs, user, onChanged }) => {
     }
   };
 
+  const getOwnerId = (syllabus) => {
+    const owner = syllabus.instructor || syllabus.instructorId;
+    if (!owner) return '';
+    return typeof owner === 'object' ? String(owner._id || owner.id || '') : String(owner);
+  };
+
+  const canDeleteSyllabus = (syllabus) => isAdmin || (userId && getOwnerId(syllabus) === String(userId));
+
   const clearDeletedWorkspaceState = (syllabusId) => {
     const openTabsKey = `pt.openTabs.v1.${userId || 'anon'}`;
     const lastChatKey = `pt.lastChat.v1.${userId || 'anon'}`;
@@ -117,6 +125,10 @@ const SyllabiTab = ({ programs, user, onChanged }) => {
   };
 
   const deleteSyllabus = async (syllabus) => {
+    if (!canDeleteSyllabus(syllabus)) {
+      setSnack('Можна видаляти лише власні силабуси');
+      return;
+    }
     const courseTitle = syllabus.course?.name || syllabus.title || 'цей силабус';
     if (!window.confirm(`Видалити «${courseTitle}»? Цю дію неможливо скасувати.`)) return;
     setDeletingId(syllabus._id);
@@ -175,23 +187,25 @@ const SyllabiTab = ({ programs, user, onChanged }) => {
                   <Tooltip title="Відкрити чат">
                     <IconButton size="small" onClick={() => navigate(`/workspace/${s._id}`)}><Chat fontSize="small" /></IconButton>
                   </Tooltip>
-                  {s.status === 'submitted' && s.submissionEmailStatus === 'failed' && (
+                  {s.status === 'submitted' && s.submissionEmailStatus === 'failed' && isAdmin && (
                     <Tooltip title="Надіслати лист повторно">
                       <IconButton size="small" onClick={() => resend(s._id)}><Email fontSize="small" /></IconButton>
                     </Tooltip>
                   )}
-                  <Tooltip title="Видалити силабус">
-                    <span>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        disabled={deletingId === s._id}
-                        onClick={() => deleteSyllabus(s)}
-                      >
-                        {deletingId === s._id ? <CircularProgress size={16} color="inherit" /> : <Delete fontSize="small" />}
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+                  {canDeleteSyllabus(s) && (
+                    <Tooltip title="Видалити силабус">
+                      <span>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          disabled={deletingId === s._id}
+                          onClick={() => deleteSyllabus(s)}
+                        >
+                          {deletingId === s._id ? <CircularProgress size={16} color="inherit" /> : <Delete fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
