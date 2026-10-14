@@ -14,7 +14,7 @@ const { body, validationResult } = require('express-validator');
 
 const Syllabus = require('../models/Syllabus');
 const { auth } = require('../middleware/auth');
-const aiService = require('../services/aiService');
+const aiService = require('../services/ai');
 const { admin } = require('../middleware/roles');
 
 const router = express.Router();

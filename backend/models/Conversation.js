@@ -13,7 +13,6 @@ const conversationSchema = new mongoose.Schema({
     ref: 'Syllabus',
     required: true,
     unique: true,
-    index: true,
   },
   instructorId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -23,7 +22,7 @@ const conversationSchema = new mongoose.Schema({
   currentIssueId: { type: String, default: null },
   status: {
     type: String,
-    enum: ['active', 'submitted', 'abandoned', 'error'],
+    enum: ['active', 'submitted', 'error'],
     default: 'active',
   },
   readiness: {

@@ -3,7 +3,7 @@ const path = require('path');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Syllabus = require('../models/Syllabus');
-const aiService = require('./aiService');
+const aiService = require('./ai');
 const { toLineDoc, sliceLines } = require('./ai/lineDoc');
 
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -530,19 +530,6 @@ async function freeChatMessage(conversation, userText) {
   return aiMessage;
 }
 
-async function previewIssueChange(syllabusId, issueId, selection = null) {
-  const syllabus = await Syllabus.findById(syllabusId)
-    .populate('programId', 'name')
-    .populate('instructor', 'firstName lastName');
-  if (!syllabus) throw Object.assign(new Error('Syllabus not found'), { statusCode: 404 });
-  const issue = (syllabus.recommendations || []).find((r) => r.id === issueId);
-  if (!issue) throw Object.assign(new Error('Issue not found'), { statusCode: 404 });
-  if (!issue.beforeAfter || !issue.beforeAfter.payload) {
-    throw Object.assign(new Error('Issue has no preview to render'), { statusCode: 409 });
-  }
-  return aiService.renderIssuePreviewPdf(syllabus, issueId, selection);
-}
-
 async function previewIssueChangeText(syllabusId, issueId, selection = null) {
   const syllabus = await Syllabus.findById(syllabusId)
     .populate('programId', 'name')
@@ -682,7 +669,6 @@ module.exports = {
   reopenIssue,
   freeChatMessage,
   previewFinalPdf,
-  previewIssueChange,
   previewIssueChangeText,
   submitSyllabus,
   getConversationView,

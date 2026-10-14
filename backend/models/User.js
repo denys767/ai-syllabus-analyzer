@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const validator = require('validator');
 
 const userSchema = new mongoose.Schema({
   email: {
@@ -8,7 +9,7 @@ const userSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     trim: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
+    validate: [(v) => validator.isEmail(v), 'Вкажіть коректний email']
   },
   password: {
     type: String,
@@ -30,26 +31,18 @@ const userSchema = new mongoose.Schema({
     enum: ['instructor', 'admin'],
     default: 'instructor'
   },
-  openSyllabusIds: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Syllabus'
-  }],
   avatarUrl: {
     type: String,
     trim: true
   },
-  isVerified: {
-    type: Boolean,
-    default: false
-  },
-  verificationToken: String,
   // Pending email change flow
   pendingEmail: {
     type: String,
     lowercase: true,
     trim: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
+    validate: [(v) => validator.isEmail(v), 'Вкажіть коректний email']
   },
+  // SHA-256 хеші токенів; сирі токени надсилаються тільки на пошту
   emailChangeToken: String,
   emailChangeTokenExpires: Date,
   resetPasswordToken: String,
@@ -63,11 +56,6 @@ const userSchema = new mongoose.Schema({
     notifications: {
       type: Boolean,
       default: true
-    },
-    language: {
-      type: String,
-      enum: ['uk', 'en'],
-      default: 'uk'
     },
     theme: {
       type: String,
@@ -105,13 +93,11 @@ userSchema.methods.toPublicJSON = function() {
     lastName: this.lastName,
   avatarUrl: this.avatarUrl,
     role: this.role,
-    isVerified: this.isVerified,
     lastLogin: this.lastLogin,
     createdAt: this.createdAt,
-    // Expose user settings (theme/language/notifications) for client UI
+    // Налаштування користувача для клієнтського UI
     settings: {
       notifications: this.settings?.notifications,
-      language: this.settings?.language,
       theme: this.settings?.theme
     }
   };

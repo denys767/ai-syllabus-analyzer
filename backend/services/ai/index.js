@@ -12,7 +12,6 @@ const {
 } = require('./applyEdits');
 const {
   renderFinalSyllabusPdf,
-  renderRevisionPdfFromMarkup,
   generateSubmissionReport,
 } = require('./finalRender');
 const { chatReply, serializeIssueContext } = require('./chatReply');
@@ -32,22 +31,6 @@ function getEditableSyllabusText(syllabus) {
  */
 function applyAcceptedDecisions(syllabus) {
   recomputeSyllabusState(syllabus);
-}
-
-/**
- * Generate a one-rec preview PDF and return the file path.
- */
-async function renderIssuePreviewPdf(syllabus, recId, selection = null) {
-  const markup = buildSingleRecPreviewMarkup(syllabus, recId, selection);
-  const course = syllabus.course?.name || syllabus.title || 'Syllabus preview';
-  const instructor = `${syllabus.instructor?.firstName || ''} ${syllabus.instructor?.lastName || ''}`.trim();
-  const program = syllabus.programId?.name || '';
-  return renderRevisionPdfFromMarkup(markup, {
-    course,
-    instructor,
-    program,
-    fallbackText: syllabus.extractedText,
-  });
 }
 
 function buildIssuePreview(syllabus, recId, selection = null) {
@@ -71,7 +54,6 @@ module.exports = {
 
   // Preview rendering
   renderFinalSyllabusPdf,
-  renderIssuePreviewPdf,
   buildIssuePreview,
   buildSingleRecPreviewMarkup,
   generateSubmissionReport,
