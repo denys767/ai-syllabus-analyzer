@@ -1,0 +1,68 @@
+import React, { useEffect, useState } from 'react';
+import {
+  Alert,
+  Button,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
+import { REFINE_HINTS } from '../constants';
+
+const RefineDialog = ({ open, busy, error, onClose, onSubmit }) => {
+  const [feedback, setFeedback] = useState('');
+
+  useEffect(() => {
+    if (open) setFeedback('');
+  }, [open]);
+
+  const appendHint = (hint) => {
+    setFeedback((current) => (current.trim() ? `${current.trim()}, ${hint.toLowerCase()}` : hint));
+  };
+
+  return (
+    <Dialog open={open} onClose={() => !busy && onClose()} fullWidth maxWidth="sm">
+      <DialogTitle>Змінити пропозицію</DialogTitle>
+      <DialogContent dividers>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Напишіть, що змінити, і AI підготує новий варіант. Попередній варіант збережеться в історії.
+        </Typography>
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
+          {REFINE_HINTS.map((hint) => (
+            <Chip key={hint} label={hint} size="small" variant="outlined" clickable disabled={busy} onClick={() => appendHint(hint)} />
+          ))}
+        </Stack>
+        <TextField
+          autoFocus
+          fullWidth
+          multiline
+          minRows={3}
+          label="Коментар"
+          placeholder="Наприклад: коротше, без дат, додай український кейс"
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          disabled={busy}
+        />
+        {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+      </DialogContent>
+      <DialogActions>
+        <Button disabled={busy} onClick={onClose}>Назад</Button>
+        <Button
+          variant="contained"
+          disabled={busy || !feedback.trim()}
+          startIcon={busy ? <CircularProgress size={16} color="inherit" /> : null}
+          onClick={() => onSubmit({ feedback: feedback.trim() })}
+        >
+          {busy ? 'Генеруємо…' : 'Оновити пропозицію'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+export default RefineDialog;
