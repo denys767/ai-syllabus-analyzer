@@ -18,16 +18,16 @@ import { useDropzone } from 'react-dropzone';
 import api from '../../services/api';
 
 const STEPS = [
-  { title: 'Завантаження', detail: 'Додайте PDF або DOCX з чернеткою силабуса.' },
+  { title: 'Завантаження', detail: 'Додайте DOCX, DOC або PDF з чернеткою силабуса. DOCX дає найкращий результат.' },
   { title: 'Перевірка', detail: 'Я звіряю його з шаблоном KSE MBA та результатами навчання MBA-27.' },
-  { title: 'Виправлення', detail: 'Ми проходимо рекомендації по одній із переглядом «було/стало».' },
-  { title: 'Надсилання', detail: 'Перегляньте фінальний PDF і надішліть його академічному директору.' },
+  { title: 'Виправлення', detail: 'Ми проходимо пропозиції по одній: кожну можна прийняти, змінити або відхилити, зміни показано прямо в тексті.' },
+  { title: 'Надсилання', detail: 'Завантажте DOCX з правками (tracked changes) або PDF і надішліть їх академічному директору.' },
 ];
 
 const ACCEPTED = {
-  'application/pdf': ['.pdf'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'application/msword': ['.doc'],
+  'application/pdf': ['.pdf'],
 };
 
 const EmptyState = ({ onUploaded }) => {
@@ -149,7 +149,11 @@ const EmptyState = ({ onUploaded }) => {
               : 'Перетягніть силабус сюди або натисніть, щоб обрати файл'}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          PDF, DOCX · до 10 МБ
+          DOCX, DOC, PDF · до 10 МБ
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          DOCX дає найкращий результат: зберігається оригінальне форматування, а правки додаються як tracked changes.
+          PDF буде перетворено на простий DOCX.
         </Typography>
       </Paper>
 

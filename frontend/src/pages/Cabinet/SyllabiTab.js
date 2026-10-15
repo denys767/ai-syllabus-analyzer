@@ -20,9 +20,10 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { Chat, Delete, Email, Refresh } from '@mui/icons-material';
+import { Chat, Delete, Description, Email, PictureAsPdf, Refresh } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { downloadOutput } from '../../utils/download';
 
 const statusColor = { submitted: 'success', in_progress: 'warning', analyzing: 'info', error: 'error' };
 const statusLabel = {
@@ -36,27 +37,26 @@ const StatusChip = ({ status }) => (
   <Chip label={statusLabel[status] || status || '—'} size="small" color={statusColor[status] || 'default'} />
 );
 
-const blockersLabel = (n) => {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${n} блокер`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} блокери`;
-  return `${n} блокерів`;
-};
-
 const ReadinessCell = ({ syllabus }) => {
   const score = Number(syllabus.readiness?.score || 0);
-  const blockers = Number(syllabus.issueCounts?.blockers || 0);
+  const counts = syllabus.issueCounts || {};
+  const pending = Number(counts.pending || 0);
+  const total = Number(counts.total || 0);
+  const resolved = Number(counts.accepted || 0) + Number(counts.rejected || 0);
   return (
     <Box sx={{ minWidth: 130 }}>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
         <Typography variant="body2" sx={{ fontWeight: 600 }}>{score}%</Typography>
-        {blockers > 0 && <Chip size="small" color="error" label={blockersLabel(blockers)} />}
+        {total > 0 && (
+          <Typography variant="caption" color="text.secondary">
+            {resolved}/{total} опрацьовано
+          </Typography>
+        )}
       </Stack>
       <LinearProgress
         variant="determinate"
         value={Math.max(0, Math.min(100, score))}
-        color={blockers > 0 ? 'error' : score >= 100 ? 'success' : 'primary'}
+        color={total > 0 && pending === 0 ? 'success' : 'primary'}
         sx={{ height: 6, borderRadius: 1 }}
       />
     </Box>
@@ -98,6 +98,11 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
     } catch (err) {
       setSnack(err.response?.data?.message || 'Не вдалося надіслати повторно');
     }
+  };
+
+  const download = async (syllabus, name) => {
+    const failure = await downloadOutput(syllabus._id, name, syllabus.course?.name || syllabus.title || 'syllabus');
+    if (failure) setSnack(failure);
   };
 
   const getOwnerId = (syllabus) => {
@@ -187,6 +192,16 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
                   <Tooltip title="Відкрити чат">
                     <IconButton size="small" onClick={() => navigate(`/workspace/${s._id}`)}><Chat fontSize="small" /></IconButton>
                   </Tooltip>
+                  {s.status === 'submitted' && (
+                    <>
+                      <Tooltip title="DOCX з правками (tracked changes)">
+                        <IconButton size="small" onClick={() => download(s, 'tracked.docx')}><Description fontSize="small" /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="PDF з правками">
+                        <IconButton size="small" onClick={() => download(s, 'tracked.pdf')}><PictureAsPdf fontSize="small" /></IconButton>
+                      </Tooltip>
+                    </>
+                  )}
                   {s.status === 'submitted' && s.submissionEmailStatus === 'failed' && isAdmin && (
                     <Tooltip title="Надіслати лист повторно">
                       <IconButton size="small" onClick={() => resend(s._id)}><Email fontSize="small" /></IconButton>

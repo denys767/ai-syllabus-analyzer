@@ -84,27 +84,36 @@ class ApiService {
         ...config,
         headers: { 'Content-Type': 'multipart/form-data', ...(config.headers || {}) },
       }),
-    getSyllabus: (id) => this.client.get(`/syllabus/${id}`),
+    // Опитування під час аналізу: { status, stage, error }
+    getStatus: (id) => this.client.get(`/syllabus/${id}/status`),
     deleteSyllabus: (id) => this.client.delete(`/syllabus/${id}`),
     reanalyze: (id) => this.client.post(`/syllabus/${id}/analyze`),
   };
 
+  // Контракт: docs/api-v3.md. Кожна мутація повертає повний view чату.
   chat = {
     get: (syllabusId) => this.client.get(`/chat/${syllabusId}`),
     start: (syllabusId) => this.client.post(`/chat/${syllabusId}/start`, {}, LLM_REQUEST),
-    confirm: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/confirm`, body, LLM_REQUEST),
-    cancel: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/cancel`, body, LLM_REQUEST),
-    reopen: (syllabusId, issueId, body = {}) =>
-      this.client.post(`/chat/${syllabusId}/issues/${issueId}/reopen`, body, LLM_REQUEST),
-    sendMessage: (syllabusId, body) => this.client.post(`/chat/${syllabusId}/message`, body, LLM_REQUEST),
-    preview: (syllabusId) =>
-      this.client.post(`/chat/${syllabusId}/preview`, {}, { ...LLM_REQUEST, responseType: 'blob' }),
-    issuePreview: (syllabusId, issueId, selection = null) =>
-      this.client.post(
-        `/chat/${syllabusId}/issues/${issueId}/preview`,
-        selection ? { selection } : {},
-        LLM_REQUEST
-      ),
+    suggestionPreview: (syllabusId, suggestionId, optionId) =>
+      this.client.get(`/chat/${syllabusId}/suggestions/${suggestionId}/preview`, {
+        params: optionId ? { optionId } : {},
+      }),
+    accept: (syllabusId, suggestionId, body = {}) =>
+      this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/accept`, body, LLM_REQUEST),
+    reject: (syllabusId, suggestionId, body = {}) =>
+      this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/reject`, body, LLM_REQUEST),
+    refine: (syllabusId, suggestionId, body = {}) =>
+      this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/refine`, body, LLM_REQUEST),
+    answer: (syllabusId, suggestionId, answer) =>
+      this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/answer`, { answer }, LLM_REQUEST),
+    reopen: (syllabusId, suggestionId) =>
+      this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/reopen`, {}, LLM_REQUEST),
+    sendMessage: (syllabusId, text) =>
+      this.client.post(`/chat/${syllabusId}/message`, { text }, LLM_REQUEST),
+    documentPreview: (syllabusId) => this.client.get(`/chat/${syllabusId}/document/preview`),
+    // name: 'tracked.docx' | 'clean.docx' | 'tracked.pdf'
+    downloadOutput: (syllabusId, name) =>
+      this.client.get(`/chat/${syllabusId}/outputs/${name}`, { ...LLM_REQUEST, responseType: 'blob' }),
     submit: (syllabusId) => this.client.post(`/chat/${syllabusId}/submit`, {}, LLM_REQUEST),
   };
 
