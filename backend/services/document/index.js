@@ -4,25 +4,30 @@ const model = require('./model');
 const apply = require('./apply');
 const convert = require('./convert');
 const { extractDocx } = require('./extractors/docx');
+const { pdfToDocx } = require('./extractors/pdfToDocx');
 const { writeDocx, DEFAULT_AUTHOR } = require('./writers/docx');
 const { acceptAllRevisions, rejectAllRevisions } = require('./revisions');
 const { docError } = require('./ooxml');
 
 /**
- * Завантаження файлу викладача: .doc конвертується в .docx (LibreOffice), далі екстракція.
- * docVersion рахується від .docx, з яким далі працює writer (для .doc — від результату конвертації),
- * тож зберігати треба саме повернений `buffer`.
+ * Завантаження файлу викладача: .doc конвертується в .docx (LibreOffice), з .pdf синтезується
+ * простий .docx (extractors/pdfToDocx.js), далі екстракція.
+ * docVersion рахується від .docx, з яким далі працює writer (для .doc/.pdf — від результату
+ * конвертації), тож зберігати треба саме повернений `buffer`.
  * @param {Buffer} buffer
- * @param {'docx'|'doc'} ext
- * @returns {Promise<{buffer: Buffer, doc: import('./model').DocModel, convertedFrom: string|null}>}
+ * @param {'docx'|'doc'|'pdf'} ext
+ * @param {{title?: string}} [opts]
+ * @returns {Promise<{buffer: Buffer, doc: import('./model').DocModel, convertedFrom: null|'doc'|'pdf'}>}
  */
-async function loadDocument(buffer, ext) {
+async function loadDocument(buffer, ext, opts = {}) {
   const format = String(ext || '').replace(/^\./, '').toLowerCase();
-  if (format !== 'docx' && format !== 'doc') {
-    throw docError(`Формат .${format} поки не підтримується модулем документів`, 415, 'UNSUPPORTED_FORMAT');
-  }
-  const docx = format === 'doc' ? await convert.docToDocx(buffer) : buffer;
-  return { buffer: docx, doc: await extractDocx(docx), convertedFrom: format === 'doc' ? 'doc' : null };
+  let docx;
+  let convertedFrom = null;
+  if (format === 'docx') docx = buffer;
+  else if (format === 'doc') { docx = await convert.docToDocx(buffer); convertedFrom = 'doc'; }
+  else if (format === 'pdf') { docx = await pdfToDocx(buffer, opts); convertedFrom = 'pdf'; }
+  else throw docError(`Формат .${format} поки не підтримується модулем документів`, 415, 'UNSUPPORTED_FORMAT');
+  return { buffer: docx, doc: await extractDocx(docx), convertedFrom };
 }
 
 /**
@@ -49,6 +54,7 @@ module.exports = {
   buildOutputs,
   acceptAllRevisions,
   rejectAllRevisions,
+  pdfToDocx,
   DEFAULT_AUTHOR,
   // пропозиції
   validateOps: apply.validateOps,
