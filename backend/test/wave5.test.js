@@ -2,7 +2,7 @@ jest.mock('../services/ai/review', () => ({ runReview: jest.fn(async () => ({ fi
 jest.mock('../services/emailService', () => ({ sendSubmissionToAdEmail: jest.fn(async () => ({ messageId: 'test' })) }));
 jest.mock('../services/document', () => {
   const actual = jest.requireActual('../services/document');
-  return { ...actual, renderPptxPreview: jest.fn(actual.renderPptxPreview) };
+  return { ...actual, renderPptxPreview: jest.fn(actual.renderPptxPreview), toPdf: jest.fn(actual.toPdf) };
 });
 const helpers = require('./helpers');
 process.env.MAX_FILE_SIZE = String(10 * 1024 * 1024);
@@ -57,7 +57,15 @@ test('PPTX upload → accept → previews, cached slides, outputs, submit', asyn
   const block = s.document.blocks.find((b) => !b.readOnly && b.kind === 'slide-text');
   const newText = `${block.text} Additional practical case discussion and assessment.`;
   const suggestion = await helpers.createSuggestion(s, { ops: [helpers.replaceOp(block.id, newText)] });
-  expect((await post(s, '/start')).status).toBe(200);
+  // Вставка після блоку іншого слайду: slide — номер слайду якоря
+  const other = s.document.blocks.find((b) => !b.readOnly && b.locator.slide !== block.locator.slide && b.kind === 'slide-text');
+  const insert = await helpers.createSuggestion(s, { ops: [{ op: 'insertAfter', blockId: other.id, newBlocks: [{ kind: 'paragraph', text: 'Peer review.' }] }] });
+  const started = await post(s, '/start');
+  expect(started.status).toBe(200);
+  const viewOf = (id) => started.body.suggestions.find((x) => x.id === String(id));
+  expect(viewOf(suggestion._id).changes).toEqual([expect.objectContaining({ blockId: block.id, op: 'replaceBlock', slide: block.locator.slide })]);
+  expect(viewOf(insert._id).changes).toEqual([expect.objectContaining({ blockId: other.id, op: 'insertAfter', slide: other.locator.slide })]);
+  expect((await post(s, `/suggestions/${insert._id}/reject`, { reason: 'ні' })).status).toBe(200);
   const slides = await get(s, `/suggestions/${suggestion._id}/slides`);
   expect(slides.status).toBe(200);
   expect(slides.body.slides).toHaveLength(1);
@@ -71,7 +79,12 @@ test('PPTX upload → accept → previews, cached slides, outputs, submit', asyn
   expect(documents.renderPptxPreview).toHaveBeenCalledTimes(2);
   expect((await post(s, `/suggestions/${suggestion._id}/accept`)).status).toBe(200);
   const preview = await get(s, '/document/preview');
-  expect(preview.body.blocks.find((b) => b.blockId === block.id).parts.some((p) => p.type === 'ins')).toBe(true);
+  const changed = preview.body.blocks.find((b) => b.blockId === block.id);
+  expect(changed.parts.some((p) => p.type === 'ins')).toBe(true);
+  expect(changed.slide).toBe(block.locator.slide);
+  expect(preview.body.blocks.every((b) => Number.isInteger(b.slide))).toBe(true);
+  const cabinet = await request(app).get('/api/cabinet/syllabi').set(auth);
+  expect(cabinet.body.syllabi.find((x) => String(x._id) === String(s._id)).outputs.map((o) => o.name)).toEqual(['edited.pptx', 'preview.pdf']);
   expect((await get(s, '/outputs/tracked.docx')).status).toBe(404);
   const edited = await binary(get(s, '/outputs/edited.pptx'));
   expect(edited.status).toBe(200);
@@ -82,13 +95,35 @@ test('PPTX upload → accept → previews, cached slides, outputs, submit', asyn
   expect(sendSubmissionToAdEmail.mock.calls.at(-1)[0].attachments.map((a) => a.filename)).toEqual(['course_edited.pptx', 'course_preview.pdf']);
 });
 
-test('PPTX magic bytes reject DOCX zip and corrupt PK archive as 400', async () => {
-  const zip = await new JSZip().file('word/document.xml', '<doc/>').generateAsync({ type: 'nodebuffer' });
-  for (const buffer of [zip, Buffer.from('PKinvalid')]) {
+test('PPTX magic bytes reject DOCX zip and corrupt PK archive as 400 (і навпаки для .docx)', async () => {
+  const docxZip = await new JSZip().file('word/document.xml', '<doc/>').generateAsync({ type: 'nodebuffer' });
+  const pptxZip = await new JSZip().file('ppt/presentation.xml', '<p/>').generateAsync({ type: 'nodebuffer' });
+  const cases = [[docxZip, 'fake.pptx'], [Buffer.from('PKinvalid'), 'fake.pptx'], [pptxZip, 'fake.docx']];
+  for (const [buffer, name] of cases) {
     const res = await request(app).post('/api/syllabus/upload').set(auth)
-      .field('courseName', 'Курс').field('programId', String(program._id)).attach('syllabus', buffer, 'fake.pptx');
+      .field('courseName', 'Курс').field('programId', String(program._id)).attach('syllabus', buffer, name);
     expect(res.status).toBe(400);
   }
+});
+
+test('outputs: legacy — порожній список і 409; PDF до хвилі 5 — без annotated.pdf', async () => {
+  const legacy = await helpers.createSyllabus(owner, { legacy: true, sourceFormat: 'docx' });
+  ids.push(legacy._id);
+  const legacyView = await get(legacy, '');
+  expect(legacyView.body.syllabus.outputs).toEqual([]);
+  expect((await get(legacy, '/outputs/tracked.docx')).status).toBe(409);
+
+  const oldPdf = await helpers.createDocSyllabus(owner, { sourceFormat: 'pdf' });
+  ids.push(oldPdf._id);
+  const view = await get(oldPdf, '');
+  expect(view.body.syllabus.outputs.map((o) => o.name)).toEqual(['tracked.docx', 'clean.docx', 'tracked.pdf']);
+  const res = await get(oldPdf, '/outputs/annotated.pdf');
+  expect(res.status).toBe(404);
+  expect(res.body.code).toBe('OUTPUT_NOT_AVAILABLE');
+  const cabinet = await request(app).get('/api/cabinet/syllabi').set(auth);
+  const items = new Map(cabinet.body.syllabi.map((x) => [String(x._id), x]));
+  expect(items.get(String(legacy._id)).outputs).toEqual([]);
+  expect(items.get(String(oldPdf._id)).outputs.map((o) => o.name)).toEqual(['tracked.docx', 'clean.docx', 'tracked.pdf']);
 });
 
 test('PDF blocks persist 1:1, accepted replacements/inserts/deletes annotate original, submit includes tracked files', async () => {
@@ -114,6 +149,16 @@ test('PDF blocks persist 1:1, accepted replacements/inserts/deletes annotate ori
   expect((await post(s, '/submit')).status).toBe(200);
   expect(sendSubmissionToAdEmail.mock.calls.at(-1)[0].attachments.map((a) => a.filename)).toEqual(['course_annotated.pdf', 'course_tracked.docx', 'course_tracked.pdf']);
   expect((await Syllabus.findById(s._id)).outputs.annotated.path).toBeTruthy();
+});
+
+test('PPTX submit без LibreOffice: лише edited.pptx і примітка у звіті', async () => {
+  const s = await upload('pptx');
+  await post(s, '/start');
+  documents.toPdf.mockRejectedValueOnce(Object.assign(new Error('no soffice'), { statusCode: 503, code: 'SOFFICE_MISSING' }));
+  expect((await post(s, '/submit')).status).toBe(200);
+  const mail = sendSubmissionToAdEmail.mock.calls.at(-1)[0];
+  expect(mail.attachments.map((a) => a.filename)).toEqual(['course_edited.pptx']);
+  expect(mail.summaryText).toMatch(/PDF-версію презентації не вдалося згенерувати/);
 });
 
 test('PDF mapping remaps operation anchors and synthetic inserted ids independently of numbering', () => {
