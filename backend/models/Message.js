@@ -11,14 +11,15 @@ const messageSchema = new mongoose.Schema({
     enum: ['ai', 'user', 'system'],
     required: true,
   },
+  // suggestion: картка пропозиції; вміст формується на льоту з Suggestion за relatedSuggestionId
   kind: {
     type: String,
-    enum: ['text', 'before-after', 'choice', 'case-cards', 'submission-cta'],
+    enum: ['text', 'suggestion', 'submission-cta'],
     default: 'text',
   },
   content: { type: String, default: '' },
   payload: { type: mongoose.Schema.Types.Mixed, default: null },
-  relatedIssueId: { type: String, default: null },
+  relatedSuggestionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Suggestion', default: null },
 }, { timestamps: { createdAt: true, updatedAt: false } });
 
 messageSchema.index({ conversationId: 1, createdAt: 1 });
