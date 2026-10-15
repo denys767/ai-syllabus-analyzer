@@ -65,7 +65,7 @@ function buildSuggestionView(doc, s, acceptedDocs, titles) {
     severity: s.severity,
     group: s.group,
     criterionId: s.criterionId || null,
-    criterionTitle: (s.criterionId && getCriterion(s.criterionId)?.title) || null,
+    criterionTitle: (s.criterionId && (getCriterion(s.criterionId)?.titleUk || getCriterion(s.criterionId)?.title)) || null,
     title: s.title,
     description: s.description,
     rationale: s.rationale || null,

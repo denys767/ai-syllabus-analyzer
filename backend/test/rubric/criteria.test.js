@@ -3,7 +3,7 @@ const { LEARNING_OUTCOMES } = require('../../services/ai/constants');
 
 const { criteria, standardClauses, SEVERITY_RANK } = rubric;
 const FIXES = ['replaceBlock', 'insertAfter', 'question', 'clause'];
-const REQUIRED = ['id', 'group', 'title', 'check', 'whatGoodLooksLike', 'doNotReportIf', 'defaultSeverity', 'evidence', 'fix', 'standardClauseId', 'mba27', 'source', 'examples'];
+const REQUIRED = ['id', 'group', 'title', 'titleUk', 'check', 'whatGoodLooksLike', 'doNotReportIf', 'defaultSeverity', 'evidence', 'fix', 'standardClauseId', 'mba27', 'source', 'examples'];
 
 describe('rubric criteria', () => {
   test('has 25-35 criteria with unique ids', () => {
@@ -20,6 +20,7 @@ describe('rubric criteria', () => {
     expect(FIXES).toContain(c.fix);
     expect(Array.isArray(c.doNotReportIf)).toBe(true);
     expect(c.doNotReportIf.length).toBeGreaterThan(0);
+    expect(c.titleUk).toMatch(/[А-Яа-яІіЇїЄє]/u);
     expect(c.examples.good).toBeTruthy();
     expect(c.examples.bad).toBeTruthy();
     expect(c.check.trim().endsWith('?')).toBe(true);

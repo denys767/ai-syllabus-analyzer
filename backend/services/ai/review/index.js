@@ -19,19 +19,25 @@ async function runReview({ blocks, meta = {}, options = {} } = {}) {
     maxFindings: Number.isInteger(supplied.maxFindings) && supplied.maxFindings >= 0 ? supplied.maxFindings : 10,
     maxPerGroup: Number.isInteger(supplied.maxPerGroup) && supplied.maxPerGroup >= 0 ? supplied.maxPerGroup : 3,
   };
+  const stage = async (name) => {
+    try { await supplied.onStage?.(name); } catch { /* Прогрес не впливає на аналіз. */ }
+  };
   meta = meta || {};
   const started = Date.now();
   const stats = { promptVersion: PROMPT_VERSION, llmCalls: 0, blocks: blocks.length, degraded: [], failedGroups: [] };
   const checks = runChecks(blocks);
   let structure = emptyStructure();
   let coverage = computeCoverage(structure);
+  await stage('structure');
   try {
     ({ structure, coverage } = await extractStructure({ blocks, meta, stats }));
   } catch {
     stats.degraded.push('structure');
   }
+  await stage('diagnose');
   const diagnosis = await diagnose({ blocks, meta, structure, coverage, checks, options, stats });
   let findings;
+  await stage('verify');
   try {
     findings = await verify({ findings: diagnosis.findings, blocks, meta, options, stats });
   } catch {

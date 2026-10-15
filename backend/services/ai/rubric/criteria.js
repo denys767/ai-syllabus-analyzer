@@ -8,7 +8,7 @@ const LO = (n) => `Learning outcome ${n}`;
 const criteria = [
   // ───────────── template: KSE template sections present and substantive ─────────────
   {
-    id: 'T-1', group: 'template', title: 'Summary: course title, code and instructor',
+    id: 'T-1', group: 'template', title: 'Summary: course title, code and instructor', titleUk: 'Назва курсу, код і викладач',
     check: 'Does section 1 (Summary) state the course title, the course code and at least one instructor name?',
     whatGoodLooksLike: 'Title, code and instructor name(s) appear at the top of the syllabus, ideally with a contact email.',
     doNotReportIf: ['the information is in a header, title page or table instead of a heading "Summary"', 'the code is absent but the title and instructor are present and the program does not use codes (report only the missing part)'],
@@ -20,7 +20,7 @@ const criteria = [
     },
   },
   {
-    id: 'T-2', group: 'template', title: 'Summary: prerequisites',
+    id: 'T-2', group: 'template', title: 'Summary: prerequisites', titleUk: 'Передумови вивчення курсу',
     check: 'Does the syllabus state prerequisites (or explicitly say there are none)?',
     whatGoodLooksLike: 'A "Prerequisites" line naming required courses or knowledge, or "None".',
     doNotReportIf: ['the text says "no prerequisites" or "open to all MBA students"', 'prerequisites are listed under another heading such as "Requirements" or "Who is this course for"'],
@@ -32,7 +32,7 @@ const criteria = [
     },
   },
   {
-    id: 'T-3', group: 'template', title: 'Summary: course objectives',
+    id: 'T-3', group: 'template', title: 'Summary: course objectives', titleUk: 'Цілі курсу',
     check: 'Does the syllabus contain course objectives (what the course aims to do) separate from learning outcomes?',
     whatGoodLooksLike: 'A short paragraph or list of 2–5 course objectives stating the purpose and scope of the course.',
     doNotReportIf: ['a "Course description" or "Aims" paragraph plays the same role', 'objectives and outcomes are merged in one list that is clearly outcome-formulated'],
@@ -44,7 +44,7 @@ const criteria = [
     },
   },
   {
-    id: 'T-4', group: 'template', title: 'Summary: learning outcomes present',
+    id: 'T-4', group: 'template', title: 'Summary: learning outcomes present', titleUk: 'Наявність результатів навчання',
     check: 'Does the syllabus list learning outcomes (what students will be able to do after the course)?',
     whatGoodLooksLike: 'A numbered list of 3–7 learning outcomes, usually under "Learning Outcomes" or "By the end of the course students will…".',
     doNotReportIf: ['outcomes are given under a different heading ("Competencies", "Students will be able to")', 'outcomes are embedded in a table together with assessments'],
@@ -56,7 +56,7 @@ const criteria = [
     },
   },
   {
-    id: 'T-5', group: 'template', title: 'Course Structure & Schedule table',
+    id: 'T-5', group: 'template', title: 'Course Structure & Schedule table', titleUk: 'Структура та розклад курсу',
     check: 'Is there a session-by-session schedule that gives a date (or week/session number) and a topic for every session?',
     whatGoodLooksLike: 'A table or list covering all sessions with date/week and topic; readings or activities per session are a plus.',
     doNotReportIf: ['the schedule is a list rather than a table but has dates and topics', 'dates are given as "Week N" or "Session N" because the calendar is not fixed yet'],
@@ -68,7 +68,7 @@ const criteria = [
     },
   },
   {
-    id: 'T-6', group: 'template', title: 'Grading & Assessment section present',
+    id: 'T-6', group: 'template', title: 'Grading & Assessment section present', titleUk: 'Наявність розділу оцінювання',
     check: 'Does the syllabus have a grading section listing assessment components, each with a weight?',
     whatGoodLooksLike: 'A list or table of components (e.g. case write-up, exam, participation) each with a percentage or point weight.',
     doNotReportIf: ['the section exists under a different heading such as "Evaluation" or "How you will be assessed"', 'weights are given per component in a table'],
@@ -80,7 +80,7 @@ const criteria = [
     },
   },
   {
-    id: 'T-7', group: 'template', title: 'Course Materials: required and recommended',
+    id: 'T-7', group: 'template', title: 'Course Materials: required and recommended', titleUk: 'Обов’язкові та рекомендовані матеріали',
     check: 'Does the syllabus list required readings or materials, and distinguish them from recommended ones (or state that there are none of one kind)?',
     whatGoodLooksLike: 'Two labelled lists, or one list where each item is marked required/recommended, with enough detail to find each item (author, title, year or link).',
     doNotReportIf: ['materials are listed per session in the schedule and flagged as required/optional', 'the syllabus states that no textbook is used and materials are distributed in class'],
@@ -92,7 +92,7 @@ const criteria = [
     },
   },
   {
-    id: 'T-8', group: 'template', title: 'Course Policies section present',
+    id: 'T-8', group: 'template', title: 'Course Policies section present', titleUk: 'Наявність політик курсу',
     check: 'Does the syllabus have a Course Policies section (or equivalent) covering attendance, academic integrity and use of AI?',
     whatGoodLooksLike: 'One section with three labelled sub-parts: Attendance, Academic Integrity, Use of AI.',
     doNotReportIf: ['each policy exists under its own heading elsewhere in the document', 'the missing item is already reported by PO-1, PO-3 or PO-4 (report the section only if all three are absent)'],
@@ -104,7 +104,7 @@ const criteria = [
     },
   },
   {
-    id: 'T-9', group: 'template', title: 'No placeholders or leftover template text',
+    id: 'T-9', group: 'template', title: 'No placeholders or leftover template text', titleUk: 'Відсутність незаповнених шаблонів',
     check: 'Is the syllabus free of unfilled placeholders (e.g. "[insert]", "TBD", "XXX", "Lorem ipsum", or copied template instructions)?',
     whatGoodLooksLike: 'All fields contain real content. "TBD" is acceptable only for items that cannot be known yet, such as a guest speaker.',
     doNotReportIf: ['"TBD" refers to a future guest or date that the instructor cannot fix yet', 'brackets are part of normal text (citations, links)'],
@@ -118,7 +118,7 @@ const criteria = [
 
   // ───────────── outcomes: measurable verbs, MBA-27 mapping, each claimed outcome assessed ─────────────
   {
-    id: 'LO-1', group: 'outcomes', title: 'Outcomes use measurable verbs',
+    id: 'LO-1', group: 'outcomes', title: 'Outcomes use measurable verbs', titleUk: 'Вимірюваність результатів навчання',
     check: 'Does every learning outcome start with an observable, measurable action verb (not "understand", "know", "be familiar with", "appreciate", "learn")?',
     whatGoodLooksLike: 'Outcomes use Bloom verbs such as analyze, evaluate, design, negotiate, justify, build.',
     doNotReportIf: ['the vague verb is followed by a measurable verb in the same outcome ("understand and apply")', 'the vague verb appears in course objectives or description, not in learning outcomes'],
@@ -130,7 +130,7 @@ const criteria = [
     },
   },
   {
-    id: 'LO-2', group: 'outcomes', title: 'One observable result per outcome',
+    id: 'LO-2', group: 'outcomes', title: 'One observable result per outcome', titleUk: 'Один спостережуваний результат у формулюванні',
     check: 'Is every outcome a single result that a student could demonstrate in one assessment (not a topic list or several unrelated results in one sentence)?',
     whatGoodLooksLike: 'Each outcome is verb + content + context ("Design a go-to-market plan for a Ukrainian SME").',
     doNotReportIf: ['two verbs describe one connected task ("analyze and present")', 'the outcome is long but has one verb and one result'],
@@ -142,7 +142,7 @@ const criteria = [
     },
   },
   {
-    id: 'LO-3', group: 'outcomes', title: 'Outcomes mapped to MBA-27',
+    id: 'LO-3', group: 'outcomes', title: 'Outcomes mapped to MBA-27', titleUk: 'Зв’язок результатів із MBA-27',
     check: 'Does the syllabus say which MBA-27 learning outcome(s) each course outcome contributes to, or can at least one MBA-27 outcome be named with clear textual support?',
     whatGoodLooksLike: 'A mapping line or table (course outcome → MBA-27 outcome number), or course outcomes that clearly restate MBA-27 wording.',
     doNotReportIf: ['a mapping table exists anywhere in the document', 'the syllabus is for a course outside the MBA-27 program (not applicable)'],
@@ -154,7 +154,7 @@ const criteria = [
     },
   },
   {
-    id: 'LO-4', group: 'outcomes', title: 'Each claimed MBA-27 outcome is assessed',
+    id: 'LO-4', group: 'outcomes', title: 'Each claimed MBA-27 outcome is assessed', titleUk: 'Оцінювання заявлених результатів MBA-27',
     check: 'For every MBA-27 outcome that the syllabus claims (explicitly or through the mapping), does at least one graded assessment demonstrably measure it?',
     whatGoodLooksLike: 'Every claimed MBA-27 outcome can be traced to a graded component that requires the student to show that skill.',
     doNotReportIf: ['the outcome is only mentioned as background context and not claimed', 'a graded component that clearly requires the skill exists even if not named as linked'],
@@ -166,7 +166,7 @@ const criteria = [
     },
   },
   {
-    id: 'LO-5', group: 'outcomes', title: 'MBA-27 mapping is plausible',
+    id: 'LO-5', group: 'outcomes', title: 'MBA-27 mapping is plausible', titleUk: 'Обґрунтованість відповідності MBA-27',
     check: 'Is each stated MBA-27 mapping supported by the content of the outcome (not a stretch such as mapping a finance-formula outcome to "ethical leadership")?',
     whatGoodLooksLike: 'The wording of the course outcome overlaps with the wording of the mapped MBA-27 outcome.',
     doNotReportIf: ['no mapping is stated (LO-3 covers it)', 'the connection is indirect but explained in the text'],
@@ -178,7 +178,7 @@ const criteria = [
     },
   },
   {
-    id: 'LO-6', group: 'outcomes', title: 'Outcome count and distinct from objectives',
+    id: 'LO-6', group: 'outcomes', title: 'Outcome count and distinct from objectives', titleUk: 'Кількість результатів і відмінність від цілей',
     check: 'Does the syllabus have between 3 and 8 learning outcomes, and are they phrased as student results rather than copies of the instructor-focused course objectives?',
     whatGoodLooksLike: '3–7 outcomes phrased "Students will be able to…"; objectives describe the course, outcomes describe the student.',
     doNotReportIf: ['the course is short (fewer than 4 sessions) and has 2 clear outcomes', 'objectives and outcomes overlap but the outcomes are student-focused'],
@@ -190,7 +190,7 @@ const criteria = [
     },
   },
   {
-    id: 'LO-7', group: 'outcomes', title: 'Outcomes are taught in the schedule',
+    id: 'LO-7', group: 'outcomes', title: 'Outcomes are taught in the schedule', titleUk: 'Відображення результатів у розкладі',
     check: 'Does each learning outcome have at least one session or activity in the schedule that plausibly teaches it?',
     whatGoodLooksLike: 'Schedule topics and activities cover every outcome; no outcome appears only in the outcomes list.',
     doNotReportIf: ['the schedule is missing entirely (T-5 covers it)', 'a session topic is phrased differently but clearly covers the outcome'],
@@ -204,7 +204,7 @@ const criteria = [
 
   // ───────────── assessment: weights, linkage, alignment, scale, workload ─────────────
   {
-    id: 'AS-1', group: 'assessment', title: 'Weights sum to 100',
+    id: 'AS-1', group: 'assessment', title: 'Weights sum to 100', titleUk: 'Сума ваг оцінювання — 100%',
     check: 'Do the stated assessment weights add up to exactly 100%?',
     whatGoodLooksLike: 'Component weights sum to 100 and are easy to add up (a table with a total row).',
     doNotReportIf: ['the sum is 100 after summing sub-components', 'weights are in points and the total points are stated (e.g. 100 points)', 'no weights are given at all (T-6 covers it)'],
@@ -216,7 +216,7 @@ const criteria = [
     },
   },
   {
-    id: 'AS-2', group: 'assessment', title: 'Each assessment linked to outcomes',
+    id: 'AS-2', group: 'assessment', title: 'Each assessment linked to outcomes', titleUk: 'Зв’язок завдань із результатами навчання',
     check: 'Does each graded assessment state, or clearly imply, which learning outcome(s) it measures?',
     whatGoodLooksLike: 'An outcome column, or a sentence per assessment naming the outcomes it measures.',
     doNotReportIf: ['an alignment matrix exists elsewhere in the document', 'the course has a single assessment that obviously covers all outcomes'],
@@ -228,7 +228,7 @@ const criteria = [
     },
   },
   {
-    id: 'AS-3', group: 'assessment', title: 'Assessment level matches outcome verb level',
+    id: 'AS-3', group: 'assessment', title: 'Assessment level matches outcome verb level', titleUk: 'Відповідність складності оцінювання результатам',
     check: 'Is each outcome assessed by a task at the same or higher cognitive level as its verb (e.g. an "evaluate" outcome is not assessed only by recall multiple-choice)?',
     whatGoodLooksLike: 'Apply/analyze/evaluate/create outcomes are assessed by cases, projects, defences or open-ended analysis, not only by recall tests.',
     doNotReportIf: ['the assessment type is not described well enough to judge its level', 'recall questions are only one part of a mixed exam that also has analysis tasks'],
@@ -240,7 +240,7 @@ const criteria = [
     },
   },
   {
-    id: 'AS-4', group: 'assessment', title: 'Direct measure for each outcome',
+    id: 'AS-4', group: 'assessment', title: 'Direct measure for each outcome', titleUk: 'Пряме оцінювання кожного результату',
     check: 'Is every learning outcome measured by at least one direct, graded product (exam, case write-up, project, presentation with criteria), and not only by participation or attendance?',
     whatGoodLooksLike: 'Each outcome has a graded artifact; participation may support but not be the only measure.',
     doNotReportIf: ['participation is graded against stated observable criteria', 'the course has one outcome measured by the final project'],
@@ -252,7 +252,7 @@ const criteria = [
     },
   },
   {
-    id: 'AS-5', group: 'assessment', title: 'Grading scale stated',
+    id: 'AS-5', group: 'assessment', title: 'Grading scale stated', titleUk: 'Шкала оцінювання',
     check: 'Does the syllabus state how the total score converts to a final grade (scale, thresholds or pass mark)?',
     whatGoodLooksLike: 'A scale such as 90–100 = A, … with a minimum pass mark.',
     doNotReportIf: ['the syllabus refers to a named official KSE scale with a link', 'the scale is in a separate "Grading" subsection'],
@@ -264,7 +264,7 @@ const criteria = [
     },
   },
   {
-    id: 'AS-6', group: 'assessment', title: 'Late submission and retake rule',
+    id: 'AS-6', group: 'assessment', title: 'Late submission and retake rule', titleUk: 'Правила запізнень і перескладання',
     check: 'Does the syllabus state what happens to late submissions and missed assessments (penalty, deadline extension, or retake rule)?',
     whatGoodLooksLike: 'A rule such as "-10% per day late, no submissions after 5 days; missed exam can be retaken once with approval".',
     doNotReportIf: ['the rule is stated within the policies section', 'the syllabus refers to a named KSE regulation'],
@@ -276,7 +276,7 @@ const criteria = [
     },
   },
   {
-    id: 'AS-7', group: 'assessment', title: 'Workload plausible for ECTS credits',
+    id: 'AS-7', group: 'assessment', title: 'Workload plausible for ECTS credits', titleUk: 'Відповідність навантаження кредитам ЄКТС',
     check: 'Where the syllabus gives credits, contact hours and numbers of assignments or readings, does the total student workload fit about 30 hours per ECTS credit?',
     whatGoodLooksLike: 'Contact hours + self-study + assessment load is close to credits × 30 hours.',
     doNotReportIf: ['credits or hours are not stated, so no numbers can be compared', 'the gap is under 25% of the expected workload'],
@@ -288,7 +288,7 @@ const criteria = [
     },
   },
   {
-    id: 'AS-8', group: 'assessment', title: 'Criteria for major assessments',
+    id: 'AS-8', group: 'assessment', title: 'Criteria for major assessments', titleUk: 'Критерії основних завдань',
     check: 'For each assessment worth 20% or more, does the syllabus give its format and at least one evaluation criterion or rubric reference?',
     whatGoodLooksLike: 'Format (length, individual/group), due date or session, and 3–4 criteria or a link to a rubric.',
     doNotReportIf: ['a rubric is linked or attached', 'the component is a standard exam with a stated format'],
@@ -302,7 +302,7 @@ const criteria = [
 
   // ───────────── practice: cases, local context, interactive methods ─────────────
   {
-    id: 'PR-1', group: 'practice', title: 'Cases are identifiable',
+    id: 'PR-1', group: 'practice', title: 'Cases are identifiable', titleUk: 'Назви та джерела кейсів',
     check: 'Is every case named in the syllabus identifiable by title and source (author/publisher or company) and year?',
     whatGoodLooksLike: 'Each case has a title, company or publisher, and year, e.g. "Nova Poshta: scaling logistics, HBS 2022".',
     doNotReportIf: ['the syllabus names no cases (PR-2 covers it)', 'the case is an in-class exercise written by the instructor and described briefly'],
@@ -314,7 +314,7 @@ const criteria = [
     },
   },
   {
-    id: 'PR-2', group: 'practice', title: 'Cases tied to sessions and outcomes',
+    id: 'PR-2', group: 'practice', title: 'Cases tied to sessions and outcomes', titleUk: 'Зв’язок кейсів із заняттями та результатами',
     check: 'Is each case or practical task linked to a specific session and to a learning outcome it develops?',
     whatGoodLooksLike: 'The schedule shows which case is discussed in which session; the case purpose is tied to an outcome.',
     doNotReportIf: ['the course has no cases and states that it uses lectures and exercises only (then check PR-4)', 'the link to the session is implied by position in the schedule table'],
@@ -326,7 +326,7 @@ const criteria = [
     },
   },
   {
-    id: 'PR-3', group: 'practice', title: 'Ukrainian / CEE context',
+    id: 'PR-3', group: 'practice', title: 'Ukrainian / CEE context', titleUk: 'Український і центральноєвропейський контекст',
     check: 'Does at least one case, example or assignment use a Ukrainian or Central/Eastern European company, market or regulation?',
     whatGoodLooksLike: 'A visible share (around a third) of cases and examples comes from Ukraine or CEE, and wartime or EU-integration context is used where it fits the topic.',
     doNotReportIf: ['the course is explicitly global (e.g. cross-border or international) and includes at least one Ukrainian example', 'the course is purely technical and no cases are named'],
@@ -338,7 +338,7 @@ const criteria = [
     },
   },
   {
-    id: 'PR-4', group: 'practice', title: 'Interactive methods stated',
+    id: 'PR-4', group: 'practice', title: 'Interactive methods stated', titleUk: 'Інтерактивні методи навчання',
     check: 'Does the syllabus name at least one interactive method (case discussion, group task, simulation, peer feedback) and say where it is used?',
     whatGoodLooksLike: 'Sessions or the course description state which activities are discussion, group work or peer learning, and roughly how much time they take.',
     doNotReportIf: ['the schedule table has an "activity" column with interactive items', 'the course is a self-paced online course where activities are forums or peer reviews'],
@@ -350,7 +350,7 @@ const criteria = [
     },
   },
   {
-    id: 'PR-5', group: 'practice', title: 'Group work has individual accountability',
+    id: 'PR-5', group: 'practice', title: 'Group work has individual accountability', titleUk: 'Індивідуальний внесок у групову роботу',
     check: 'If group work is graded, does the syllabus say how individual contribution is assessed (peer evaluation, individual component, or role logs)?',
     whatGoodLooksLike: 'Group grade is combined with a peer-evaluation or individual component, with the share stated.',
     doNotReportIf: ['no group work is graded', 'the group task has a separate individual report counted in the grade'],
@@ -364,7 +364,7 @@ const criteria = [
 
   // ───────────── policy: AI use, academic integrity, attendance ─────────────
   {
-    id: 'PO-1', group: 'policy', title: 'AI-use policy present',
+    id: 'PO-1', group: 'policy', title: 'AI-use policy present', titleUk: 'Наявність політики використання ШІ',
     check: 'Does the syllabus contain a statement on the use of generative AI by students?',
     whatGoodLooksLike: 'An explicit AI-use statement: what is allowed, what is not, and what must be disclosed.',
     doNotReportIf: ['AI use is addressed inside the academic-integrity section', 'the syllabus refers to the KSE AI policy by name or link'],
@@ -376,7 +376,7 @@ const criteria = [
     },
   },
   {
-    id: 'PO-2', group: 'policy', title: 'AI policy specific to assessment types',
+    id: 'PO-2', group: 'policy', title: 'AI policy specific to assessment types', titleUk: 'Правила ШІ для різних типів завдань',
     check: 'Where an AI policy exists, does it say what is allowed for each type of graded work (e.g. exam, written case, group project) rather than one blanket sentence?',
     whatGoodLooksLike: 'A short list or table: for each assessment, AI is forbidden, allowed with disclosure, or required.',
     doNotReportIf: ['the course has only one type of assessment', 'the policy is a blanket ban that clearly covers all work'],
@@ -388,7 +388,7 @@ const criteria = [
     },
   },
   {
-    id: 'PO-3', group: 'policy', title: 'Academic integrity statement',
+    id: 'PO-3', group: 'policy', title: 'Academic integrity statement', titleUk: 'Академічна доброчесність',
     check: 'Does the syllabus contain an academic integrity statement (plagiarism, cheating, consequences) or a reference to the KSE academic integrity policy?',
     whatGoodLooksLike: 'A statement defining violations and naming consequences or the policy it refers to.',
     doNotReportIf: ['a link or named reference to the KSE academic integrity policy is given', 'the statement is under a heading like "Honesty" or "Ethics"'],
@@ -400,7 +400,7 @@ const criteria = [
     },
   },
   {
-    id: 'PO-4', group: 'policy', title: 'Attendance policy with a rule',
+    id: 'PO-4', group: 'policy', title: 'Attendance policy with a rule', titleUk: 'Правила відвідування',
     check: 'Does the syllabus state an attendance rule (required or not, how absences are counted, and any effect on the grade)?',
     whatGoodLooksLike: 'A concrete rule, e.g. "Attendance is mandatory; more than 2 unexcused absences lower the participation grade".',
     doNotReportIf: ['the rule is in the grading section as part of a participation component', 'the text says attendance is not graded and not required'],
@@ -412,7 +412,7 @@ const criteria = [
     },
   },
   {
-    id: 'PO-5', group: 'policy', title: 'AI policy consistent with assignments',
+    id: 'PO-5', group: 'policy', title: 'AI policy consistent with assignments', titleUk: 'Узгодженість політики ШІ із завданнями',
     check: 'Is the AI policy consistent with the assignments (no assignment requires AI while the policy bans it, and no AI-exposed take-home task is left without a disclosure rule)?',
     whatGoodLooksLike: 'The policy and the assignment descriptions give the same rule for each assessment.',
     doNotReportIf: ['the syllabus has no AI policy (PO-1 covers it)', 'the assignments do not mention AI at all and the policy gives per-assessment rules'],
