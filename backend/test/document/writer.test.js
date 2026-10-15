@@ -175,10 +175,29 @@ describe('writeDocx на syllabus.docx', () => {
     expect(await documentXml(one)).toBe(await documentXml(two));
   });
 
+  test('tracked-режим прибирає w:revisionView, що ховає правки', async () => {
+    const zip = await JSZip.loadAsync(original);
+    const settings = await zip.file('word/settings.xml').async('string');
+    zip.file('word/settings.xml', settings.replace(/(<w:settings[^>]*>)/, '$1<w:revisionView w:insDel="0" w:markup="0"/>'));
+    const hidden = await zip.generateAsync({ type: 'nodebuffer' });
+    const hiddenDoc = await extractDocx(hidden);
+    const tracked = await writeDocx(hidden, hiddenDoc, [], { mode: 'tracked' });
+    expect(tracked.equals(hidden)).toBe(true); // без правок нічого не змінюємо
+    const s = { id: 'v', ops: [{ op: 'deleteBlock', blockId: byText(hiddenDoc, 'Командна робота').id }] };
+    const out = await writeDocx(hidden, hiddenDoc, [s], { mode: 'tracked' });
+    expect(await partXml(out, 'word/settings.xml')).not.toContain('revisionView');
+    const clean = await writeDocx(hidden, hiddenDoc, [s], { mode: 'clean' });
+    expect(await partXml(clean, 'word/settings.xml')).toContain('revisionView');
+  });
+
   lo('3c. LibreOffice конвертує tracked-версію в PDF і показує правки', async () => {
     const tracked = await writeDocx(original, doc, suggestions(), { mode: 'tracked', date: DATE, comments: true });
     const pdf = await toPdf(tracked, 'docx');
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    // якщо є poppler: у PDF видно і видалений, і вставлений текст (LibreOffice показує правки)
+    const { spawnSync } = require('child_process');
+    const res = spawnSync('pdftotext', ['-', '-'], { input: pdf });
+    if (res.status === 0) expect(res.stdout.toString()).toContain('Курс триває 1012 тижнів');
   }, 120000);
 });
 

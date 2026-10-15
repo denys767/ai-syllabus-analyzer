@@ -410,6 +410,20 @@ async function writeComments(zip, ctx, comments) {
 
 // ---------- main ----------
 
+/**
+ * Якщо в settings.xml вимкнено показ правок (w:revisionView, режим «Без виправлень» у Word),
+ * LibreOffice експортує PDF без них. Для tracked-версії прибираємо таке налаштування.
+ */
+async function ensureRevisionsVisible(zip) {
+  const name = 'word/settings.xml';
+  const xml = await readPart(zip, name);
+  if (!xml) return;
+  const next = xml.replace(/<w:revisionView\b[^>]*\/>/g, (tag) => (
+    /w:(insDel|markup)="(0|false|off)"/.test(tag) ? '' : tag
+  ));
+  if (next !== xml) zip.file(name, next);
+}
+
 async function maxNumericId(zip) {
   let max = 0;
   const names = Object.keys(zip.files).filter((n) => /^word\/.*\.xml$/.test(n));
@@ -495,6 +509,7 @@ async function writeDocx(originalBuffer, doc, acceptedSuggestions, opts = {}) {
     edits.push({ range: ranges[paraIndex], p: removeOriginal ? null : p, inserted });
   }
 
+  if (ctx.tracked) await ensureRevisionsVisible(zip);
   if (ctx.tracked && opts.comments) {
     const comments = [];
     for (const s of accepted) {
