@@ -216,6 +216,8 @@ describe('start, доступи, next-card', () => {
     expect(before.body.conversation).toBeNull();
     expect(before.body.readiness).toBeNull();
     expect(before.body.suggestions).toHaveLength(2);
+    const { getCriterion } = require('../services/ai/rubric');
+    expect(before.body.suggestions[0].criterionTitle).toBe(getCriterion('T-1').title);
     expect(before.body.syllabus).toMatchObject({ sourceFormat: 'docx', convertedFrom: null, legacy: false, canMutate: true });
 
     const view = await start(s);

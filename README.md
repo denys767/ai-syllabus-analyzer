@@ -1,23 +1,21 @@
 # KSE AI Syllabus Analyzer
 
-AI-powered MBA syllabus review platform for Kyiv School of Economics. Instructors upload syllabi, the backend analyzes them against the KSE MBA template and MBA-27 learning outcomes with OpenAI, and the workspace walks the instructor through recommendations one issue at a time.
+AI-powered MBA syllabus review platform for Kyiv School of Economics. Instructors upload syllabi, the backend reviews them against a rubric built on the KSE MBA template and MBA-27 learning outcomes with OpenAI, and the workspace walks the instructor through concrete edit suggestions one card at a time. The result is the instructor's own document with Word tracked changes.
 
 ## Current Capabilities
 
-- Upload PDF, DOC, or DOCX syllabi and extract syllabus text.
-- Generate categorized recommendations for template compliance, learning outcomes, content quality, cases, policies, and other issues.
-- Create line-anchored syllabus edits with OpenAI Responses API so recommendations can be previewed and applied deterministically.
-- Review recommendations in a chat workflow with `Confirm`, `Cancel`, `Preview`, and `Reopen`.
-- Require an audit reason when cancelling high or critical issues.
-- Reopen a resolved issue and rewind visible chat back to that issue card; later resolved issue cards are reset so they are offered again.
-- Select one or more business case cards; selected case edits are coalesced before validation.
-- Render final clean and red/green revision PDFs with Puppeteer.
-- Submit final syllabi to the Academic Director by email.
+- Upload DOCX, DOC (converted with LibreOffice) or PDF (text is split into paragraphs and a simple working DOCX is synthesized) syllabi. The original file is kept untouched.
+- Parse the document into blocks with stable IDs (`services/document`).
+- Review the syllabus against a rubric (KSE template, MBA-27 outcomes, assessment, practice, policies) with OpenAI (`services/ai/review`): deterministic checks → structure → per-group verdicts with evidence → verifier → rewrite into block operations (`replaceBlock` / `insertAfter` / `deleteBlock`).
+- Walk through suggestions in chat: Accept / Reject (reason required for critical/high, reason chips) / Refine (comment or merge with already accepted changes) / Answer (for questions) / Reopen (single suggestion, no cascade). Free-text messages are answered, or turned into a Refine of the current card.
+- Conflicting edits of the same paragraph are detected (409 `SUGGESTION_CONFLICT`) and can replace the previous suggestion.
+- Download the result at any time: `*_tracked.docx` (real Word tracked changes + comments), `*_clean.docx`, `*_tracked.pdf` (LibreOffice).
+- Submit to the Academic Director by email with tracked DOCX + PDF and a review report.
 - Manage users, programs, syllabi, and resending failed submission emails through the cabinet.
 
 ## Tech Stack
 
-- Backend: Node.js, Express, MongoDB/Mongoose, OpenAI Responses API, Nodemailer, Mammoth, pdf-parse, Puppeteer.
+- Backend: Node.js, Express, MongoDB/Mongoose, OpenAI Responses API, Nodemailer, jszip + @xmldom/xmldom (DOCX), diff/node-diff3 (word diff, 3-way merge), docx + pdf-parse (PDF → DOCX), LibreOffice (DOC → DOCX, DOCX → PDF).
 - Frontend: React 18, React Router v6, MUI 5, Axios, react-markdown with GFM tables.
 
 ## Prerequisites
@@ -26,6 +24,7 @@ AI-powered MBA syllabus review platform for Kyiv School of Economics. Instructor
 - npm 8+
 - MongoDB, local or Atlas
 - OpenAI API key
+- LibreOffice (`soffice`) for `.doc` uploads and the tracked PDF (`SOFFICE_PATH` if not on PATH)
 - Gmail App Password or SMTP credentials if email delivery is needed
 
 ## Setup
@@ -80,10 +79,12 @@ SMTP_PASS=password
 EMAIL_FROM=KSE AI Analyzer <no-reply@example.com>
 ```
 
-For PDF rendering on servers without bundled Chromium, set:
+LibreOffice (DOC conversion, tracked PDF):
 
 ```env
-PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+SOFFICE_PATH=/usr/bin/soffice
+SOFFICE_CONCURRENCY=1
+SOFFICE_TIMEOUT_MS=120000
 ```
 
 ## Running Locally
@@ -111,30 +112,25 @@ npm run stop-ports
 ## Main Workflow
 
 1. Start MongoDB, backend, and frontend.
-2. Log in as the bootstrap admin or create an instructor account.
+2. Log in as the bootstrap admin or an invited instructor.
 3. Create or confirm a program with an Academic Director email.
-4. Upload a syllabus from the workspace.
-5. Wait for analysis to finish.
-6. Review each chat issue card:
-   - `Confirm` applies the generated line edits.
-   - `Preview` shows the issue-specific clean and revision preview.
-   - `Cancel` rejects the issue; high/critical issues require a reason.
-   - `Reopen` rewinds the chat to a resolved issue and resets later resolved cards.
-7. Preview the final syllabus PDF.
-8. Submit the final PDF and review summary to the Academic Director by email.
+4. Upload a syllabus (DOCX recommended to keep the original formatting).
+5. Wait for analysis (`GET /syllabus/:id/status` → `stage`: extract → structure → … → done).
+6. Go through the suggestion cards in chat (accept / reject / refine / answer / reopen).
+7. Download tracked/clean DOCX or the tracked PDF at any time.
+8. Submit: allowed when no suggestion is pending; the Academic Director gets tracked DOCX + PDF and the report.
 
-## AI Pipeline
+## Architecture (backend)
 
-The AI layer lives in `backend/services/ai/`.
+- `services/document/`: document model (blocks), DOCX extraction, PDF → DOCX synthesis, op validation, `applyAccepted` (idempotent, always from the original), conflicts, word diff, DOCX writer (clean / tracked), LibreOffice conversions. See its README.
+- `services/ai/review/`: rubric review pipeline (`runReview`, `generateSuggestion`). See its README.
+- `services/ai/orchestrator.js`: review → suggestion per finding (concurrency 3) → `Suggestion` documents.
+- `services/analysisRunner.js`: background analysis with `analysisStage`.
+- `services/chat/`: conversation view, card flow, decisions, free chat.
+- `services/outputs.js`, `services/submission.js`: final files cache and submission email.
+- `services/ai/client.js`: the only OpenAI wrapper. Default model `gpt-5.4-mini`, `reasoning.effort=medium` (`LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_MAX_OUTPUT_TOKENS`).
 
-- `client.js`: OpenAI client wrapper, model selection, reasoning effort, output token cap, JSON parsing helpers.
-- `analyzer.js`: Creates normalized recommendations from syllabus text.
-- `editGenerator.js`: Generates line-numbered structured edits for each recommendation; case-card generation can use `web_search_preview`.
-- `applyEdits.js`: Resolves selections, validates edits, coalesces multi-case edits, recomputes accepted syllabus state, and builds per-issue previews.
-- `finalRender.js`: Renders final and revision PDFs and generates the submission report.
-- `workspaceService.js`: Owns chat workflow decisions, reopen rollback, final gating, previews, and submission.
-
-The default model is `gpt-5.4-mini` with `reasoning.effort=medium`. Override with `LLM_MODEL`, `LLM_REASONING_EFFORT`, and `LLM_MAX_OUTPUT_TOKENS`.
+The full API contract for chat/suggestions is in `docs/api-v3.md`.
 
 ## Key API Endpoints
 
@@ -152,24 +148,26 @@ Auth:
 Syllabus:
 
 - `POST /syllabus/upload`
-- `GET /syllabus/my-syllabi`
 - `GET /syllabus/:id`
 - `PUT /syllabus/:id`
 - `DELETE /syllabus/:id`
 - `POST /syllabus/:id/analyze`
 - `GET /syllabus/:id/download`
 
-Chat review:
+Chat review (see `docs/api-v3.md`):
 
 - `GET /chat/:syllabusId`
 - `POST /chat/:syllabusId/start`
-- `POST /chat/:syllabusId/confirm`
-- `POST /chat/:syllabusId/cancel` with optional `{ issueId, reason }`
-- `POST /chat/:syllabusId/issues/:issueId/reopen` with optional `{ anchorMessageId }`
-- `POST /chat/:syllabusId/issues/:issueId/preview`
-- `POST /chat/:syllabusId/preview`
+- `GET /chat/:syllabusId/suggestions/:sid/preview?optionId=`
+- `POST /chat/:syllabusId/suggestions/:sid/accept` `{ optionId?, conflictResolution? }`
+- `POST /chat/:syllabusId/suggestions/:sid/reject` `{ reason?, rejectTag? }`
+- `POST /chat/:syllabusId/suggestions/:sid/refine` `{ feedback?, mergeWithAccepted? }`
+- `POST /chat/:syllabusId/suggestions/:sid/answer` `{ answer }`
+- `POST /chat/:syllabusId/suggestions/:sid/reopen`
+- `POST /chat/:syllabusId/message` `{ text }`
+- `GET /chat/:syllabusId/document/preview`
+- `GET /chat/:syllabusId/outputs/:name` (`tracked.docx` | `clean.docx` | `tracked.pdf`)
 - `POST /chat/:syllabusId/submit`
-- `POST /chat/:syllabusId/message`
 
 Cabinet:
 
@@ -195,18 +193,16 @@ Chat mutation is owner-only; admins are read-only for chat conversations.
 
 ## Development Checks
 
-There is no full test script wired into this project. Use these checks before closing a task:
-
 ```bash
-node -c backend/services/workspaceService.js
-node -c backend/routes/chat.js
-node -c backend/services/ai/client.js
+cd backend
+npm test            # Jest + supertest + mongodb-memory-server (system /usr/bin/mongod)
+node -c <changed file>
 
-cd frontend
+cd ../frontend
 npm run build
 ```
 
-The React build may update tracked `frontend/build` files with hashed bundle names. If you only needed the build as verification, avoid committing unrelated generated hash churn.
+Data migrations live in `scripts/` (idempotent, `--dry-run`); the latest is `scripts/migrate-v4-suggestions.js` (old syllabi become read-only `legacy`).
 
 ## Troubleshooting
 
@@ -215,7 +211,8 @@ The React build may update tracked `frontend/build` files with hashed bundle nam
 - General request timeout is `REQUEST_TIMEOUT_MS`, default `20000`.
 - CORS errors usually mean `FRONTEND_URL` does not match the browser origin.
 - Email submission is skipped if neither Gmail nor SMTP is configured.
-- Puppeteer errors on Linux usually mean Chromium is missing or `PUPPETEER_EXECUTABLE_PATH` is wrong.
+- `SOFFICE_MISSING` (503) means LibreOffice is not installed or `SOFFICE_PATH` is wrong: `.doc` uploads and the tracked PDF need it (submission still sends the DOCX).
+- Old syllabi (before v4) are `legacy`: the chat is read-only; upload the file again to continue.
 - Markdown tables in chat require pipe-table syntax with a divider row, for example:
 
 ```markdown

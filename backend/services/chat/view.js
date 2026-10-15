@@ -8,6 +8,7 @@ const { previewChanges, findConflicts, applyAccepted, diffBlock } = require('../
 const { blockMap } = require('../document/model');
 const { httpError } = require('../../utils/httpError');
 const { computeReadiness } = require('./readiness');
+const { getCriterion } = require('../ai/rubric');
 const {
   loadSyllabus, isLegacy, docOf, toDocSuggestion, loadAccepted, requiresReason, optionOf,
 } = require('./state');
@@ -64,6 +65,7 @@ function buildSuggestionView(doc, s, acceptedDocs, titles) {
     severity: s.severity,
     group: s.group,
     criterionId: s.criterionId || null,
+    criterionTitle: (s.criterionId && getCriterion(s.criterionId)?.title) || null,
     title: s.title,
     description: s.description,
     rationale: s.rationale || null,
