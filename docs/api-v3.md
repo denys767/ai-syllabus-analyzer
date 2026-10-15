@@ -100,3 +100,17 @@ BlockChange = { blockId, op, kind, before, after, parts: [{ type: 'eq'|'del'|'in
 - **Submit без LibreOffice**: лист іде лише з `tracked.docx`, у звіті примітка; `GET /outputs/tracked.pdf` → 503 `SOFFICE_MISSING`.
 - **Upload**: розбір документа (конвертація `.doc`, синтез з `.pdf`) — фоновий етап `extract`; помилки розбору дають `status: 'error'` з українським `error` у `/status`, а не 4xx на upload. `stage` проходить `extract → structure → rewrite → done` (пайплайн review не повідомляє проміжних етапів `diagnose`/`verify`).
 - **Cabinet `/cabinet/syllabi`**: `issueCounts: { pending, accepted, rejected, total }`, `readiness: { score, breakdown }` (рахується з Suggestion; для `analyzing`/`error` — `{ score: 0, breakdown: {} }`), а також `sourceFormat`, `convertedFrom`, `legacy`, `analysisStage`.
+
+## Фаза 5: PPTX і анотований PDF (хвиля 5)
+
+- **Upload** приймає ще й `.pptx` (magic bytes `PK` + `ppt/presentation.xml` у zip). `sourceFormat: 'pptx'`, `document` з `extractPptx` (блоки `slide-title`/`slide-text`/`table-cell`/`notes`, локатор зі `slide`).
+- **PDF:** синтезований `.docx` будується з блоків `extractPdf` (`pdfBlocksToParagraphs`), тож блоки синтезованого DOCX і PDF-блоки відповідають 1:1. Відповідність зберігається в `document.pdfBlockMap: { [docxBlockId]: pdfBlockId }`. Це дає змогу будувати анотації на оригінальному PDF за тими самими пропозиціями.
+- **GET-view `syllabus.outputs`:** `[{ name, label }]` — перелік доступних файлів для формату силабусу. Фронтенд малює кнопки з цього списку, а не з жорстко заданого набору:
+  - `docx`/`doc`: `tracked.docx` («DOCX з правками (tracked changes)»), `clean.docx` («Чистий DOCX»), `tracked.pdf` («PDF з правками»);
+  - `pdf`: `annotated.pdf` («Оригінальний PDF з примітками»), `tracked.docx`, `clean.docx`, `tracked.pdf`;
+  - `pptx`: `edited.pptx` («Презентація з правками»), `preview.pdf` («PDF презентації з правками»).
+  `GET /outputs/:name` приймає ці імена. Імена файлів: `<originalBase>_annotated.pdf`, `<originalBase>_edited.pptx`, `<originalBase>_preview.pdf`. Submit додає до листа головний файл формату (`tracked.docx` / `annotated.pdf` + `tracked.docx` / `edited.pptx`) і PDF.
+- **GET `/suggestions/:sid/slides?optionId=`** (лише `pptx`) → `{ slides: [{ slide, before, after, overflowRisk }] }`, де `before`/`after` — PNG як `data:image/png;base64,...` (80 dpi), тільки для слайдів, які змінює ця пропозиція (і `overflowRisk` з `writers/pptx`). Кешується за `suggestionId + optionId + docVersion`.
+- **SuggestionView.criterionTitle** — українська назва критерію (`titleUk` з рубрики; англійська `title` — запасний варіант).
+- **Етапи аналізу:** `runReview` викликає `options.onStage(stage)` для `structure`, `diagnose`, `verify`, тож `stage` проходить `extract → structure → diagnose → verify → rewrite → done`.
+- **Відновлення аналізу:** аналіз — job із lease (`analysisLeaseUntil`, `analysisAttempts`). Після рестарту прострочений `analyzing` перезапускається (до 2 спроб), а не переводиться одразу в `error`.
