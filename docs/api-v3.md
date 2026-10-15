@@ -84,3 +84,19 @@ BlockChange = { blockId, op, kind, before, after, parts: [{ type: 'eq'|'del'|'in
 - `POST /api/syllabus/upload` приймає `.docx`, `.doc`, `.pdf` (magic bytes). `.doc` конвертується через LibreOffice. `.pdf` розбирається на абзаци, з яких синтезується простий `.docx` (`convertedFrom: 'pdf'`). Інтерфейс показує банер «Для збереження оригінального форматування завантажте DOCX».
 - Аналіз запускається у фоні. `runReview` (`services/ai/review`) → для кожної знахідки `generateSuggestion` (паралельно, з лімітом) → Suggestion-и → `status: 'in_progress'`.
 - `GET /api/syllabus/:id/status` → `{ status, stage, error }`. `stage` — один з `extract|structure|diagnose|verify|rewrite|done`.
+
+## Доповнення реалізації (бекенд, фаза 3)
+
+Усе нижче — розширення контракту, наявні поля не змінювались.
+
+- **SuggestionView** додатково містить: `criterionTitle` (назва критерію з рубрики, англійською, або `null`), `rationale`, `answer`, `evidenceBlockIds`, `supersedes: [id]`, `versionsCount`. Кожен елемент `options[]` має ще `applicable` (`false`, якщо у варіанта немає ops — його не можна прийняти) і `conflictsWith`. Верхньорівневий `conflictsWith` для choice — об'єднання по всіх варіантах. Для `kind=question` поле `applicable` = `true`: дія — `/answer`, `accept` повертає 409 `ANSWER_REQUIRED`.
+- **GET-view `syllabus`** додатково: `analysisStage`, `submittedAt`, `submissionEmailStatus`.
+- **GET `/suggestions/:sid/preview`** для choice без `optionId` і без вибраного варіанта повертає зміни всіх варіантів підряд.
+- **GET `/document/preview`** додатково повертає `conflicts` (з `applyAccepted`); у вставлених блоків є `suggestionIds`, `blockId` вставки — синтетичний (`b0005+<suggestionId>.1`).
+- **`/message`** для submitted силабусу лише відповідає (refine неможливий). Намір класифікується тільки коли поточна картка pending.
+- **Rate limit** `CHAT_MESSAGE_RATE_LIMIT` (за користувачем, 429) діє на `/message`, `/refine`, `/answer`.
+- **Коди помилок** (`{ message, code, ...details }`): 400 `REASON_REQUIRED`, `OPTION_REQUIRED`; 409 `NOT_PENDING`, `NOT_DECIDED`, `ANSWER_REQUIRED`, `NOT_APPLICABLE` (варіант choice без ops), `NOT_A_QUESTION`, `SUGGESTION_CONFLICT`, `STALE_DOC_VERSION`, `ALREADY_SUBMITTED`, `ANALYSIS_IN_PROGRESS`, `ANALYSIS_FAILED`, `LEGACY_SYLLABUS`, `PENDING_SUGGESTIONS` (`pending: [{ suggestionId, title, severity }]`), `SUBMIT_IN_PROGRESS`; 422 `INVALID_OPS` (`errors`); 503 з `retryable: true` при збої LLM.
+- **Legacy**: `GET /outputs/:name` і `GET /document/preview` теж повертають 409 `LEGACY_SYLLABUS`.
+- **Submit без LibreOffice**: лист іде лише з `tracked.docx`, у звіті примітка; `GET /outputs/tracked.pdf` → 503 `SOFFICE_MISSING`.
+- **Upload**: розбір документа (конвертація `.doc`, синтез з `.pdf`) — фоновий етап `extract`; помилки розбору дають `status: 'error'` з українським `error` у `/status`, а не 4xx на upload. `stage` проходить `extract → structure → rewrite → done` (пайплайн review не повідомляє проміжних етапів `diagnose`/`verify`).
+- **Cabinet `/cabinet/syllabi`**: `issueCounts: { pending, accepted, rejected, total }`, `readiness: { score, breakdown }` (рахується з Suggestion; для `analyzing`/`error` — `{ score: 0, breakdown: {} }`), а також `sourceFormat`, `convertedFrom`, `legacy`, `analysisStage`.
