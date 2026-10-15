@@ -27,7 +27,7 @@ function pushPart(parts, type, text) {
 }
 
 /**
- * Пробіл між двома замінами поглинається, щоб не було «конфеті»:
+ * Пробіл (не табуляція і не розрив рядка) між двома замінами поглинається, щоб не було «конфеті»:
  * [-a-][+x+] [-b-][+y+] → [-a b-][+x y+].
  */
 function absorbWhitespace(parts) {
@@ -37,7 +37,7 @@ function absorbWhitespace(parts) {
     const p = parts[i];
     const prevDel = out.length >= 2 && out[out.length - 2].type === 'delete' && out[out.length - 1].type === 'insert';
     const nextDel = parts[i + 1] && parts[i + 1].type === 'delete' && parts[i + 2] && parts[i + 2].type === 'insert';
-    if (p.type === 'equal' && /^\s+$/.test(p.text) && prevDel && nextDel) {
+    if (p.type === 'equal' && /^[ \u00a0]+$/.test(p.text) && prevDel && nextDel) {
       out[out.length - 2].text += p.text + parts[i + 1].text;
       out[out.length - 1].text += p.text + parts[i + 2].text;
       i += 3;
