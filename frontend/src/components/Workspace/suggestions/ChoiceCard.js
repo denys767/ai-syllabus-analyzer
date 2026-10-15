@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Radio, Stack, Typography } from '@mui/material';
 import SuggestionFrame from './SuggestionFrame';
+import SlidesSection from './SlidesSection';
 import BlockChangeList from '../diff/BlockChangeList';
 
 // kind = 'choice': кілька варіантів, кожен зі своїм diff. Приймається обраний (optionId).
-const ChoiceCard = ({ suggestion, ...frameProps }) => {
+const ChoiceCard = ({ suggestion, loadSlides = null, ...frameProps }) => {
   const options = suggestion.options || [];
   const pending = suggestion.status === 'pending';
   const [selected, setSelected] = useState(suggestion.selectedOptionId || null);
@@ -57,6 +58,13 @@ const ChoiceCard = ({ suggestion, ...frameProps }) => {
                     </Typography>
                   )}
                   <BlockChangeList changes={option.changes} />
+                  {loadSlides && option.changes?.length > 0 && (
+                    <SlidesSection
+                      optionId={option.id}
+                      loadSlides={(optionId) => loadSlides(suggestion.id, optionId)}
+                      resetKey={`${suggestion.id}:${suggestion.versionsCount || 0}`}
+                    />
+                  )}
                 </Box>
               </Stack>
             </Box>

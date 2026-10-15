@@ -98,6 +98,12 @@ class ApiService {
       this.client.get(`/chat/${syllabusId}/suggestions/${suggestionId}/preview`, {
         params: optionId ? { optionId } : {},
       }),
+    // Лише pptx: { slides: [{ slide, before, after, overflowRisk }] }, PNG як data URL
+    suggestionSlides: (syllabusId, suggestionId, optionId) =>
+      this.client.get(`/chat/${syllabusId}/suggestions/${suggestionId}/slides`, {
+        ...LLM_REQUEST,
+        params: optionId ? { optionId } : {},
+      }),
     accept: (syllabusId, suggestionId, body = {}) =>
       this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/accept`, body, LLM_REQUEST),
     reject: (syllabusId, suggestionId, body = {}) =>
@@ -111,7 +117,7 @@ class ApiService {
     sendMessage: (syllabusId, text) =>
       this.client.post(`/chat/${syllabusId}/message`, { text }, LLM_REQUEST),
     documentPreview: (syllabusId) => this.client.get(`/chat/${syllabusId}/document/preview`),
-    // name: 'tracked.docx' | 'clean.docx' | 'tracked.pdf'
+    // name — з syllabus.outputs (tracked.docx, clean.docx, tracked.pdf, annotated.pdf, edited.pptx, preview.pdf)
     downloadOutput: (syllabusId, name) =>
       this.client.get(`/chat/${syllabusId}/outputs/${name}`, { ...LLM_REQUEST, responseType: 'blob' }),
     submit: (syllabusId) => this.client.post(`/chat/${syllabusId}/submit`, {}, LLM_REQUEST),

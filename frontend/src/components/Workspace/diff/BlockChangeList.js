@@ -10,7 +10,7 @@ import {
   blockChangeStatus,
   changeRatio,
 } from './diffUtils';
-import { BLOCK_KIND_LABELS } from '../constants';
+import { blockKindLabel, blockSlide } from '../constants';
 
 const TonePanel = ({ title, tone, text }) => {
   const theme = useTheme();
@@ -37,7 +37,7 @@ const TonePanel = ({ title, tone, text }) => {
 
 // Для великих переписувань inline-diff перетворюється на «кісель», тому показуємо «було / стало».
 const BeforeAfterStack = ({ change, parts }) => {
-  const label = BLOCK_KIND_LABELS[change.kind];
+  const label = blockKindLabel(change.kind, blockSlide(change));
   return (
     <Stack spacing={0.75}>
       {label && <Typography variant="caption" color="text.secondary">{label}</Typography>}
@@ -58,7 +58,7 @@ export const BlockChangeItem = ({ change }) => {
   if (status === 'changed' && changeRatio(parts) > HEAVY_REWRITE_RATIO) {
     return <BeforeAfterStack change={change} parts={parts} />;
   }
-  return <BlockView kind={change.kind} status={status} parts={parts} />;
+  return <BlockView kind={change.kind} slide={blockSlide(change)} status={status} parts={parts} />;
 };
 
 const BlockChangeList = ({ changes, emptyText = 'Змін немає.' }) => {

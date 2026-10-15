@@ -86,10 +86,16 @@ const DevCards = () => {
   };
 
   const byId = (id) => suggestions.find((s) => s.id === id);
-  const card = (id) => {
+  // Імітація GET /suggestions/:sid/slides
+  const loadSlides = async (sid, optionId) => {
+    await wait(700);
+    note(`slides ${sid} ${optionId || ''}`);
+    return { ok: true, slides: fx.slidesPair };
+  };
+  const card = (id, { pptx = false } = {}) => {
     const s = byId(id);
     const Card = { edit: SuggestionCard, choice: ChoiceCard, question: QuestionCard }[s.kind];
-    return <Card key={id} suggestion={s} actions={actions} busy={false} />;
+    return <Card key={id} suggestion={s} actions={actions} loadSlides={pptx ? loadSlides : null} busy={false} />;
   };
 
   return (
@@ -120,6 +126,11 @@ const DevCards = () => {
         <Section title="ChoiceCard">{card('s8')}</Section>
         <Section title="QuestionCard (після відповіді стає edit)">{card('s9')}</Section>
 
+        <Section title="PPTX: слайди до / після, підписи блоків слайдів, чип критерію з назвою">
+          {card('s10', { pptx: true })}
+        </Section>
+        <Section title="PPTX: ChoiceCard зі слайдами для кожного варіанта">{card('s11', { pptx: true })}</Section>
+
         <Section title="Повідомлення">
           <TextMessage message={fx.messages[0]} />
           <TextMessage message={fx.messages[2]} />
@@ -132,6 +143,7 @@ const DevCards = () => {
             <WorkspaceSidePanel
               readiness={fx.readiness}
               suggestions={suggestions}
+              outputs={fx.pdfSyllabusOutputs}
               filesEnabled
               downloading=""
               canSubmit={false}
@@ -146,8 +158,30 @@ const DevCards = () => {
           </Box>
         </Section>
 
+        <Section title="Бічна панель: PPTX (список файлів із сервера)">
+          <Box sx={{ border: '1px solid', borderColor: 'divider', display: 'inline-block' }}>
+            <WorkspaceSidePanel
+              readiness={fx.readiness}
+              suggestions={suggestions}
+              outputs={fx.pptxSyllabusOutputs}
+              filesEnabled
+              downloading=""
+              canSubmit
+              submitted={false}
+              busy={false}
+              pendingCount={0}
+              onSelectSuggestion={() => {}}
+              onDownload={(name) => note(`download ${name}`)}
+              onPreviewDocument={() => setDocOpen(true)}
+              onSubmit={() => note('submit')}
+            />
+          </Box>
+        </Section>
+
         <Section title="Прогрес аналізу та банери">
           <AnalysisProgress stage="diagnose" />
+          <AnalysisProgress stage="verify" />
+          <AnalysisProgress stage="done" />
           <AnalysisProgress failed error="Тест помилки" onRetry={() => {}} />
           <WorkspaceBanners syllabus={{ convertedFrom: 'pdf', legacy: true }} onUploadAgain={() => {}} />
           <WorkspaceBanners syllabus={{ convertedFrom: 'doc' }} />

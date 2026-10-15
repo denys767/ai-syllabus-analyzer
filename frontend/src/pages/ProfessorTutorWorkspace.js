@@ -175,6 +175,7 @@ const ProfessorTutorWorkspace = () => {
                     suggestion={m.kind === 'suggestion' ? suggestionById.get(m.relatedSuggestionId) : null}
                     isLatestForSuggestion={latestMessageForSuggestion.get(m.relatedSuggestionId) === m._id}
                     actions={ws.actions}
+                    loadSlides={syllabus?.sourceFormat === 'pptx' ? ws.loadSlides : null}
                     busy={ws.busy}
                     readOnly={ws.readOnly}
                     highlightedId={highlightedId}

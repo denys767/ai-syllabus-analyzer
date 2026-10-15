@@ -172,6 +172,16 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
     reopen: (sid) => mutate((id) => api.chat.reopen(id, sid)),
   }), [mutate]);
 
+  // Слайди для pptx: не змінюють view, тому без mutate. Повертає { ok, slides } або { ok:false, error }.
+  const loadSlides = useCallback(async (sid, optionId) => {
+    try {
+      const { data } = await api.chat.suggestionSlides(idRef.current, sid, optionId);
+      return { ok: true, slides: data?.slides || [] };
+    } catch (err) {
+      return { ok: false, error: (await describeError(err, 'Не вдалося завантажити слайди')).message };
+    }
+  }, []);
+
   const reportFailure = useCallback((result) => {
     if (!result.ok) setError(result.error);
     return result.ok;
@@ -268,6 +278,7 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
     pendingCount,
     canSubmit: status === 'in_progress' && !readOnly && !!view?.conversation && pendingCount === 0,
     actions,
+    loadSlides,
     sendMessage,
     submit,
     reanalyze,

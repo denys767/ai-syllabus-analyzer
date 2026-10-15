@@ -59,7 +59,7 @@ export const changeHeavy = {
 };
 
 const base = {
-  id: 's0', kind: 'edit', status: 'pending', severity: 'high', group: 'assessment', criterionId: 'assess-weights',
+  id: 's0', kind: 'edit', status: 'pending', severity: 'high', group: 'assessment', criterionId: 'assess-weights', criterionTitle: 'Ваги оцінювання',
   title: 'Узгодьте вагу компонентів оцінювання', description: 'Сума ваг компонентів не дорівнює 100%. Додано відсутній компонент і виправлено ваги.',
   question: null, applicable: true, selectedOptionId: null, decisionReason: null, rejectTag: null, order: 1,
   changes: [changeReplace], options: [], conflictsWith: [], requiresReason: true,
@@ -113,9 +113,58 @@ export const suggestionQuestion = {
   question: 'У силабусі немає дат здачі завдань. Вкажіть, будь ласка, дедлайни для кожного з трьох завдань.',
 };
 
+// --- Фаза 5: PPTX ---
+const SLIDE_BEFORE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAIAAACwpMoFAAAAzklEQVR42u3ZsREAEAxA0cxpACNZUqXSmsAdjSJe7k/gVYnoYypx4QkAC7AAC7AAC7AugKMWHQYYMGDAgAEDBgwYMGDAAgwYMGDAgAEDBgwY8H/A8h8swAIswAIswIAFWIAFWIAFWIAB72vmyQAGDBgwYMCAAZtMwLIHC7AAC7AACzBg+U0yb48VgAEDBgwYsAEM2JokwAIswAIMWIAFWA4dziCAAQMGDBgwYMAmC7DswQIswAIswAIMWIAFWIAFWIAFGLAAC7AAC7AA66IFRaVNgopQh6oAAAAASUVORK5CYII=';
+const SLIDE_AFTER = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAIAAACwpMoFAAAA1UlEQVR42u3ZsQ3AIAxFQc/JABkpc7pLmwmQQkMM3NebgKuAyCe1ceEIAAuwAAuwAAuwBoDjavoYYMCAAQMGDBgwYMCAAQswYMCAAQMGDBgwYMDnAct/sAALsAALsAADFmABFmABFmABBtzvtgIDDBgwYMCADbCtBSz3YAEWYAEWYAEGLL9JVvhlAzBgwIANsAG234HlHizAAizAAizAgOU3ydZ58QAM2AAbYANs84HlHizAAizAAizAgOU3ybMDYMCAAQMGDBgwYMByDxZgARZgAdZALws3WSPSjFnlAAAAAElFTkSuQmCC';
+
+export const changeSlideTitle = {
+  blockId: 'b0101', op: 'replaceBlock', kind: 'slide-title', slide: 2,
+  parts: [p('eq', 'Оцінювання '), p('del', 'курсу'), p('ins', 'студентів за чотирма компонентами')],
+};
+export const changeSlideText = {
+  blockId: 'b0102', op: 'replaceBlock', kind: 'slide-text', slide: 2,
+  parts: [p('eq', 'Іспит — '), p('del', '50%'), p('ins', '30%'), p('eq', ', груповий проєкт — 30%')],
+};
+export const changeNotes = {
+  blockId: 'b0103', op: 'replaceBlock', kind: 'notes', slide: 2,
+  parts: [p('eq', 'Нагадайте про '), p('ins', 'дедлайни та '), p('eq', 'критерії оцінювання')],
+};
+
+export const slidesPair = [
+  { slide: 2, before: SLIDE_BEFORE, after: SLIDE_AFTER, overflowRisk: false },
+  { slide: 5, before: SLIDE_BEFORE, after: SLIDE_AFTER, overflowRisk: true },
+];
+
+export const suggestionPptx = {
+  ...base, id: 's10', severity: 'medium', group: 'assessment', criterionId: 'assess-weights',
+  criterionTitle: 'Прозорість оцінювання', requiresReason: false,
+  title: 'Уточніть оцінювання на слайді 2',
+  changes: [changeSlideTitle, changeSlideText, changeNotes],
+};
+export const suggestionPptxChoice = {
+  ...suggestionChoice, id: 's11', criterionId: 'practice-cases', criterionTitle: 'Практичні кейси',
+  title: 'Оберіть кейс для слайда «Фінансова стратегія»',
+  options: suggestionChoice.options.map((o) => ({
+    ...o,
+    changes: [{ blockId: 'b0110', op: 'insertAfter', kind: 'slide-text', slide: 4, after: o.label, parts: [p('ins', o.label)] }],
+  })),
+};
+
+export const pptxSyllabusOutputs = [
+  { name: 'edited.pptx', label: 'Презентація з правками' },
+  { name: 'preview.pdf', label: 'PDF презентації з правками' },
+];
+export const pdfSyllabusOutputs = [
+  { name: 'annotated.pdf', label: 'Оригінальний PDF з примітками' },
+  { name: 'tracked.docx', label: 'DOCX з правками (tracked changes)' },
+  { name: 'clean.docx', label: 'Чистий DOCX' },
+  { name: 'tracked.pdf', label: 'PDF з правками' },
+];
+
 export const allSuggestions = [
   suggestionEdit, suggestionManyKinds, suggestionHeavy, suggestionAdvisory, suggestionConflict,
   suggestionAccepted, suggestionRejected, suggestionChoice, suggestionQuestion,
+  suggestionPptx, suggestionPptxChoice,
 ];
 
 export const readiness = {
