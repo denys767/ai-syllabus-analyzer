@@ -15,7 +15,7 @@ import { Check, Close, Edit, ExpandLess, ExpandMore, Replay, WarningAmber } from
 import RejectDialog from './RejectDialog';
 import RefineDialog from './RefineDialog';
 import ConflictDialog from './ConflictDialog';
-import { ADVISORY_REJECT_REASON, GROUP_LABELS, REJECT_TAGS, SEVERITY } from '../constants';
+import { GROUP_LABELS, REJECT_TAGS, SEVERITY } from '../constants';
 
 const tagLabel = (value) => REJECT_TAGS.find((t) => t.value === value)?.label || null;
 
@@ -92,7 +92,8 @@ const SuggestionFrame = ({
 
   const acceptBody = (extra = {}) => (acceptOptionId ? { optionId: acceptOptionId, ...extra } : extra);
   const doAccept = () => exec(() => actions.accept(s.id, acceptBody()));
-  const dismissAdvisory = () => exec(() => actions.reject(s.id, { reason: ADVISORY_REJECT_REASON, rejectTag: 'other' }));
+  // Порада без правки: «Зрозуміло» = accept без optionId (статус accepted, документ не змінюється)
+  const dismissAdvisory = () => exec(() => actions.accept(s.id, {}));
   const closeDialog = () => { setDialog(null); setError(''); };
 
   const canAct = !readOnly && !resolved;

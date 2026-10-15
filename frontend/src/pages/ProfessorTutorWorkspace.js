@@ -126,6 +126,7 @@ const ProfessorTutorWorkspace = () => {
       downloading={ws.downloading}
       canSubmit={ws.canSubmit}
       submitted={ws.submitted}
+      readOnly={ws.readOnly}
       busy={ws.busy}
       pendingCount={ws.pendingCount}
       onSelectSuggestion={scrollToSuggestion}

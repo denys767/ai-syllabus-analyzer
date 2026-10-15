@@ -45,5 +45,3 @@ export const STATUS_LABELS = {
   accepted: 'Прийняті',
   rejected: 'Відхилені',
 };
-
-export const ADVISORY_REJECT_REASON = 'Зрозуміло (порада без правки в тексті)';

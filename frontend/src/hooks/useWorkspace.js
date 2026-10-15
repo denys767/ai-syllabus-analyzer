@@ -243,6 +243,8 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
   const pendingCount = readiness?.counts?.pending ?? 0;
   const submitted = status === 'submitted';
   const legacy = !!syllabus?.legacy;
+  // canMutate: власник, не submitted, не legacy (адмін — лише читання)
+  const readOnly = syllabus?.canMutate === false || legacy || submitted;
 
   return {
     syllabus,
@@ -261,9 +263,9 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
     docPreview,
     legacy,
     submitted,
-    readOnly: legacy || submitted,
+    readOnly,
     pendingCount,
-    canSubmit: status === 'in_progress' && !legacy && !!view?.conversation && pendingCount === 0,
+    canSubmit: status === 'in_progress' && !readOnly && !!view?.conversation && pendingCount === 0,
     actions,
     sendMessage,
     submit,

@@ -22,6 +22,7 @@ const WorkspaceSidePanel = ({
   downloading,
   canSubmit,
   submitted,
+  readOnly,
   busy,
   pendingCount,
   onSelectSuggestion,
@@ -84,7 +85,7 @@ const WorkspaceSidePanel = ({
       >
         {submitted ? 'Надіслано директору' : 'Надіслати директору'}
       </Button>
-      {!submitted && pendingCount > 0 && (
+      {!submitted && !readOnly && pendingCount > 0 && (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
           Спершу опрацюйте всі пропозиції (залишилось {pendingCount}).
         </Typography>

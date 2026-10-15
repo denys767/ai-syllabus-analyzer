@@ -65,6 +65,7 @@ const MessageItem = ({
           message={message}
           pendingCount={pendingCount}
           submitted={submitted}
+          readOnly={readOnly}
           busy={busy}
           onPreview={onPreviewDocument}
           onSubmit={onSubmit}

@@ -21,11 +21,9 @@ export function afterText(parts = []) {
   return parts.filter((p) => p.type !== 'del').map((p) => p.text).join('');
 }
 
-// Тип зміни блоку за BlockChange.op / status. Контракт не фіксує точні значення op,
-// тому порівнюємо за підрядком (insertAfter, insert, inserted → inserted).
+// BlockChange.op ∈ 'replaceBlock' | 'insertAfter' | 'deleteBlock' (docs/api-v3.md).
 export function blockChangeStatus(change) {
-  const tag = String(change?.status || change?.op || '').toLowerCase();
-  if (tag.includes('insert')) return 'inserted';
-  if (tag.includes('delete')) return 'deleted';
+  if (change?.op === 'insertAfter') return 'inserted';
+  if (change?.op === 'deleteBlock') return 'deleted';
   return 'changed';
 }

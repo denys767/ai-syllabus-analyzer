@@ -4,7 +4,7 @@ import { Send, Visibility } from '@mui/icons-material';
 import Bubble from './Bubble';
 import MarkdownText from './MarkdownText';
 
-const SubmissionCta = ({ message, pendingCount = 0, submitted = false, busy, onPreview, onSubmit }) => (
+const SubmissionCta = ({ message, pendingCount = 0, submitted = false, readOnly = false, busy, onPreview, onSubmit }) => (
   <Bubble role="ai" sx={{ maxWidth: '95%' }}>
     {message?.content && <MarkdownText sx={{ mb: 1.5 }}>{message.content}</MarkdownText>}
     {submitted ? (
@@ -24,7 +24,7 @@ const SubmissionCta = ({ message, pendingCount = 0, submitted = false, busy, onP
             variant="contained"
             size="small"
             startIcon={<Send />}
-            disabled={busy || pendingCount > 0}
+            disabled={busy || readOnly || pendingCount > 0}
             onClick={onSubmit}
           >
             Надіслати директору

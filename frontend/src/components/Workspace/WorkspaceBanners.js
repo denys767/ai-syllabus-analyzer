@@ -14,6 +14,11 @@ const WorkspaceBanners = ({ syllabus, onUploadAgain }) => {
       {syllabus.convertedFrom === 'doc' && (
         <Alert severity="info" sx={{ borderRadius: 0 }}>Файл .doc сконвертовано у .docx</Alert>
       )}
+      {syllabus.canMutate === false && !syllabus.legacy && syllabus.status !== 'submitted' && (
+        <Alert severity="info" sx={{ borderRadius: 0 }}>
+          Режим перегляду: рішення в чаті може приймати лише власник силабуса.
+        </Alert>
+      )}
       {syllabus.legacy && (
         <Alert
           severity="warning"
