@@ -25,10 +25,22 @@ function validateOpsForReview(blocks, ops) {
   return validateOps({ blocks }, ops).map((e) => `${e.code}${e.blockId ? ` (${e.blockId})` : ''}: ${e.message}`);
 }
 
-async function generateFor({ finding, blocks, meta, feedback }) {
+async function generateFor({ finding, blocks, meta, feedback, caseSources }) {
   return review().generateSuggestion({
-    finding, blocks, meta, feedback: feedback || '', validateOps: validateOpsForReview,
+    finding, blocks, meta, feedback: feedback || '', validateOps: validateOpsForReview, caseSources,
   });
+}
+
+/** Джерела кейсів (CASE_WEB_SEARCH): лише відомі поля; URL — тільки для підтверджених. */
+function cleanSources(sources) {
+  if (!Array.isArray(sources)) return [];
+  return sources.filter((x) => x && typeof x.title === 'string' && x.title.trim()).map((x) => ({
+    title: x.title.trim(),
+    publisher: typeof x.publisher === 'string' ? x.publisher : null,
+    year: Number.isFinite(x.year) ? x.year : null,
+    url: x.verified === true && typeof x.url === 'string' ? x.url : null,
+    verified: x.verified === true,
+  }));
 }
 
 function clip(text, max) {
@@ -80,6 +92,7 @@ function variantFrom(result, finding) {
     options,
     question: kind === 'question' ? String(result.question || '') : undefined,
     applicable,
+    sources: cleanSources(result?.sources),
   };
 }
 
@@ -94,6 +107,7 @@ function advisoryVariant(finding) {
     options: [],
     question: undefined,
     applicable: false,
+    sources: [],
   };
 }
 
@@ -108,6 +122,7 @@ module.exports = {
   metaOf,
   validateOpsForReview,
   generateFor,
+  cleanSources,
   baseFromFinding,
   variantFrom,
   advisoryVariant,

@@ -241,13 +241,18 @@ function mergeContext(doc, acceptedSuggestions, s) {
   return { blocks, supersedes: conflictIds, note };
 }
 
+function plainSources(sources) {
+  return sources?.length ? JSON.parse(JSON.stringify(sources)) : undefined;
+}
+
 async function regenerate(conversation, syllabus, s, { feedback, blocks, supersedes }) {
   const finding = s.finding || {
     id: s.findingId, criterionId: s.criterionId, group: s.group, severity: s.severity, claim: s.title, rationale: s.rationale,
   };
   const result = await withAiFailureTracking(
     conversation,
-    () => generateFor({ finding, blocks, meta: metaOf(syllabus), feedback }),
+    // Збережені джерела кейсів перевикористовуються: Refine не запускає новий веб-пошук
+    () => generateFor({ finding, blocks, meta: metaOf(syllabus), feedback, caseSources: plainSources(s.sources) }),
     'Не вдалося переробити пропозицію. Спробуйте ще раз.',
   );
   const variant = variantFrom(result, finding);
@@ -260,6 +265,7 @@ async function regenerate(conversation, syllabus, s, { feedback, blocks, superse
     options: variant.options,
     question: variant.question,
     applicable: variant.applicable,
+    sources: variant.sources,
     selectedOptionId: null,
   };
   if (supersedes) set.supersedes = supersedes;

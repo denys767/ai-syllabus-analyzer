@@ -1,4 +1,5 @@
 jest.mock('../services/ai/review', () => ({ runReview: jest.fn(async () => ({ findings: [], rubricSummary: {} })), generateSuggestion: jest.fn() }));
+const review = require('../services/ai/review');
 jest.mock('../services/emailService', () => ({ sendSubmissionToAdEmail: jest.fn(async () => ({ messageId: 'test' })) }));
 jest.mock('../services/document', () => {
   const actual = jest.requireActual('../services/document');
@@ -159,6 +160,25 @@ test('PPTX submit без LibreOffice: лише edited.pptx і примітка �
   const mail = sendSubmissionToAdEmail.mock.calls.at(-1)[0];
   expect(mail.attachments.map((a) => a.filename)).toEqual(['course_edited.pptx']);
   expect(mail.summaryText).toMatch(/PDF-версію презентації не вдалося згенерувати/);
+});
+
+test('sources: у SuggestionView, Refine передає збережені джерела і зберігає нові', async () => {
+  const s = await helpers.createDocSyllabus(owner, { programId: program._id });
+  ids.push(s._id);
+  const block = s.document.blocks.find((b) => !b.readOnly && b.kind === 'paragraph');
+  const sources = [{ title: 'Nova Poshta', publisher: 'The Case Centre', year: 2022, url: 'https://example.org/case', verified: true },
+    { title: 'Monobank', publisher: null, year: null, url: null, verified: false }];
+  const suggestion = await helpers.createSuggestion(s, { group: 'practice', criterionId: 'PR-3', sources,
+    finding: { id: 'f1', criterionId: 'PR-3', group: 'practice', claim: 'c', rationale: 'r' }, ops: [helpers.replaceOp(block.id, `${block.text} Case.`)] });
+  await post(s, '/start');
+  const view = (await get(s, '')).body.suggestions.find((x) => x.id === String(suggestion._id));
+  expect(view.sources).toEqual(sources);
+
+  review.generateSuggestion.mockResolvedValueOnce({ kind: 'edit', title: 'Новий кейс', description: 'd', rationale: 'r',
+    ops: [helpers.replaceOp(block.id, `${block.text} Nova Poshta case.`)], sources: [sources[0]] });
+  expect((await post(s, `/suggestions/${suggestion._id}/refine`, { feedback: 'Лише один кейс' })).status).toBe(200);
+  expect(review.generateSuggestion.mock.calls.at(-1)[0].caseSources).toEqual(sources);
+  expect((await Suggestion.findById(suggestion._id).lean()).sources).toEqual([sources[0]]);
 });
 
 test('PDF mapping remaps operation anchors and synthetic inserted ids independently of numbering', () => {

@@ -28,7 +28,6 @@
     "node-diff3": "^3.2.1",
     "nodemailer": "^7.0.10",
     "openai": "^6.8.1",
-    "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^6.4.299",
     "validator": "^13.15.23"
   },

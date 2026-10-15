@@ -87,6 +87,9 @@ function buildSuggestionView(doc, s, acceptedDocs, titles) {
     supersedes: (s.supersedes || []).map(String),
     versionsCount: (s.versions || []).length,
     requiresReason: requiresReason(s),
+    sources: (s.sources || []).map(({ title, publisher, year, url, verified }) => ({
+      title, publisher: publisher ?? null, year: year ?? null, url: url ?? null, verified: Boolean(verified),
+    })),
     changes: [],
     options: [],
     conflictsWith: [],

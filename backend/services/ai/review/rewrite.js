@@ -1,6 +1,7 @@
 const { getClause, getCriterion, renderCriteriaCards } = require('../rubric');
 const schemas = require('./schemas');
 const { requestJSON, renderDocument } = require('./common');
+const caseSourcesModule = require('./caseSources');
 
 const PLACEHOLDER_LABELS = {
   '[number]': 'кількість', '[percentage]': 'відсоток', '[assessments where AI is allowed]': 'роботи, де дозволено AI',
@@ -77,7 +78,24 @@ function buildClause(parsed, clause, finding, blocks, feedback) {
     rationale: parsed.rationale, options, applicable: options.some((o) => o.ops.length > 0) }, errors };
 }
 
-async function generateSuggestion({ finding, blocks, meta = {}, feedback = '', validateOps: injectedValidator = validateOps }) {
+/**
+ * Джерела кейсів для знахідки (лише з CASE_WEB_SEARCH=1 і case-знахідки practice); null — не застосовно.
+ * Передані `caseSources` (збережені при попередній генерації) використовуються без нового пошуку.
+ * Збій пошуку не зриває генерацію: тоді джерел немає, і будь-який URL у відповіді буде вирізано.
+ */
+async function caseSourcesFor({ finding, meta, feedback, caseSources }) {
+  const { caseSearchEnabled, isCaseFinding, findCaseSources } = caseSourcesModule;
+  if (!caseSearchEnabled() || !isCaseFinding(finding, feedback)) return null;
+  if (Array.isArray(caseSources) && caseSources.length) return caseSources;
+  try {
+    return await findCaseSources({ finding, meta, feedback });
+  } catch (error) {
+    console.warn(`case web search failed for ${finding.id}:`, error.message);
+    return [];
+  }
+}
+
+async function generateSuggestion({ finding, blocks, meta = {}, feedback = '', validateOps: injectedValidator = validateOps, caseSources }) {
   const criterion = getCriterion(finding.criterionId);
   if (!criterion) throw new Error(`Unknown criterion: ${finding.criterionId}`);
   const clause = finding.fixType === 'clause' ? getClause(finding.standardClauseId) : null;
@@ -94,7 +112,8 @@ Use op replaceBlock when replacing an existing policy paragraph; insertAfter for
 NEVER write or paraphrase policy wording: the server inserts the exact clause template. Each placeholder must have a literal value from the syllabus or instructor feedback, or null if unknown.
 Do not infer policy parameters from unrelated numbers. Feedback may refine the choice of insertion point and supplied parameters, never rewrite clause text.
 Criteria:\n${renderCriteriaCards(criterion.group)}${clause ? `\nClause templates:\n${JSON.stringify(clause)}` : ''}`;
-  const input = `Finding: ${JSON.stringify(finding)}\nInstructor feedback (Refine): ${JSON.stringify(feedback)}\n${renderDocument(blocks, meta)}`;
+  const sources = await caseSourcesFor({ finding, meta, feedback, caseSources });
+  const input = `Finding: ${JSON.stringify(finding)}\nInstructor feedback (Refine): ${JSON.stringify(feedback)}${caseSourcesModule.renderSourcesForPrompt(sources)}\n${renderDocument(blocks, meta)}`;
   const history = [];
   let errors = [];
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -132,7 +151,7 @@ Criteria:\n${renderCriteriaCards(criterion.group)}${clause ? `\nClause templates
         suggestion.ops = ops;
       }
     }
-    if (!errors.length) return suggestion;
+    if (!errors.length) return sources ? caseSourcesModule.applyVerifiedSources(suggestion, sources) : suggestion;
     history.push({ response: parsed, errors });
   }
   return advisory(finding, errors);
