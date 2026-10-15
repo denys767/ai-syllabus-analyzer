@@ -47,16 +47,18 @@
 
 | Метод | Шлях | Опис |
 |---|---|---|
-| GET | `/` | `{ conversation, messages, suggestions: SuggestionView[], readiness, syllabus: { id, title, status, sourceFormat, convertedFrom, legacy } }` |
+| GET | `/` | `{ conversation, messages, suggestions: SuggestionView[], readiness, syllabus: { id, title, status, sourceFormat, convertedFrom, legacy, canMutate } }`. `canMutate` = поточний користувач є власником, силабус не submitted і не legacy. До `/start` `conversation` і `readiness` дорівнюють `null`. |
 | POST | `/start` | Створити розмову, якщо її немає. Показати першу pending-пропозицію. Повертає те саме, що GET. |
 | GET | `/suggestions/:sid/preview?optionId=` | `{ suggestionId, changes: BlockChange[] }` — diff тільки цієї пропозиції відносно оригіналу |
 | POST | `/suggestions/:sid/accept` | body `{ optionId?, conflictResolution?: 'replacePrevious' }`. Конфлікт → 409 `{ code: 'SUGGESTION_CONFLICT', conflicts: [{ suggestionId, title }] }`. З `replacePrevious` конфліктні прийняті пропозиції стають `rejected` з `rejectTag: 'other'` і причиною «Замінено пропозицією …». Повертає GET-view. |
+| POST | `/suggestions/:sid/accept` (порада) | Для `applicable:false` `accept` дозволений без `optionId`: статус `accepted`, жодних змін у документі (UI: «Зрозуміло»). |
 | POST | `/suggestions/:sid/reject` | body `{ reason?, rejectTag? }`. Для critical/high потрібен `reason` (400 без нього). Повертає GET-view. |
 | POST | `/suggestions/:sid/refine` | body `{ feedback?, mergeWithAccepted?: boolean }`. Регенерує ops або options (LLM). `mergeWithAccepted` враховує текст уже прийнятих конфліктних пропозицій і ставить `supersedes`. Попередній варіант іде в `versions`. Повертає GET-view. |
-| POST | `/suggestions/:sid/answer` | body `{ answer }` для `kind=question`. Генерує edit-пропозицію з відповіддю, і картка стає `kind=edit`. Повертає GET-view. |
+| POST | `/suggestions/:sid/answer` | body `{ answer }` для `kind=question`. Генерує edit-пропозицію з відповіддю. Та сама Suggestion змінює `kind` на `edit` (питання і відповідь ідуть у `versions`), тож `SuggestionView` для неї повертається вже як edit-картка. Повертає GET-view. |
 | POST | `/suggestions/:sid/reopen` | accepted/rejected → pending. Без каскаду, повідомлення не видаляються. 409 для submitted. Повертає GET-view. |
 | POST | `/message` | body `{ text }`. Вільне питання → відповідь AI. Якщо це запит змінити поточну пропозицію («коротше», «без дат»), сервер робить refine поточної картки. Повертає GET-view. |
 | GET | `/document/preview` | `{ blocks: [{ blockId, kind, level, parts: [{ type: 'eq'\|'del'\|'ins', text }] , status: 'unchanged'\|'changed'\|'inserted'\|'deleted' }] }` — весь документ з усіма прийнятими змінами |
+| GET | `/outputs/:name` | (CORS: `exposedHeaders: ['Content-Disposition']`) |
 | GET | `/outputs/:name` | `name` ∈ `tracked.docx` \| `clean.docx` \| `tracked.pdf`. Файл з оригінальним ім'ям (`<name>_tracked.docx` тощо). Доступно будь-коли до і після submit; кешується до наступного рішення. |
 | POST | `/submit` | Gate: немає pending (409 зі списком). Рендерить outputs заново. Лист директору містить tracked.docx, tracked.pdf і звіт. Повторний submit → 409. |
 
@@ -71,6 +73,8 @@
   requiresReason: Boolean                         // critical/high
 }
 BlockChange = { blockId, op, kind, before, after, parts: [{ type: 'eq'|'del'|'ins', text }] }
+// op ∈ 'replaceBlock' | 'insertAfter' | 'deleteBlock'. Для insertAfter кожен новий блок — окремий BlockChange
+// (blockId = якір, before = '', after = текст нового блоку). Для deleteBlock after = ''.
 ```
 
 ### readiness
