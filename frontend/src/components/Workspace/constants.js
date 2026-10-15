@@ -27,9 +27,10 @@ export const REFINE_HINTS = ['Коротше', 'Без дат', 'Простіш�
 export const ANALYSIS_STAGES = [
   { key: 'extract', label: 'Розбір документа' },
   { key: 'structure', label: 'Структура' },
-  { key: 'diagnose', label: 'Діагностика' },
-  { key: 'verify', label: 'Перевірка' },
+  { key: 'diagnose', label: 'Діагностика за рубрикою' },
+  { key: 'verify', label: 'Перевірка знахідок' },
   { key: 'rewrite', label: 'Формування пропозицій' },
+  { key: 'done', label: 'Готово' },
 ];
 
 export const BLOCK_KIND_LABELS = {
@@ -37,8 +38,20 @@ export const BLOCK_KIND_LABELS = {
   'list-item': 'Пункт списку',
   'table-cell': 'Клітинка таблиці',
   'slide-title': 'Заголовок слайда',
+  'slide-text': 'Текст слайда',
   notes: 'Нотатки',
 };
+
+// Підпис типу блоку; для блоків слайдів додає номер, якщо він відомий («Заголовок слайда 3»).
+export const blockKindLabel = (kind, slide) => {
+  const label = BLOCK_KIND_LABELS[kind];
+  if (!label) return undefined;
+  const n = Number(slide);
+  return (kind === 'slide-title' || kind === 'slide-text') && n > 0 ? `${label} ${n}` : label;
+};
+
+// Номер слайда з BlockChange / блоку перегляду (поле `slide` або `locator.slide`)
+export const blockSlide = (block) => block?.slide ?? block?.locator?.slide ?? null;
 
 export const STATUS_LABELS = {
   pending: 'Очікують рішення',

@@ -117,8 +117,10 @@ const SuggestionFrame = ({
       <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
         <Chip size="small" color={severity.color} label={severity.label} />
         {GROUP_LABELS[s.group] && <Chip size="small" variant="outlined" label={GROUP_LABELS[s.group]} />}
-        {s.criterionId && (
-          <Chip size="small" variant="outlined" label={s.criterionId} sx={{ fontFamily: 'monospace' }} />
+        {(s.criterionTitle || s.criterionId) && (
+          <Tooltip title={s.criterionId ? `Критерій: ${s.criterionId}` : ''}>
+            <Chip size="small" variant="outlined" label={s.criterionTitle || s.criterionId} sx={{ maxWidth: 280 }} />
+          </Tooltip>
         )}
         {s.kind === 'question' && <Chip size="small" color="info" variant="outlined" label="Питання" />}
         {advisory && <Chip size="small" variant="outlined" label="Порада без правки" />}

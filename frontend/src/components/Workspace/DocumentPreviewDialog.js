@@ -14,6 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import BlockView from './diff/BlockView';
+import { blockSlide } from './constants';
 
 // Весь документ з прийнятими змінами. Перемикач «лише змінені блоки» ховає незмінені.
 const DocumentPreviewDialog = ({ open, loading, blocks, error, onClose }) => {
@@ -48,6 +49,7 @@ const DocumentPreviewDialog = ({ open, loading, blocks, error, onClose }) => {
                   key={`${block.blockId}-${index}`}
                   kind={block.kind}
                   level={block.level}
+                  slide={blockSlide(block)}
                   status={block.status}
                   parts={block.parts}
                   showLabel={block.kind !== 'paragraph'}

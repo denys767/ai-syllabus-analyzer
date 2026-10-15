@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../services/api';
 import { describeError } from '../utils/apiError';
-import { downloadOutput as saveOutput } from '../utils/download';
+import { downloadOutput as saveOutput, syllabusOutputs } from '../utils/download';
 
 export const ANALYSIS_POLL_INTERVAL_MS = 5000;
 export const ANALYSIS_POLL_LIMIT_MS = 10 * 60 * 1000;
@@ -172,6 +172,16 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
     reopen: (sid) => mutate((id) => api.chat.reopen(id, sid)),
   }), [mutate]);
 
+  // Слайди для pptx: не змінюють view, тому без mutate. Повертає { ok, slides } або { ok:false, error }.
+  const loadSlides = useCallback(async (sid, optionId) => {
+    try {
+      const { data } = await api.chat.suggestionSlides(idRef.current, sid, optionId);
+      return { ok: true, slides: data?.slides || [] };
+    } catch (err) {
+      return { ok: false, error: (await describeError(err, 'Не вдалося завантажити слайди')).message };
+    }
+  }, []);
+
   const reportFailure = useCallback((result) => {
     if (!result.ok) setError(result.error);
     return result.ok;
@@ -248,6 +258,7 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
 
   return {
     syllabus,
+    outputs: syllabusOutputs(syllabus),
     conversation: view?.conversation || null,
     messages: view?.messages || [],
     suggestions: view?.suggestions || [],
@@ -267,6 +278,7 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
     pendingCount,
     canSubmit: status === 'in_progress' && !readOnly && !!view?.conversation && pendingCount === 0,
     actions,
+    loadSlides,
     sendMessage,
     submit,
     reanalyze,

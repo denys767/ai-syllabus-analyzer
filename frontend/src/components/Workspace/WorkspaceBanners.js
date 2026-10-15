@@ -1,14 +1,14 @@
 import React from 'react';
 import { Alert, Button } from '@mui/material';
 
-// Банери над чатом: конвертація формату, старий (read-only) силабус, підтверджена відправка.
+// Банери над чатом: конвертація формату (PDF, DOC), старий (read-only) силабус, підтверджена відправка.
 const WorkspaceBanners = ({ syllabus, onUploadAgain }) => {
   if (!syllabus) return null;
   return (
     <>
       {syllabus.convertedFrom === 'pdf' && (
         <Alert severity="info" sx={{ borderRadius: 0 }}>
-          Файл PDF перетворено на простий DOCX. Щоб зберегти оригінальне форматування, завантажте DOCX.
+          Ваш PDF збережено: у файлі «Оригінальний PDF з примітками» зміни показано примітками на оригіналі. Для редагованої версії з форматуванням завантажте DOCX.
         </Alert>
       )}
       {syllabus.convertedFrom === 'doc' && (

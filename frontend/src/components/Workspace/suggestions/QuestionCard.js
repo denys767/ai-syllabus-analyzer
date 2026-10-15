@@ -5,7 +5,8 @@ import SuggestionFrame from './SuggestionFrame';
 
 // kind = 'question': AI просить дані, яких бракує в тексті. Після відповіді сервер перетворює
 // картку на kind='edit', тож компонент замінюється на SuggestionCard.
-const QuestionCard = ({ suggestion, actions, busy, ...frameProps }) => {
+// loadSlides не потрібен: у питання немає змін
+const QuestionCard = ({ suggestion, actions, busy, loadSlides, ...frameProps }) => {
   const [answer, setAnswer] = useState('');
   const pending = suggestion.status === 'pending';
   const trimmed = answer.trim();

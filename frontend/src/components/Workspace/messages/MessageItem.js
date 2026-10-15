@@ -30,6 +30,7 @@ const MessageItem = ({
   suggestion,
   isLatestForSuggestion = true,
   actions,
+  loadSlides = null,
   busy,
   readOnly,
   highlightedId,
@@ -53,6 +54,7 @@ const MessageItem = ({
         <Card
           suggestion={suggestion}
           actions={actions}
+          loadSlides={loadSlides}
           busy={busy}
           readOnly={readOnly}
           highlighted={highlightedId === suggestion.id}

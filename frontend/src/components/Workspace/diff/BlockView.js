@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Chip, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import DiffText from './DiffText';
-import { BLOCK_KIND_LABELS } from '../constants';
+import { blockKindLabel } from '../constants';
 
 const HEADING_SIZE = { 1: '1.2rem', 2: '1.08rem' };
 
@@ -12,12 +12,12 @@ const STATUS_CHIP = {
 };
 
 // Один блок документа: тип (заголовок/пункт/клітинка), стан (додано/видалено/змінено), diff усередині.
-const BlockView = ({ kind = 'paragraph', level, status = 'unchanged', parts, showLabel = true, sx }) => {
+const BlockView = ({ kind = 'paragraph', level, slide, status = 'unchanged', parts, showLabel = true, sx }) => {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
   const whole = status === 'inserted' ? 'ins' : status === 'deleted' ? 'del' : undefined;
   const tint = status === 'inserted' ? 'success' : status === 'deleted' ? 'error' : null;
-  const label = BLOCK_KIND_LABELS[kind];
+  const label = blockKindLabel(kind, slide);
   const chip = STATUS_CHIP[status];
 
   return (

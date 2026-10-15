@@ -47,7 +47,7 @@ const ProfessorTutorWorkspace = () => {
   const [panelOpen, setPanelOpen] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
   const [highlightedId, setHighlightedId] = useState(null);
-  const threadEndRef = useRef(null);
+  const threadRef = useRef(null);
   const highlightTimer = useRef(null);
 
   const { messages, suggestions, syllabus } = ws;
@@ -56,7 +56,9 @@ const ProfessorTutorWorkspace = () => {
   useEffect(() => () => clearTimeout(highlightTimer.current), []);
 
   useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Прокручуємо лише стрічку чату: scrollIntoView зсував би всю сторінку під app bar
+    const el = threadRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages.length, ws.pendingText]);
 
   const suggestionById = useMemo(() => new Map(suggestions.map((s) => [s.id, s])), [suggestions]);
@@ -104,7 +106,7 @@ const ProfessorTutorWorkspace = () => {
 
   if (!syllabusId) {
     return (
-      <Box sx={{ height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {openTabs.length > 0 && tabs}
         <Box sx={{ flexGrow: 1, overflow: 'auto', bgcolor: 'background.default' }}>
           <EmptyState onUploaded={handleUploaded} />
@@ -122,6 +124,7 @@ const ProfessorTutorWorkspace = () => {
     <WorkspaceSidePanel
       readiness={ws.readiness}
       suggestions={suggestions}
+      outputs={ws.outputs}
       filesEnabled={ready && !ws.legacy}
       downloading={ws.downloading}
       canSubmit={ws.canSubmit}
@@ -137,13 +140,13 @@ const ProfessorTutorWorkspace = () => {
   );
 
   return (
-    <Box sx={{ height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       {tabs}
       {ws.error && <Alert severity="error" onClose={ws.clearError} sx={{ borderRadius: 0 }}>{ws.error}</Alert>}
       <WorkspaceBanners syllabus={syllabus} onUploadAgain={() => navigate('/workspace')} />
       <Box sx={{ flexGrow: 1, display: 'flex', minHeight: 0 }}>
         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <Box sx={{ flexGrow: 1, overflow: 'auto', p: { xs: 1.5, md: 3 }, bgcolor: 'background.default' }}>
+          <Box ref={threadRef} sx={{ flexGrow: 1, overflow: 'auto', p: { xs: 1.5, md: 3 }, bgcolor: 'background.default' }}>
             {ws.loading && !ws.loaded ? (
               <Centered>
                 <CircularProgress />
@@ -172,6 +175,7 @@ const ProfessorTutorWorkspace = () => {
                     suggestion={m.kind === 'suggestion' ? suggestionById.get(m.relatedSuggestionId) : null}
                     isLatestForSuggestion={latestMessageForSuggestion.get(m.relatedSuggestionId) === m._id}
                     actions={ws.actions}
+                    loadSlides={syllabus?.sourceFormat === 'pptx' ? ws.loadSlides : null}
                     busy={ws.busy}
                     readOnly={ws.readOnly}
                     highlightedId={highlightedId}
@@ -190,8 +194,7 @@ const ProfessorTutorWorkspace = () => {
                     <PendingReply />
                   </>
                 )}
-                <div ref={threadEndRef} />
-              </>
+                              </>
             ) : null}
           </Box>
           <ChatInput onSend={ws.sendMessage} disabled={chatDisabled} />
