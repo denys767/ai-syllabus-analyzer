@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "update": "npm update",
     "check-updates": "npm outdated",
-    "clean": "rm -rf node_modules package-lock.json && npm install"
+    "clean": "rm -rf node_modules package-lock.json && npm install",
+    "test": "jest"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.12",
