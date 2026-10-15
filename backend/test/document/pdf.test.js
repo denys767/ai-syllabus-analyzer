@@ -24,7 +24,10 @@ test('PDF: абзаци, заголовки, bullets, англійська/ки�
     for (const line of lineBoxes) expect(block.text.slice(line.start, line.end)).toBe(line.text);
   }
   expect(await api.extractPdf(original)).toEqual(doc);
-  expect(await api.loadDocument(original, 'pdf')).toEqual({ buffer: original, doc, convertedFrom: null });
+  // loadDocument для PDF синтезує редагований .docx; анотації будуються окремо з extractPdf.
+  const loaded = await api.loadDocument(original, 'pdf');
+  expect(loaded.convertedFrom).toBe('pdf');
+  expect(loaded.buffer.subarray(0, 2).toString()).toBe('PK');
   const paragraphs = api.pdfBlocksToParagraphs(doc);
   expect(paragraphs).toHaveLength(doc.blocks.length);
   expect(paragraphs[0]).toMatchObject({ kind: 'heading', level: 1 });

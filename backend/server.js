@@ -48,6 +48,8 @@ const corsOptions = {
   credentials: false,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   // allowedHeaders omitted to echo Access-Control-Request-Headers dynamically
+  // Фронтенд бере ім'я файлу outputs із Content-Disposition
+  exposedHeaders: ['Content-Disposition'],
   preflightContinue: false,
   optionsSuccessStatus: 204
 };

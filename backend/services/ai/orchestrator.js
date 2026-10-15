@@ -1,48 +1,70 @@
+// Аналіз силабусу: рубрика (services/ai/review) → пропозиція на кожну знахідку → Suggestion-и.
+
 const Syllabus = require('../../models/Syllabus');
-const { analyzeAgainstStandards } = require('./analyzer');
-const { generateEditsForRecs } = require('./editGenerator');
+const Suggestion = require('../../models/Suggestion');
+const { mapLimit } = require('../../utils/concurrency');
+const {
+  review, metaOf, generateFor, baseFromFinding, variantFrom, advisoryVariant, priorityScore,
+} = require('./suggestionBuilder');
 
+const REWRITE_CONCURRENCY = Number(process.env.REWRITE_CONCURRENCY) || 3;
+const REVIEW_STAGES = new Set(['structure', 'diagnose', 'verify', 'rewrite']);
+
+async function setStage(syllabusId, stage) {
+  await Syllabus.updateOne({ _id: syllabusId, status: 'analyzing' }, { $set: { analysisStage: stage } });
+}
+
+/**
+ * Повний аналіз силабусу з уже збереженим `document`. Попередні пропозиції замінюються.
+ * Якщо generateSuggestion падає для знахідки, зберігається порада (applicable: false).
+ */
 async function analyzeSyllabus(syllabusId) {
-  try {
-    console.log('Starting syllabus analysis:', syllabusId);
-    const syllabus = await Syllabus.findById(syllabusId);
-    if (!syllabus) throw new Error('Syllabus not found');
+  const syllabus = await Syllabus.findById(syllabusId);
+  if (!syllabus) throw new Error('Силабус не знайдено');
+  const blocks = (syllabus.document?.blocks || []).map((b) => (b && typeof b.toObject === 'function' ? b.toObject() : b));
+  if (!blocks.length) throw new Error('Документ силабусу не розібрано');
+  const meta = metaOf(syllabus);
+  const docVersion = syllabus.document.docVersion;
 
-    const analysis = await analyzeAgainstStandards(syllabus.extractedText);
+  await setStage(syllabusId, 'structure');
+  const { findings, rubricSummary, stats } = await review().runReview({
+    blocks,
+    meta,
+    options: {
+      // Якщо пайплайн повідомляє про етапи — показуємо їх користувачу
+      onStage: (stage) => (REVIEW_STAGES.has(stage) ? setStage(syllabusId, stage).catch(() => {}) : undefined),
+    },
+  });
 
-    // Pre-generate line-anchored edits for every pending recommendation in one batch.
-    syllabus.recommendations = analysis.recommendations;
-    await generateEditsForRecs(syllabus, syllabus.recommendations);
+  await setStage(syllabusId, 'rewrite');
+  const drafts = await mapLimit(findings || [], REWRITE_CONCURRENCY, async (finding) => {
+    const base = baseFromFinding(finding, docVersion);
+    try {
+      const result = await generateFor({ finding, blocks, meta });
+      return { ...base, ...variantFrom(result, finding) };
+    } catch (err) {
+      console.error(`generateSuggestion failed for finding ${finding.id}:`, err.message);
+      return { ...base, ...advisoryVariant(finding) };
+    }
+  });
 
-    await Syllabus.findByIdAndUpdate(syllabusId, {
-      structure: analysis.structure || {},
-      analysis: {
-        templateCompliance: {
-          missingElements: analysis.templateCompliance?.missingElements || [],
-        },
-        learningObjectivesAlignment: {
-          alignedObjectives: analysis.learningObjectivesAlignment?.alignedObjectives || [],
-          missingObjectives: analysis.learningObjectivesAlignment?.missingObjectives || [],
-        },
-        plagiarismCheck: {
-          riskLevel: 'none',
-          similarSyllabi: [],
-          overallSimilarity: 0,
-          skipped: true,
-          reason: 'Similarity check is disabled for the Professor Tutor MVP',
-        },
-      },
-      recommendations: syllabus.recommendations,
+  const ordered = drafts
+    .map((d, i) => ({ d, i }))
+    .sort((a, b) => priorityScore(b.d) - priorityScore(a.d) || a.i - b.i)
+    .map(({ d }, order) => ({ ...d, syllabusId, order, status: 'pending' }));
+
+  await Suggestion.deleteMany({ syllabusId });
+  if (ordered.length) await Suggestion.insertMany(ordered);
+
+  await Syllabus.updateOne({ _id: syllabusId }, {
+    $set: {
+      rubricSummary: { ...(rubricSummary || {}), stats: stats || null },
       status: 'in_progress',
-      $unset: { analysisError: '' },
-    });
-
-    return true;
-  } catch (error) {
-    console.error('Analysis error:', error.message);
-    await Syllabus.findByIdAndUpdate(syllabusId, { status: 'error', analysisError: error.message });
-    throw error;
-  }
+      analysisStage: 'done',
+    },
+    $unset: { analysisError: '' },
+  });
+  return { suggestions: ordered.length };
 }
 
 module.exports = { analyzeSyllabus };

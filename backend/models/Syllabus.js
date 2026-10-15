@@ -1,5 +1,15 @@
 const mongoose = require('mongoose');
 
+const ANALYSIS_STAGES = ['extract', 'structure', 'diagnose', 'verify', 'rewrite', 'done'];
+
+// Кешований фінальний файл: валідний, поки docVersion і acceptedHash збігаються з поточними
+const outputSchema = new mongoose.Schema({
+  path: String,
+  generatedAt: Date,
+  docVersion: String,
+  acceptedHash: String,
+}, { _id: false });
+
 const syllabusSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -22,6 +32,12 @@ const syllabusSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Program'
   },
+  // Формат, який завантажив викладач
+  sourceFormat: {
+    type: String,
+    enum: ['docx', 'doc', 'pdf'],
+  },
+  // Оригінальний файл викладача, незмінний
   originalFile: {
     filename: String,
     originalName: String,
@@ -33,150 +49,52 @@ const syllabusSchema = new mongoose.Schema({
       default: Date.now
     }
   },
-  // Cached preview of the clean final syllabus PDF; invalidated when conversation has new decisions after generatedAt
-  previewPdf: {
+  // Робочий .docx, з яким працюють writer-и (для docx — той самий файл, що й оригінал)
+  workingFile: {
     path: String,
-    generatedAt: Date
+    size: Number,
   },
-  // Final PDF persisted at submission time — audit artifact attached to the AD email
-  submittedPdfPath: String,
+  // Результат services/document.loadDocument
+  document: {
+    docVersion: String,
+    convertedFrom: { type: String, enum: ['doc', 'pdf', null], default: null },
+    blocks: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+  },
+  // Похідний плоский текст (blocks.map(text).join('\n')) для пошуку і звітів
+  extractedText: String,
+  outputs: {
+    clean: outputSchema,
+    tracked: outputSchema,
+    trackedPdf: outputSchema,
+  },
+  rubricSummary: mongoose.Schema.Types.Mixed,
+  status: {
+    type: String,
+    enum: ['analyzing', 'in_progress', 'submitted', 'error'],
+    default: 'analyzing'
+  },
+  analysisStage: { type: String, enum: [...ANALYSIS_STAGES, null], default: null },
+  // Коли розпочато поточний аналіз (для відновлення завислих) і текст останньої помилки
+  analysisStartedAt: Date,
+  analysisError: String,
   submittedAt: Date,
   submissionEmailStatus: {
     type: String,
     enum: ['pending', 'sent', 'failed'],
     default: 'pending'
   },
-  extractedText: {
-    type: String,
-    required: true
-  },
-  // Running edited version mutated by per-issue Confirm; initialized from extractedText on first decision
-  editedText: {
-    type: String
-  },
-  // Track-changes version used by Preview/Submit PDFs. Deleted text is retained
-  // with internal markers while editedText remains the clean accepted text.
-  revisionMarkup: {
-    type: String
-  },
-  structure: {
-    hasObjectives: Boolean,
-    hasAssessment: Boolean,
-    hasSchedule: Boolean,
-    hasResources: Boolean,
-    missingParts: [String]
-  },
-  analysis: {
-    templateCompliance: {
-      missingElements: [String]
-    },
-    learningObjectivesAlignment: {
-      alignedObjectives: [String],
-      missingObjectives: [String]
-    },
-    plagiarismCheck: {
-      similarSyllabi: [{
-        syllabusId: mongoose.Schema.Types.ObjectId,
-        similarity: Number,
-        instructor: String,
-        course: String,
-        year: Number
-      }],
-      riskLevel: {
-        type: String,
-        enum: ['none', 'low', 'medium', 'high', 'unknown']
-      }
-    }
-  },
-  recommendations: [{
-    id: {
-      type: String,
-      required: true
-    },
-    category: {
-      type: String,
-      enum: [
-        'template-compliance',
-        'learning-objectives',
-        'content-quality',
-        'cases',
-        'student-clusters',
-        'policy',
-        'plagiarism',
-        'other'
-      ],
-      required: true
-    },
-    groupTag: { type: String },
-    title: String,
-    description: String,
-    priority: {
-      type: String,
-      enum: ['low', 'medium', 'high', 'critical'],
-      default: 'medium'
-    },
-    decision: {
-      type: String,
-      enum: ['pending', 'accepted', 'rejected', 'skipped'],
-      default: 'pending'
-    },
-    decidedVia: {
-      type: String,
-      enum: ['chat'],
-      default: null
-    },
-    decisionReason: String,
-    decisionHistory: [{
-      action: {
-        type: String,
-        enum: ['accepted', 'rejected', 'reopened']
-      },
-      previousDecision: String,
-      previousAppliedSelection: mongoose.Schema.Types.Mixed,
-      previousReason: String,
-      previousRespondedAt: Date,
-      resultingDecision: String,
-      selection: mongoose.Schema.Types.Mixed,
-      reason: String,
-      at: {
-        type: Date,
-        default: Date.now
-      }
-    }],
-    // Pre-generated chat payload to avoid live LLM calls per Confirm
-    beforeAfter: {
-      kind: {
-        type: String,
-        enum: ['before-after', 'choice', 'case-cards']
-      },
-      before: String,
-      after: String,
-      payload: mongoose.Schema.Types.Mixed
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now
-    },
-    respondedAt: Date
-  }],
-  editingStatus: {
-    type: String,
-    enum: ['idle', 'processing', 'ready', 'error'],
-    default: 'idle'
-  },
-  status: {
-    type: String,
-    enum: ['analyzing', 'in_progress', 'submitted', 'error'],
-    default: 'analyzing'
-  },
-  // Коли розпочато поточний аналіз (для відновлення завислих) і текст останньої помилки
-  analysisStartedAt: Date,
-  analysisError: String,
   // Прапорець атомарного захоплення під час submit (захист від подвійної відправки)
   submitting: {
     type: Boolean,
     default: false
-  }
+  },
+  // Силабуси до v4 (без document): чат лише читається, мутації → 409 LEGACY_SYLLABUS
+  legacy: {
+    type: Boolean,
+    default: false
+  },
+  // Лише для legacy: фінальний PDF старого пайплайну (для resend-submission)
+  submittedPdfPath: String,
 }, {
   timestamps: true
 });
@@ -186,24 +104,33 @@ syllabusSchema.index({ status: 1 });
 syllabusSchema.index({ programId: 1, status: 1 });
 syllabusSchema.index({ programId: 1, updatedAt: -1 });
 
+syllabusSchema.statics.ANALYSIS_STAGES = ANALYSIS_STAGES;
+
+/** Усі шляхи до файлів силабусу (оригінал, робочий .docx, outputs, legacy PDF). */
+syllabusSchema.statics.filePaths = function(doc) {
+  const outputs = doc?.outputs || {};
+  return [
+    doc?.originalFile?.path,
+    doc?.workingFile?.path,
+    outputs.clean?.path,
+    outputs.tracked?.path,
+    outputs.trackedPdf?.path,
+    doc?.submittedPdfPath,
+  ].filter(Boolean);
+};
+
+syllabusSchema.statics.FILE_FIELDS = 'originalFile.path workingFile.path outputs.clean.path outputs.tracked.path outputs.trackedPdf.path submittedPdfPath';
+
 syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
   const fs = fsPromises || require('fs').promises;
-  const tryUnlink = async (p) => {
-    if (!p) return;
-    try { await fs.unlink(p); } catch (e) { /* ignore */ }
-  };
-  try {
-    await tryUnlink(this.originalFile?.path);
-    await tryUnlink(this.previewPdf?.path);
-    await tryUnlink(this.submittedPdfPath);
-  } catch (e) {
-    // best-effort
+  for (const p of new Set(this.constructor.filePaths(this))) {
+    try { await fs.unlink(p); } catch { /* best-effort */ }
   }
 };
 
 syllabusSchema.statics.cleanupFilesByFilter = async function(filter = {}) {
   const fs = require('fs').promises;
-  const docs = await this.find(filter).select('originalFile.path previewPdf.path submittedPdfPath');
+  const docs = await this.find(filter).select(this.FILE_FIELDS);
   for (const doc of docs) {
     await doc.cleanupFiles(fs);
   }

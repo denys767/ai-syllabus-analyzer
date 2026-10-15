@@ -3,6 +3,8 @@ const path = require('path');
 const Syllabus = require('../models/Syllabus');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+const Suggestion = require('../models/Suggestion');
+const { removeOutputDir } = require('./outputs');
 
 const PDF_DIR = path.join(__dirname, '../uploads/pdfs');
 const PDF_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -18,13 +20,16 @@ async function deleteConversationsFor(syllabusIds) {
   }
 }
 
-// Видаляє силабуси за фільтром разом з файлами, розмовами й повідомленнями
+// Видаляє силабуси за фільтром разом з файлами (оригінал, робочий .docx, outputs), пропозиціями,
+// розмовами й повідомленнями
 async function deleteSyllabiCascade(filter) {
-  const syllabi = await Syllabus.find(filter);
+  const syllabi = await Syllabus.find(filter).select(`_id ${Syllabus.FILE_FIELDS}`);
   for (const syllabus of syllabi) {
     try { await syllabus.cleanupFiles(); } catch { /* best-effort */ }
+    await removeOutputDir(syllabus._id);
   }
   const ids = syllabi.map((s) => s._id);
+  await Suggestion.deleteMany({ syllabusId: { $in: ids } });
   await deleteConversationsFor(ids);
   await Syllabus.deleteMany({ _id: { $in: ids } });
   return ids.length;
@@ -48,17 +53,13 @@ async function sweepStuckAnalyses() {
   return result.modifiedCount;
 }
 
-// uploads/pdfs: видаляє файли старші за 7 днів, на які не посилається жоден силабус
+// uploads/pdfs (PDF старого пайплайну): видаляє файли старші за 7 днів, на які не посилається жоден силабус
 async function sweepOldPdfs({ maxAgeMs = PDF_MAX_AGE_MS } = {}) {
   let entries;
   try { entries = await fs.promises.readdir(PDF_DIR); } catch { return 0; }
 
-  const docs = await Syllabus.find().select('previewPdf.path submittedPdfPath').lean();
-  const referenced = new Set();
-  for (const d of docs) {
-    if (d.previewPdf?.path) referenced.add(path.basename(d.previewPdf.path));
-    if (d.submittedPdfPath) referenced.add(path.basename(d.submittedPdfPath));
-  }
+  const docs = await Syllabus.find({ submittedPdfPath: { $exists: true } }).select('submittedPdfPath').lean();
+  const referenced = new Set(docs.map((d) => path.basename(d.submittedPdfPath)));
 
   let deleted = 0;
   for (const name of entries) {

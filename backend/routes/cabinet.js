@@ -1,7 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const fs = require('fs');
-const path = require('path');
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 const { body, param, validationResult } = require('express-validator');
@@ -9,10 +7,11 @@ const { auth, requireRole } = require('../middleware/auth');
 const Program = require('../models/Program');
 const User = require('../models/User');
 const Syllabus = require('../models/Syllabus');
-const Conversation = require('../models/Conversation');
-const aiService = require('../services/ai');
-const { getIssueCounts } = require('../services/workspaceService');
-const { sendInvitationEmail, sendSubmissionToAdEmail } = require('../services/emailService');
+const Suggestion = require('../models/Suggestion');
+const { computeReadiness } = require('../services/chat/readiness');
+const { isLegacy } = require('../services/chat/state');
+const { sendSubmissionEmail, sendLegacySubmissionEmail } = require('../services/submission');
+const { sendInvitationEmail } = require('../services/emailService');
 const { isLastActiveAdmin } = require('../services/userService');
 const { generateToken } = require('../utils/tokens');
 
@@ -117,12 +116,26 @@ router.get('/metrics', auth, async (req, res) => {
 
 // ─── Syllabi ─────────────────────────────────────────────────────────────────
 
-// Проєкція для списку: метадані й лічильники, без текстів і payload-ів рекомендацій
+// Проєкція для списку: метадані, без документа і текстів
 const LIST_PROJECTION = [
-  'title', 'course', 'instructor', 'programId', 'status', 'submittedAt',
-  'submissionEmailStatus', 'analysisError', 'createdAt', 'updatedAt',
-  'recommendations.id', 'recommendations.decision', 'recommendations.priority', 'recommendations.decisionReason',
+  'title', 'course', 'instructor', 'programId', 'status', 'analysisStage', 'submittedAt',
+  'submissionEmailStatus', 'analysisError', 'sourceFormat', 'legacy', 'document.convertedFrom', 'createdAt', 'updatedAt',
 ].join(' ');
+
+// Лічильники пропозицій по силабусах: { syllabusId → [{ group, status, count }] }
+async function suggestionStats(syllabusIds) {
+  const rows = await Suggestion.aggregate([
+    { $match: { syllabusId: { $in: syllabusIds } } },
+    { $group: { _id: { syllabusId: '$syllabusId', group: '$group', status: '$status' }, count: { $sum: 1 } } },
+  ]);
+  const bySyllabus = new Map();
+  for (const r of rows) {
+    const key = String(r._id.syllabusId);
+    if (!bySyllabus.has(key)) bySyllabus.set(key, []);
+    bySyllabus.get(key).push({ group: r._id.group, status: r._id.status, count: r.count });
+  }
+  return bySyllabus;
+}
 
 router.get('/syllabi', auth, async (req, res) => {
   try {
@@ -149,19 +162,18 @@ router.get('/syllabi', auth, async (req, res) => {
       Syllabus.countDocuments(filter),
     ]);
 
-    const syllabusIds = syllabi.map((item) => item._id);
-    const conversations = await Conversation.find({ syllabusId: { $in: syllabusIds } })
-      .select('syllabusId readiness')
-      .lean();
-    const conversationBySyllabus = new Map(conversations.map((c) => [String(c.syllabusId), c]));
-
+    const stats = await suggestionStats(syllabi.map((item) => item._id));
     const enriched = syllabi.map((syllabus) => {
-      const { recommendations, ...meta } = syllabus;
-      const conversation = conversationBySyllabus.get(String(meta._id));
+      const { document, ...meta } = syllabus;
+      const readiness = computeReadiness(stats.get(String(meta._id)) || []);
       return {
         ...meta,
-        readiness: conversation?.readiness || { score: 0, breakdown: {} },
-        issueCounts: getIssueCounts({ recommendations }),
+        convertedFrom: document?.convertedFrom || null,
+        legacy: Boolean(meta.legacy),
+        readiness: ['analyzing', 'error'].includes(meta.status)
+          ? { score: 0, breakdown: {} }
+          : { score: readiness.score, breakdown: readiness.breakdown },
+        issueCounts: readiness.counts,
       };
     });
     res.json({ syllabi: enriched, total, page, pages: Math.ceil(total / limit) });
@@ -182,33 +194,14 @@ router.post('/syllabi/:id/resend-submission', auth, admin, async (req, res) => {
     const adEmail = syllabus.programId?.academicDirectorEmail;
     if (!adEmail) return res.status(400).json({ message: 'Для цієї програми не вказано email академічного директора' });
 
-    let pdfBuffer;
-    if (syllabus.submittedPdfPath) {
-      try { pdfBuffer = fs.readFileSync(syllabus.submittedPdfPath); } catch { /* pdf may have been cleaned up */ }
-    }
-    if (!pdfBuffer) {
-      const outDir = path.join(__dirname, '../uploads/pdfs');
-      fs.mkdirSync(outDir, { recursive: true });
-      const pdfPath = syllabus.submittedPdfPath || path.join(outDir, `submitted_${syllabus._id}.pdf`);
-      await aiService.renderFinalSyllabusPdf(syllabus, pdfPath);
-      pdfBuffer = fs.readFileSync(pdfPath);
-      if (!syllabus.submittedPdfPath) {
-        await Syllabus.findByIdAndUpdate(req.params.id, { submittedPdfPath: pdfPath });
-      }
-    }
-
-    const summaryText = aiService.generateSubmissionReport(syllabus);
-    const info = await sendSubmissionToAdEmail({
-      adEmail,
-      syllabusMeta: syllabus,
-      summaryText,
-      pdfBuffer,
-      pdfFilename: `${syllabus.course?.name || 'syllabus'}.pdf`,
-    });
+    const emailStatus = isLegacy(syllabus)
+      ? await sendLegacySubmissionEmail(syllabus)
+      : await sendSubmissionEmail(syllabus);
+    const info = { skipped: emailStatus !== 'sent' };
     if (info?.skipped) {
       await Syllabus.findByIdAndUpdate(req.params.id, { submissionEmailStatus: 'failed' });
       if (res.headersSent) return;
-      return res.status(503).json({ message: 'Поштовий сервіс не налаштовано' });
+      return res.status(503).json({ message: 'Не вдалося надіслати лист: перевірте налаштування пошти' });
     }
 
     await Syllabus.findByIdAndUpdate(req.params.id, { submissionEmailStatus: 'sent' });
@@ -218,6 +211,7 @@ router.post('/syllabi/:id/resend-submission', auth, admin, async (req, res) => {
     console.error('Resend submission error:', err);
     await Syllabus.findByIdAndUpdate(req.params.id, { submissionEmailStatus: 'failed' }).catch(() => {});
     if (res.headersSent) return;
+    if (err.statusCode && err.statusCode < 500) return res.status(err.statusCode).json({ message: err.message, code: err.code });
     res.status(500).json({ message: 'Не вдалося надіслати лист повторно' });
   }
 });

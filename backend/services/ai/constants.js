@@ -1,10 +1,3 @@
-const REV_DEL_OPEN = '[[KSE_DEL]]';
-const REV_DEL_CLOSE = '[[/KSE_DEL]]';
-const REV_ADD_OPEN = '[[KSE_ADD]]';
-const REV_ADD_CLOSE = '[[/KSE_ADD]]';
-
-const MAX_AFTER_CHARS = 1800;
-
 const SYLLABUS_TEMPLATE = `# Syllabus Template
 ## 1. Summary
 - Course Title & Code
@@ -40,37 +33,7 @@ const LEARNING_OUTCOMES = [
   { id: 'Learning outcome 9', text: 'Strengthen leadership impact by mastering interpersonal and intercultural collaboration, fostering high-performance teams, and leading with confidence in diverse environments.' }
 ];
 
-const CATEGORY_LABELS = {
-  'template-compliance': 'Template Compliance',
-  'learning-objectives': 'Learning Outcomes Alignment',
-  'content-quality': 'Content Quality',
-  'cases': 'Case Recommendations',
-  'policy': 'Course Policies',
-  'other': 'Other',
-};
-
-function getCategoryLabel(category) {
-  return CATEGORY_LABELS[category] || 'Other';
-}
-
-function buildSyllabusContextBlock() {
-  const losText = LEARNING_OUTCOMES.map((lo) => `${lo.id}: ${lo.text}`).join('\n');
-  return `**KSE SYLLABUS TEMPLATE (target structure for the revised sections):**
-${SYLLABUS_TEMPLATE}
-
-**MBA-27 LEARNING OUTCOMES:**
-${losText}`;
-}
-
 module.exports = {
-  REV_DEL_OPEN,
-  REV_DEL_CLOSE,
-  REV_ADD_OPEN,
-  REV_ADD_CLOSE,
-  MAX_AFTER_CHARS,
   SYLLABUS_TEMPLATE,
   LEARNING_OUTCOMES,
-  CATEGORY_LABELS,
-  getCategoryLabel,
-  buildSyllabusContextBlock,
 };

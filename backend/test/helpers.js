@@ -54,3 +54,70 @@ async function createSyllabus(owner, extra = {}) {
 }
 
 module.exports = { connectDb, disconnectDb, createUser, tokenFor, createSyllabus };
+
+// ---------- v4: силабус з document і пропозиції ----------
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const FIXTURE_DOCX = path.join(__dirname, 'fixtures', 'docx', 'syllabus.docx');
+let cachedDoc;
+
+async function fixtureDoc() {
+  if (!cachedDoc) {
+    const { extractDocx } = require('../services/document');
+    cachedDoc = await extractDocx(fs.readFileSync(FIXTURE_DOCX));
+  }
+  return cachedDoc;
+}
+
+/** Силабус після аналізу: копія fixtures/docx/syllabus.docx у tmp як оригінал і робочий файл. */
+async function createDocSyllabus(owner, extra = {}) {
+  const Syllabus = require('../models/Syllabus');
+  const doc = await fixtureDoc();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kse-syl-'));
+  const filePath = path.join(dir, 'syllabus.docx');
+  fs.copyFileSync(FIXTURE_DOCX, filePath);
+  return Syllabus.create({
+    title: 'Стратегічний менеджмент',
+    course: { name: 'Стратегічний менеджмент' },
+    instructor: owner._id,
+    sourceFormat: 'docx',
+    originalFile: { filename: 'syllabus.docx', originalName: 'syllabus.docx', path: filePath, size: 1 },
+    workingFile: { path: filePath },
+    document: { docVersion: doc.docVersion, convertedFrom: null, blocks: doc.blocks },
+    status: 'in_progress',
+    analysisStage: 'done',
+    ...extra,
+  });
+}
+
+let order = 0;
+async function createSuggestion(syllabus, fields = {}) {
+  const Suggestion = require('../models/Suggestion');
+  return Suggestion.create({
+    syllabusId: syllabus._id,
+    criterionId: 'T-1',
+    group: 'template',
+    severity: 'medium',
+    kind: 'edit',
+    title: `Пропозиція ${order + 1}`,
+    description: 'Опис',
+    rationale: 'Пояснення',
+    order: order++,
+    docVersion: syllabus.document?.docVersion,
+    finding: { id: `f${order}`, criterionId: 'T-1', group: 'template', severity: 'medium', claim: 'claim' },
+    ...fields,
+  });
+}
+
+function replaceOp(blockId, newText) {
+  return { op: 'replaceBlock', blockId, newText };
+}
+
+module.exports.fixtureDoc = fixtureDoc;
+module.exports.createDocSyllabus = createDocSyllabus;
+module.exports.createSuggestion = createSuggestion;
+module.exports.replaceOp = replaceOp;
+module.exports.FIXTURE_DOCX = FIXTURE_DOCX;

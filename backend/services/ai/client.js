@@ -58,6 +58,7 @@ module.exports = {
   createResponse,
   safeParseJSON,
   clipText,
+  supportsReasoning,
   llmModel,
   reasoningEffort,
   maxOutputTokens,

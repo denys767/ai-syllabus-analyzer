@@ -2,13 +2,13 @@
 
 Модель документа з блоками, застосування прийнятих пропозицій і запис **того самого .docx**
 у двох варіантах: чистий і з tracked changes (`w:ins`/`w:del`, які можна прийняти або відхилити у Word).
-Модуль поки не підключений до маршрутів і чату (це наступна фаза). Тести: `backend/test/document/`, `npm test`.
+Підключений до upload (`services/analysisRunner.js`), чату (`services/chat/`) і фінальних файлів (`services/outputs.js`). Тести: `backend/test/document/`, `npm test`.
 
 ## Потік
 
 ```
-upload ─► loadDocument(buffer, 'docx'|'doc') ─► { buffer: docx, doc: DocModel }
-                │ (.doc → .docx через LibreOffice)
+upload ─► loadDocument(buffer, 'docx'|'doc'|'pdf') ─► { buffer: docx, doc: DocModel, convertedFrom }
+                │ (.doc → .docx через LibreOffice; .pdf → синтезований .docx, extractors/pdfToDocx.js)
 LLM бачить renderForPrompt(doc) і повертає Suggestion.ops
 validateSuggestion(doc, s)              ─► помилки для повтору LLM
 findConflicts(doc, accepted, s)         ─► перед Confirm (409 SUGGESTION_CONFLICT)
@@ -17,7 +17,11 @@ previewChanges(doc, accepted)           ─► прев'ю всього доку
 buildOutputs(buffer, doc, accepted, { pdf: true }) ─► { clean, tracked, trackedPdf }
 ```
 
-Зберігати треба `buffer`, повернений `loadDocument`. Для `.doc` це вже сконвертований `.docx`, і `doc.docVersion` = sha1 саме його байтів.
+Зберігати треба `buffer`, повернений `loadDocument`. Для `.doc`/`.pdf` це вже сконвертований `.docx`, і `doc.docVersion` = sha1 саме його байтів.
+
+## PDF → DOCX (`extractors/pdfToDocx.js`)
+
+Текст береться `pdf-parse` в окремому процесі (`pdfText.worker.js`: pdfjs використовує dynamic import, який не працює під Jest, а кривий PDF не валить сервер; таймаут `PDF_EXTRACT_TIMEOUT_MS`, 60 с). `paragraphsFromText` розбиває текст на абзаци: порожній рядок — межа; маркери і номери сторінок прибираються; «1. Вступ», «2.1 Навички» без кінцевої крапки і короткі рядки ВЕЛИКИМИ — заголовки; «•», «-», «1.» — пункти списку; рядок без кінцевого розділового знака продовжується наступним, якщо той з малої літери або рядок довгий; перенос з дефісом склеюється. Перший короткий абзац — Title. `synthesizeDocx` будує DOCX бібліотекою `docx` (Title/Heading N, bullet, нумерація з рестартом на кожну серію). Форматування і таблиці оригіналу не зберігаються. Скан без тексту — 422 `PDF_NO_TEXT`, пошкоджений файл — 422 `INVALID_PDF`.
 
 ## DocModel
 
