@@ -9,8 +9,10 @@
     "test": "jest"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.9.12",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
+    "diff": "^8.0.4",
     "diff-match-patch": "^1.0.5",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
@@ -18,10 +20,12 @@
     "express-validator": "^7.3.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
+    "jszip": "^3.10.2",
     "mammoth": "^1.11.0",
     "markdown-it": "^14.1.1",
     "mongoose": "^8.19.3",
     "multer": "^2.0.2",
+    "node-diff3": "^3.2.1",
     "nodemailer": "^7.0.10",
     "openai": "^6.8.1",
     "pdf-parse": "^2.4.5",
@@ -32,7 +36,8 @@
     "jest": "^30.2.0",
     "nodemon": "^3.1.11",
     "supertest": "^7.1.4",
-    "mongodb-memory-server": "^10.3.0"
+    "mongodb-memory-server": "^10.3.0",
+    "docx": "^9.11.0"
   },
   "keywords": [
     "ai",
