@@ -49,7 +49,7 @@ function legacyError() {
 /** DocModel із збереженого Syllabus.document (для apply/validate/preview без XML). */
 function docOf(syllabus) {
   if (isLegacy(syllabus)) throw legacyError();
-  return { format: 'docx', docVersion: syllabus.document.docVersion, blocks: syllabus.document.blocks };
+  return { ...syllabus.document.toObject?.() || syllabus.document, format: syllabus.sourceFormat === 'pptx' ? 'pptx' : 'docx' };
 }
 
 /** Рішення в чаті можливі лише для проаналізованого і ще не відправленого силабусу. */

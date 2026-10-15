@@ -4,18 +4,15 @@
 const fs = require('fs').promises;
 const path = require('path');
 const Syllabus = require('../models/Syllabus');
-const { writeDocx, toPdf, DEFAULT_AUTHOR } = require('./document');
+const { writeDocx, toPdf, buildOutputsFor, DEFAULT_AUTHOR } = require('./document');
 const { httpError } = require('../utils/httpError');
 const { loadSyllabus, docOf, loadAcceptedDocs, acceptedHash } = require('./chat/state');
 
 const OUTPUTS_DIR = path.join(__dirname, '../uploads/outputs');
 
-const OUTPUTS = {
-  'tracked.docx': { key: 'tracked', suffix: '_tracked.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-  'clean.docx': { key: 'clean', suffix: '_clean.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
-  'tracked.pdf': { key: 'trackedPdf', suffix: '_tracked.pdf', contentType: 'application/pdf' },
-};
-const FILE_NAMES = { tracked: 'tracked.docx', clean: 'clean.docx', trackedPdf: 'tracked.pdf' };
+const { OUTPUTS, outputNames } = require('./outputFormats');
+const { mapPdfSuggestions, sourcePdfDoc } = require('./document/pdfMapping');
+const FILE_NAMES = Object.fromEntries(Object.entries(OUTPUTS).map(([name, spec]) => [spec.key, name]));
 
 function outputDir(syllabusId) {
   return path.join(OUTPUTS_DIR, String(syllabusId));
@@ -62,6 +59,8 @@ function render(key, working, doc, accepted, trackedBuffer) {
 async function ensureOutputs(syllabusId, keys, { fresh = false } = {}) {
   const syllabus = await loadSyllabus(syllabusId);
   const doc = docOf(syllabus);
+  const allowed = outputNames(syllabus.sourceFormat).map((name) => OUTPUTS[name].key);
+  if (keys.some((key) => !allowed.includes(key))) throw httpError(404, 'Цей файл недоступний для формату силабусу.');
   const accepted = await loadAcceptedDocs(syllabusId);
   const hash = acceptedHash(accepted);
   const docVersion = doc.docVersion;
@@ -82,12 +81,21 @@ async function ensureOutputs(syllabusId, keys, { fresh = false } = {}) {
   const set = {};
   let trackedBuffer;
   // tracked рендеримо першим: з нього будується PDF
-  const order = ['tracked', 'clean', 'trackedPdf'].filter((k) => toRender.includes(k));
+  const order = ['tracked', 'clean', 'trackedPdf', 'edited', 'previewPdf', 'annotated'].filter((k) => toRender.includes(k));
   if (order.includes('trackedPdf') && !order.includes('tracked')) {
     trackedBuffer = await render('tracked', working, doc, accepted);
   }
+  let presentation;
   for (const key of order) {
-    const buffer = await render(key, working, doc, accepted, trackedBuffer);
+    let buffer;
+    if (key === 'edited' || key === 'previewPdf') {
+      presentation ||= await buildOutputsFor('pptx', working, doc, accepted, { pdf: toRender.includes('previewPdf') });
+      buffer = presentation[key];
+    } else if (key === 'annotated') {
+      const original = await fs.readFile(syllabus.originalFile.path);
+      const out = await buildOutputsFor('pdf', original, sourcePdfDoc(doc), mapPdfSuggestions(doc, accepted));
+      buffer = out.annotated;
+    } else buffer = await render(key, working, doc, accepted, trackedBuffer);
     if (key === 'tracked') trackedBuffer = buffer;
     const target = path.join(outputDir(syllabusId), FILE_NAMES[key]);
     await writeAtomic(target, buffer);
@@ -102,10 +110,10 @@ async function ensureOutputs(syllabusId, keys, { fresh = false } = {}) {
 
 /** GET /outputs/:name → { path, filename, contentType } */
 async function getOutputFile(syllabusId, name) {
-  const spec = OUTPUTS[name];
-  if (!spec) throw httpError(404, 'Невідомий файл. Доступні: tracked.docx, clean.docx, tracked.pdf');
+  const syllabus = await loadSyllabus(syllabusId);
+  const spec = outputNames(syllabus.sourceFormat).includes(name) ? OUTPUTS[name] : null;
+  if (!spec) throw httpError(404, 'Невідомий файл для формату силабусу.');
   const files = await ensureOutputs(syllabusId, [spec.key]);
-  const syllabus = await loadSyllabus(syllabusId, 'title originalFile.originalName');
   return { path: files[spec.key].path, filename: downloadName(syllabus, name), contentType: spec.contentType };
 }
 

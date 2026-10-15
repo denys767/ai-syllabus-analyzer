@@ -12,6 +12,7 @@ const { isLegacy, SEVERITY_LABELS, GROUP_LABELS, REJECT_TAG_LABELS } = require('
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'];
 const FORMAT_LABELS = {
+  pptx: 'PPTX',
   docx: 'DOCX',
   doc: 'DOC (сконвертовано в DOCX)',
   pdf: 'PDF (текст перенесено в DOCX, форматування оригіналу не збережено)',
@@ -98,22 +99,22 @@ async function sendSubmissionEmail(syllabus, { fresh = false } = {}) {
   let summaryText = generateSubmissionReport(syllabus, suggestions);
 
   const attachments = [];
-  const tracked = await ensureOutputs(syllabus._id, ['tracked'], { fresh });
-  attachments.push({
-    filename: downloadName(syllabus, 'tracked.docx'),
-    content: tracked.tracked.buffer || await fs.readFile(tracked.tracked.path),
-    contentType: OUTPUTS['tracked.docx'].contentType,
-  });
+  const primary = syllabus.sourceFormat === 'pptx' ? ['edited.pptx']
+    : syllabus.sourceFormat === 'pdf' ? ['annotated.pdf', 'tracked.docx'] : ['tracked.docx'];
+  const addAttachment = async (name) => {
+    const key = OUTPUTS[name].key;
+    const files = await ensureOutputs(syllabus._id, [key], { fresh });
+    attachments.push({ filename: downloadName(syllabus, name),
+      content: files[key].buffer || await fs.readFile(files[key].path), contentType: OUTPUTS[name].contentType });
+  };
+  for (const name of primary) await addAttachment(name);
   try {
-    const pdf = await ensureOutputs(syllabus._id, ['trackedPdf'], { fresh });
-    attachments.push({
-      filename: downloadName(syllabus, 'tracked.pdf'),
-      content: pdf.trackedPdf.buffer || await fs.readFile(pdf.trackedPdf.path),
-      contentType: OUTPUTS['tracked.pdf'].contentType,
-    });
+    await addAttachment(syllabus.sourceFormat === 'pptx' ? 'preview.pdf' : 'tracked.pdf');
   } catch (err) {
+    // Презентація за контрактом надсилається разом із PDF; помилку рендеру треба виправити до submit.
+    if (syllabus.sourceFormat === 'pptx') throw err;
     console.error('submission: tracked PDF failed:', err.message);
-    summaryText += '\n\nPDF-версію не вдалося згенерувати; документ зі змінами додано у форматі DOCX.';
+    summaryText += '\n\nPDF-версію правок не вдалося згенерувати; правки додано у форматі DOCX.';
   }
 
   try {
@@ -189,7 +190,7 @@ async function submitSyllabus(syllabusId) {
         role: 'ai',
         kind: 'text',
         content: emailStatus === 'sent'
-          ? `Силабус **${courseName}** відправлено. Лист із документом зі змінами (DOCX і PDF) і звітом надіслано академічному директору (${adEmail}).`
+          ? `Силабус **${courseName}** відправлено. Лист із файлами силабусу та звітом надіслано академічному директору (${adEmail}).`
           : `Силабус **${courseName}** відправлено, але лист академічному директору не вдалося доставити. Зверніться, будь ласка, до офісу програми.`,
       });
     }

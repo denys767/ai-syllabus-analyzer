@@ -35,7 +35,7 @@ const syllabusSchema = new mongoose.Schema({
   // Формат, який завантажив викладач
   sourceFormat: {
     type: String,
-    enum: ['docx', 'doc', 'pdf'],
+    enum: ['docx', 'doc', 'pdf', 'pptx'],
   },
   // Оригінальний файл викладача, незмінний
   originalFile: {
@@ -57,6 +57,11 @@ const syllabusSchema = new mongoose.Schema({
   // Результат services/document.loadDocument
   document: {
     docVersion: String,
+    format: String,
+    meta: mongoose.Schema.Types.Mixed,
+    pdfBlockMap: mongoose.Schema.Types.Mixed,
+    sourceBlocks: { type: [mongoose.Schema.Types.Mixed], default: undefined },
+    sourceDocVersion: String,
     convertedFrom: { type: String, enum: ['doc', 'pdf', null], default: null },
     blocks: { type: [mongoose.Schema.Types.Mixed], default: undefined },
   },
@@ -66,6 +71,9 @@ const syllabusSchema = new mongoose.Schema({
     clean: outputSchema,
     tracked: outputSchema,
     trackedPdf: outputSchema,
+    edited: outputSchema,
+    previewPdf: outputSchema,
+    annotated: outputSchema,
   },
   rubricSummary: mongoose.Schema.Types.Mixed,
   status: {
@@ -76,6 +84,9 @@ const syllabusSchema = new mongoose.Schema({
   analysisStage: { type: String, enum: [...ANALYSIS_STAGES, null], default: null },
   // Коли розпочато поточний аналіз (для відновлення завислих) і текст останньої помилки
   analysisStartedAt: Date,
+  analysisLeaseUntil: Date,
+  analysisLeaseToken: { type: String, select: false },
+  analysisAttempts: { type: Number, default: 0 },
   analysisError: String,
   submittedAt: Date,
   submissionEmailStatus: {
@@ -115,11 +126,14 @@ syllabusSchema.statics.filePaths = function(doc) {
     outputs.clean?.path,
     outputs.tracked?.path,
     outputs.trackedPdf?.path,
+    outputs.edited?.path,
+    outputs.previewPdf?.path,
+    outputs.annotated?.path,
     doc?.submittedPdfPath,
   ].filter(Boolean);
 };
 
-syllabusSchema.statics.FILE_FIELDS = 'originalFile.path workingFile.path outputs.clean.path outputs.tracked.path outputs.trackedPdf.path submittedPdfPath';
+syllabusSchema.statics.FILE_FIELDS = 'originalFile.path workingFile.path outputs.clean.path outputs.tracked.path outputs.trackedPdf.path outputs.edited.path outputs.previewPdf.path outputs.annotated.path submittedPdfPath';
 
 syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
   const fs = fsPromises || require('fs').promises;

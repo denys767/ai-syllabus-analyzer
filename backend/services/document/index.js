@@ -32,7 +32,16 @@ async function loadDocument(buffer, ext, opts = {}) {
   let convertedFrom = null;
   if (format === 'docx') docx = buffer;
   else if (format === 'doc') { docx = await convert.docToDocx(buffer); convertedFrom = 'doc'; }
-  else if (format === 'pdf') { docx = await pdfToDocx(buffer, opts); convertedFrom = 'pdf'; }
+  else if (format === 'pdf') {
+    const source = await extractPdf(buffer);
+    docx = await pdfToDocx(buffer, { ...opts, pdfDoc: source });
+    const doc = await extractDocx(docx);
+    if (doc.blocks.length !== source.blocks.length) throw docError('Не вдалося зіставити блоки PDF і DOCX', 422, 'PDF_BLOCK_MISMATCH');
+    doc.pdfBlockMap = Object.fromEntries(doc.blocks.map((b, i) => [b.id, source.blocks[i].id]));
+    doc.sourceBlocks = source.blocks;
+    doc.sourceDocVersion = source.docVersion;
+    return { buffer: docx, doc, convertedFrom: 'pdf' };
+  }
   else throw docError(`Формат .${format} поки не підтримується модулем документів`, 415, 'UNSUPPORTED_FORMAT');
   return { buffer: docx, doc: await extractDocx(docx), convertedFrom };
 }
@@ -53,7 +62,7 @@ async function buildOutputsFor(format, originalBuffer, doc, accepted, opts = {})
   if (format === 'docx') return buildOutputs(originalBuffer, doc, accepted, opts);
   if (format === 'pptx') {
     const edited = await writePptx(originalBuffer, doc, accepted);
-    return { edited, previewPdf: await convert.toPdf(edited, 'pptx') };
+    return { edited, ...(opts.pdf === false ? {} : { previewPdf: await convert.toPdf(edited, 'pptx') }) };
   }
   if (format === 'pdf') return { annotated: await annotatePdf(originalBuffer, doc, accepted, opts) };
   throw docError(`Непідтримуваний формат: ${format}`, 415, 'UNSUPPORTED_FORMAT');

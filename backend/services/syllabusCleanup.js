@@ -35,22 +35,20 @@ async function deleteSyllabiCascade(filter) {
   return ids.length;
 }
 
-// Силабуси, що зависли в `analyzing` довше за 3×AI_REQUEST_TIMEOUT_MS (наприклад, після рестарту), → error
+// Прострочені lease повторно захоплює runner; активного власника не зачіпаємо.
 async function sweepStuckAnalyses() {
-  const aiTimeout = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '130000', 10);
-  const threshold = new Date(Date.now() - 3 * aiTimeout);
-  const result = await Syllabus.updateMany(
-    {
-      status: 'analyzing',
-      $or: [
-        { analysisStartedAt: { $lt: threshold } },
-        { analysisStartedAt: { $exists: false }, updatedAt: { $lt: threshold } },
-      ],
-    },
-    { $set: { status: 'error', analysisError: 'Аналіз було перервано (перезапуск сервера або тайм-аут). Повторіть аналіз.' } }
-  );
-  if (result.modifiedCount) console.warn(`[sweep] завислих аналізів позначено як error: ${result.modifiedCount}`);
-  return result.modifiedCount;
+  const { MAX_ATTEMPTS, RECOVERY_ERROR, expiredLease } = require('./analysisLease');
+  const runner = require('./analysisRunner');
+  const filter = { status: 'analyzing', ...expiredLease() };
+  const stuck = await Syllabus.find(filter).select('_id analysisAttempts').lean();
+  for (const s of stuck) {
+    if ((s.analysisAttempts || 0) < MAX_ATTEMPTS) runner.runAnalysisInBackground(s._id);
+    else await Syllabus.updateOne({ _id: s._id, ...filter, analysisAttempts: { $gte: MAX_ATTEMPTS } }, {
+      $set: { status: 'error', analysisError: RECOVERY_ERROR },
+      $unset: { analysisLeaseUntil: '', analysisLeaseToken: '' },
+    });
+  }
+  return stuck.length;
 }
 
 // uploads/pdfs (PDF старого пайплайну): видаляє файли старші за 7 днів, на які не посилається жоден силабус
@@ -85,9 +83,9 @@ async function releaseStuckSubmits() {
 
 function startBackgroundSweepers() {
   const run = () => {
+    sweepStuckAnalyses().catch((e) => console.error('[sweep] analyses error:', e.message));
     sweepOldPdfs().catch((e) => console.error('[sweep] pdf error:', e.message));
   };
-  sweepStuckAnalyses().catch((e) => console.error('[sweep] analyses error:', e.message));
   releaseStuckSubmits().catch((e) => console.error('[sweep] submits error:', e.message));
   run();
   const timer = setInterval(run, SWEEP_INTERVAL_MS);

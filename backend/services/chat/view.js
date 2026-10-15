@@ -8,6 +8,7 @@ const { previewChanges, findConflicts, applyAccepted, diffBlock } = require('../
 const { blockMap } = require('../document/model');
 const { httpError } = require('../../utils/httpError');
 const { computeReadiness } = require('./readiness');
+const { outputList } = require('../outputFormats');
 const { getCriterion } = require('../ai/rubric');
 const {
   loadSyllabus, isLegacy, docOf, toDocSuggestion, loadAccepted, requiresReason, optionOf,
@@ -130,6 +131,7 @@ function syllabusSummary(syllabus, userId) {
     title: syllabus.title,
     status: syllabus.status,
     sourceFormat: syllabus.sourceFormat || null,
+    outputs: outputList(syllabus.sourceFormat),
     convertedFrom: syllabus.document?.convertedFrom || null,
     legacy: isLegacy(syllabus),
     analysisStage: syllabus.analysisStage || null,

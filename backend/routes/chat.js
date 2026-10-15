@@ -129,6 +129,17 @@ router.get('/:syllabusId/suggestions/:sid/preview', auth, gateRead, [
   }
 });
 
+router.get('/:syllabusId/suggestions/:sid/slides', auth, gateRead, [
+  query('optionId').optional().isString().isLength({ max: 100 }),
+], async (req, res) => {
+  if (validationFailed(req, res)) return;
+  try {
+    res.json(await workspaceService.suggestionSlides(req.params.syllabusId, req.params.sid, req.query.optionId || null));
+  } catch (err) {
+    sendError(res, err, 'Не вдалося побудувати перегляд слайдів');
+  }
+});
+
 router.post('/:syllabusId/suggestions/:sid/accept', auth, gateMutate, [
   body('optionId').optional({ nullable: true }).isString().isLength({ max: 100 }).withMessage('Некоректний optionId'),
   body('conflictResolution').optional({ nullable: true }).isIn(['replacePrevious']).withMessage('Некоректне значення conflictResolution'),
