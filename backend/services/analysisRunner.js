@@ -14,15 +14,25 @@ function formatOf(syllabus) {
   return ext.replace(/^\./, '') || null;
 }
 
+/** Чи вже є повний document для формату (тоді re-analyze не розбирає файл заново). */
+function hasDocument(syllabus) {
+  const d = syllabus.document;
+  if (!d?.docVersion || !d?.blocks?.length || !syllabus.workingFile?.path) return false;
+  // PDF, розібраний до хвилі 5, не має блоків оригіналу для annotated.pdf — розбираємо заново
+  if (formatOf(syllabus) === 'pdf' && !d.sourceDocVersion) return false;
+  return true;
+}
+
 /**
- * Етап extract: оригінал → робочий .docx (для doc/pdf — сконвертований/синтезований) → blocks.
+ * Етап extract: оригінал → робочий файл (docx — сам оригінал; doc — сконвертований .docx;
+ * pdf — синтезований .docx з блоками PDF 1:1; pptx — сам оригінал) → blocks.
  * Пропускається, якщо document уже є (re-analyze).
  */
 async function extractDocument(syllabusId, { leaseToken } = {}) {
   await assertLease(syllabusId, leaseToken);
   const syllabus = await Syllabus.findById(syllabusId);
   if (!syllabus) throw new Error('Силабус не знайдено');
-  if (syllabus.document?.docVersion && syllabus.document?.blocks?.length && syllabus.workingFile?.path) return;
+  if (hasDocument(syllabus)) return;
 
   await Syllabus.updateOne(ownedAnalysis(syllabusId, leaseToken), { $set: { analysisStage: 'extract' } });
   const format = formatOf(syllabus);

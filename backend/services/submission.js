@@ -1,5 +1,5 @@
 // Відправка силабусу академічному директору: gate (немає pending), атомарне захоплення,
-// свіжі outputs, лист з tracked.docx + tracked.pdf і звітом.
+// свіжі outputs, лист з файлами формату (outputFormats.submissionFiles) і звітом.
 
 const fs = require('fs').promises;
 const Syllabus = require('../models/Syllabus');
@@ -8,14 +8,15 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const { httpError } = require('../utils/httpError');
 const { ensureOutputs, downloadName, OUTPUTS } = require('./outputs');
+const { submissionFiles, outputNames } = require('./outputFormats');
 const { isLegacy, SEVERITY_LABELS, GROUP_LABELS, REJECT_TAG_LABELS } = require('./chat/state');
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'];
 const FORMAT_LABELS = {
-  pptx: 'PPTX',
   docx: 'DOCX',
   doc: 'DOC (сконвертовано в DOCX)',
-  pdf: 'PDF (текст перенесено в DOCX, форматування оригіналу не збережено)',
+  pdf: 'PDF (правки — примітками на оригінальному PDF; DOCX синтезовано з тексту, форматування оригіналу не збережено)',
+  pptx: 'PPTX (правки внесено в презентацію)',
 };
 
 function item(s) {
@@ -84,8 +85,9 @@ function generateSubmissionReport(syllabus, suggestions) {
 }
 
 /**
- * Збирає вкладення (tracked.docx + tracked.pdf) і надсилає лист директору.
- * PDF необов'язковий: якщо LibreOffice недоступний, лист іде з DOCX і приміткою у звіті.
+ * Збирає вкладення і надсилає лист директору: docx/doc — tracked.docx (+ tracked.pdf),
+ * pdf — annotated.pdf + tracked.docx (+ tracked.pdf), pptx — edited.pptx (+ preview.pdf).
+ * PDF через LibreOffice необов'язковий: якщо він недоступний, лист іде без нього з приміткою у звіті.
  * @returns {Promise<'sent'|'failed'>}
  */
 async function sendSubmissionEmail(syllabus, { fresh = false } = {}) {
@@ -99,22 +101,27 @@ async function sendSubmissionEmail(syllabus, { fresh = false } = {}) {
   let summaryText = generateSubmissionReport(syllabus, suggestions);
 
   const attachments = [];
-  const primary = syllabus.sourceFormat === 'pptx' ? ['edited.pptx']
-    : syllabus.sourceFormat === 'pdf' ? ['annotated.pdf', 'tracked.docx'] : ['tracked.docx'];
   const addAttachment = async (name) => {
-    const key = OUTPUTS[name].key;
+    const { key, contentType } = OUTPUTS[name];
     const files = await ensureOutputs(syllabus._id, [key], { fresh });
-    attachments.push({ filename: downloadName(syllabus, name),
-      content: files[key].buffer || await fs.readFile(files[key].path), contentType: OUTPUTS[name].contentType });
+    attachments.push({
+      filename: downloadName(syllabus, name),
+      content: files[key].buffer || await fs.readFile(files[key].path),
+      contentType,
+    });
   };
-  for (const name of primary) await addAttachment(name);
-  try {
-    await addAttachment(syllabus.sourceFormat === 'pptx' ? 'preview.pdf' : 'tracked.pdf');
-  } catch (err) {
-    // Презентація за контрактом надсилається разом із PDF; помилку рендеру треба виправити до submit.
-    if (syllabus.sourceFormat === 'pptx') throw err;
-    console.error('submission: tracked PDF failed:', err.message);
-    summaryText += '\n\nPDF-версію правок не вдалося згенерувати; правки додано у форматі DOCX.';
+  const available = outputNames(syllabus);
+  const { required, optional } = submissionFiles(syllabus.sourceFormat);
+  for (const name of required.filter((n) => available.includes(n))) await addAttachment(name);
+  for (const name of optional.filter((n) => available.includes(n))) {
+    try {
+      await addAttachment(name);
+    } catch (err) {
+      console.error(`submission: ${name} failed:`, err.message);
+      summaryText += syllabus.sourceFormat === 'pptx'
+        ? '\n\nPDF-версію презентації не вдалося згенерувати; додано лише PPTX з правками.'
+        : '\n\nPDF-версію правок не вдалося згенерувати; правки додано у форматі DOCX.';
+    }
   }
 
   try {

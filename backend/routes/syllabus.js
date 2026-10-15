@@ -73,14 +73,17 @@ async function detectFormat(filePath, ext) {
   const isZip = head[0] === 0x50 && head[1] === 0x4b; // 'PK'
   const isOle = head.subarray(0, 4).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0]));
   if (ext === '.pdf' && isPdf) return 'pdf';
-  if (ext === '.pptx' && isZip) {
+  if (ext === '.doc' && isOle) return 'doc';
+  // OOXML — це zip: DOCX і PPTX розрізняємо за головною частиною пакета
+  const ooxmlPart = { '.docx': 'word/document.xml', '.pptx': 'ppt/presentation.xml' }[ext];
+  if (ooxmlPart && isZip) {
     try {
       const zip = await JSZip.loadAsync(await fs.readFile(filePath));
-      return zip.file('ppt/presentation.xml') ? 'pptx' : null;
-    } catch { return null; }
+      return zip.file(ooxmlPart) ? ext.slice(1) : null;
+    } catch {
+      return null;
+    }
   }
-  if (ext === '.docx' && isZip) return 'docx';
-  if (ext === '.doc' && isOle) return 'doc';
   return null;
 }
 

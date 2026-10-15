@@ -5,6 +5,7 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Suggestion = require('../models/Suggestion');
 const { removeOutputDir } = require('./outputs');
+const { LEASE_MS, MAX_ATTEMPTS, RECOVERY_ERROR, expiredLease } = require('./analysisLease');
 
 const PDF_DIR = path.join(__dirname, '../uploads/pdfs');
 const PDF_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -35,20 +36,28 @@ async function deleteSyllabiCascade(filter) {
   return ids.length;
 }
 
-// Прострочені lease повторно захоплює runner; активного власника не зачіпаємо.
+// Аналізи з простроченим lease (рестарт, падіння): ще є спроби → перезапуск (runner сам атомарно
+// захоплює job, тож подвійного запуску немає); спроби вичерпано → error. Активний lease не чіпаємо.
 async function sweepStuckAnalyses() {
-  const { MAX_ATTEMPTS, RECOVERY_ERROR, expiredLease } = require('./analysisLease');
-  const runner = require('./analysisRunner');
+  const runner = require('./analysisRunner'); // лінивий require: runner тягне AI-клієнт
   const filter = { status: 'analyzing', ...expiredLease() };
   const stuck = await Syllabus.find(filter).select('_id analysisAttempts').lean();
+  let requeued = 0;
+  let failed = 0;
   for (const s of stuck) {
-    if ((s.analysisAttempts || 0) < MAX_ATTEMPTS) runner.runAnalysisInBackground(s._id);
-    else await Syllabus.updateOne({ _id: s._id, ...filter, analysisAttempts: { $gte: MAX_ATTEMPTS } }, {
-      $set: { status: 'error', analysisError: RECOVERY_ERROR },
-      $unset: { analysisLeaseUntil: '', analysisLeaseToken: '' },
-    });
+    if ((s.analysisAttempts || 0) < MAX_ATTEMPTS) {
+      runner.runAnalysisInBackground(s._id);
+      requeued += 1;
+    } else {
+      const res = await Syllabus.updateOne({ _id: s._id, ...filter, analysisAttempts: { $gte: MAX_ATTEMPTS } }, {
+        $set: { status: 'error', analysisError: RECOVERY_ERROR },
+        $unset: { analysisLeaseUntil: '', analysisLeaseToken: '' },
+      });
+      failed += res.modifiedCount;
+    }
   }
-  return stuck.length;
+  if (requeued || failed) console.warn(`[sweep] аналізи з простроченим lease: перезапущено ${requeued}, у error ${failed}`);
+  return { requeued, failed };
 }
 
 // uploads/pdfs (PDF старого пайплайну): видаляє файли старші за 7 днів, на які не посилається жоден силабус
@@ -81,16 +90,18 @@ async function releaseStuckSubmits() {
   return result.modifiedCount;
 }
 
+// Перевірка lease аналізів — частіше за добову (кілька періодів lease)
+const ANALYSIS_SWEEP_INTERVAL_MS = Math.max(60000, 5 * LEASE_MS);
+
 function startBackgroundSweepers() {
-  const run = () => {
-    sweepStuckAnalyses().catch((e) => console.error('[sweep] analyses error:', e.message));
-    sweepOldPdfs().catch((e) => console.error('[sweep] pdf error:', e.message));
-  };
+  const sweepAnalyses = () => sweepStuckAnalyses().catch((e) => console.error('[sweep] analyses error:', e.message));
+  const sweepPdfs = () => sweepOldPdfs().catch((e) => console.error('[sweep] pdf error:', e.message));
   releaseStuckSubmits().catch((e) => console.error('[sweep] submits error:', e.message));
-  run();
-  const timer = setInterval(run, SWEEP_INTERVAL_MS);
-  timer.unref();
-  return timer;
+  sweepAnalyses();
+  sweepPdfs();
+  const timers = [setInterval(sweepPdfs, SWEEP_INTERVAL_MS), setInterval(sweepAnalyses, ANALYSIS_SWEEP_INTERVAL_MS)];
+  timers.forEach((t) => t.unref());
+  return timers;
 }
 
 module.exports = {

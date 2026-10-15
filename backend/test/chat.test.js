@@ -177,7 +177,9 @@ describe('upload і аналіз', () => {
     expect(s.sourceFormat).toBe('pdf');
     expect(s.document.convertedFrom).toBe('pdf');
     expect(s.workingFile.path).toMatch(/\.working\.docx$/);
-    expect(s.document.blocks.some((b) => b.text === B4)).toBe(true);
+    // pdf.js-екстрактор зливає абзац за геометрією, тож B4 — початок блоку
+    expect(s.document.blocks.some((b) => b.text.startsWith(B4))).toBe(true);
+    expect(s.document.sourceBlocks).toHaveLength(s.document.blocks.length);
   });
 
   const withSoffice = isConverterAvailable() ? test : test.skip;

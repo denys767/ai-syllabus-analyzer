@@ -22,6 +22,12 @@ function toParts(diff) {
   return (diff || []).map((p) => ({ type: PART_TYPES[p.type] || p.type, text: p.text }));
 }
 
+/** Для pptx — номер слайду (з 1) за локатором блоку; для вставки передається якір. */
+function withSlide(doc, blocks, blockId, entry) {
+  if (doc.format !== 'pptx') return entry;
+  return { ...entry, slide: blocks.get(blockId)?.locator?.slide ?? null };
+}
+
 /** BlockChange[] для однієї пропозиції (або варіанта) відносно оригіналу. */
 function changesFor(doc, docSuggestion) {
   if (!docSuggestion.ops.length) return [];
@@ -29,14 +35,14 @@ function changesFor(doc, docSuggestion) {
   return previewChanges(doc, [docSuggestion]).entries.map((e) => {
     // Для insertAfter кожен новий блок — окремий BlockChange з blockId якоря
     const blockId = e.anchorId || e.blockId;
-    return {
+    return withSlide(doc, blocks, blockId, {
       blockId,
       op: OP_BY_STATUS[e.status],
       kind: e.kind || blocks.get(blockId)?.kind || 'paragraph',
       before: e.before,
       after: e.after,
       parts: toParts(e.diff),
-    };
+    });
   });
 }
 
@@ -131,7 +137,7 @@ function syllabusSummary(syllabus, userId) {
     title: syllabus.title,
     status: syllabus.status,
     sourceFormat: syllabus.sourceFormat || null,
-    outputs: outputList(syllabus.sourceFormat),
+    outputs: outputList(syllabus),
     convertedFrom: syllabus.document?.convertedFrom || null,
     legacy: isLegacy(syllabus),
     analysisStage: syllabus.analysisStage || null,
@@ -194,7 +200,9 @@ async function documentPreview(syllabusId) {
     if (b.status !== 'inserted') byId.set(b.id, b);
     else insertsByAnchor.set(b.anchorId, [...(insertsByAnchor.get(b.anchorId) || []), b]);
   }
-  const entry = (b, status, parts) => ({ blockId: b.id, kind: b.kind, level: b.level ?? null, parts, status });
+  const blockIndex = blockMap(doc);
+  const entry = (b, status, parts) => withSlide(doc, blockIndex, b.anchorId || b.id,
+    { blockId: b.id, kind: b.kind, level: b.level ?? null, parts, status });
   const blocks = [];
   for (const ob of doc.blocks) {
     if (deleted.has(ob.id)) {

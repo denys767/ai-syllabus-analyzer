@@ -14,6 +14,7 @@ const { PDFDocument } = require('@cantoo/pdf-lib');
 const app = require('../server');
 const Syllabus = require('../models/Syllabus');
 const Program = require('../models/Program');
+const Suggestion = require('../models/Suggestion');
 const runner = require('../services/analysisRunner');
 const documents = require('../services/document');
 const { mapPdfSuggestions } = require('../services/document/pdfMapping');
@@ -65,7 +66,7 @@ test('PPTX upload → accept → previews, cached slides, outputs, submit', asyn
   await get(s, `/suggestions/${suggestion._id}/slides`);
   expect(documents.renderPptxPreview).toHaveBeenCalledTimes(1);
   // Refine без зміни docVersion не повертає попередній кеш.
-  suggestion.ops[0].newText += ' Updated.'; await suggestion.save();
+  await Suggestion.updateOne({ _id: suggestion._id }, { $set: { 'ops.0.newText': `${newText} Updated.` } });
   expect((await get(s, `/suggestions/${suggestion._id}/slides`)).status).toBe(200);
   expect(documents.renderPptxPreview).toHaveBeenCalledTimes(2);
   expect((await post(s, `/suggestions/${suggestion._id}/accept`)).status).toBe(200);

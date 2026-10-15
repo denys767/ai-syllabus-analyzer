@@ -1,17 +1,20 @@
-// Фінальні файли силабусу: tracked.docx, clean.docx, tracked.pdf.
+// Фінальні файли силабусу (перелік за форматом — outputFormats.js):
+// docx/doc — tracked.docx, clean.docx, tracked.pdf; pdf — ще annotated.pdf (примітки на оригіналі);
+// pptx — edited.pptx, preview.pdf.
 // Кеш у Syllabus.outputs за ключем (docVersion, acceptedHash); після кожного рішення інвалідовується.
 
 const fs = require('fs').promises;
 const path = require('path');
 const Syllabus = require('../models/Syllabus');
-const { writeDocx, toPdf, buildOutputsFor, DEFAULT_AUTHOR } = require('./document');
+const {
+  writeDocx, writePptx, annotatePdf, toPdf, DEFAULT_AUTHOR,
+} = require('./document');
+const { mapPdfSuggestions, sourcePdfDoc } = require('./document/pdfMapping');
 const { httpError } = require('../utils/httpError');
 const { loadSyllabus, docOf, loadAcceptedDocs, acceptedHash } = require('./chat/state');
+const { OUTPUTS, outputNames } = require('./outputFormats');
 
 const OUTPUTS_DIR = path.join(__dirname, '../uploads/outputs');
-
-const { OUTPUTS, outputNames } = require('./outputFormats');
-const { mapPdfSuggestions, sourcePdfDoc } = require('./document/pdfMapping');
 const FILE_NAMES = Object.fromEntries(Object.entries(OUTPUTS).map(([name, spec]) => [spec.key, name]));
 
 function outputDir(syllabusId) {
@@ -44,23 +47,52 @@ async function readWorkingFile(syllabus) {
   }
 }
 
-function render(key, working, doc, accepted, trackedBuffer) {
-  if (key === 'clean') return writeDocx(working, doc, accepted, { mode: 'clean', author: DEFAULT_AUTHOR });
-  if (key === 'tracked') return writeDocx(working, doc, accepted, { mode: 'tracked', author: DEFAULT_AUTHOR, comments: true });
-  return toPdf(trackedBuffer, 'docx', { exportComments: true });
+async function readOriginalFile(syllabus) {
+  try {
+    return await fs.readFile(syllabus.originalFile?.path);
+  } catch {
+    throw httpError(404, 'Оригінальний файл силабусу не знайдено на сервері. Завантажте силабус ще раз.');
+  }
+}
+
+/**
+ * Рендер одного файлу. `ctx` спільний для всіх ключів одного виклику: проміжні результати
+ * (tracked.docx для tracked.pdf, edited.pptx для preview.pdf) будуються один раз.
+ */
+async function render(key, ctx) {
+  const { syllabus, working, doc, accepted } = ctx;
+  const tracked = async () => {
+    ctx.tracked ||= await writeDocx(working, doc, accepted, { mode: 'tracked', author: DEFAULT_AUTHOR, comments: true });
+    return ctx.tracked;
+  };
+  const edited = async () => {
+    ctx.edited ||= await writePptx(working, doc, accepted);
+    return ctx.edited;
+  };
+  switch (key) {
+    case 'clean': return writeDocx(working, doc, accepted, { mode: 'clean', author: DEFAULT_AUTHOR });
+    case 'tracked': return tracked();
+    case 'trackedPdf': return toPdf(await tracked(), 'docx', { exportComments: true });
+    case 'edited': return edited();
+    case 'previewPdf': return toPdf(await edited(), 'pptx');
+    case 'annotated':
+      // Прийняті пропозиції адресують блоки синтезованого DOCX → переводимо на блоки PDF
+      return annotatePdf(await readOriginalFile(syllabus), sourcePdfDoc(doc), mapPdfSuggestions(doc, accepted), { author: DEFAULT_AUTHOR });
+    default: throw httpError(404, 'Невідомий файл');
+  }
 }
 
 /**
  * Повертає готові файли (з кешу, якщо ключ збігається, інакше рендерить).
- * @param {string[]} keys   'clean' | 'tracked' | 'trackedPdf'
+ * @param {string[]} keys   ключі OUTPUTS: 'clean' | 'tracked' | 'trackedPdf' | 'annotated' | 'edited' | 'previewPdf'
  * @param {{fresh?: boolean}} opts  fresh — ігнорувати кеш (submit)
  * @returns {Promise<Record<string, {path: string, buffer?: Buffer}>>}
  */
 async function ensureOutputs(syllabusId, keys, { fresh = false } = {}) {
   const syllabus = await loadSyllabus(syllabusId);
   const doc = docOf(syllabus);
-  const allowed = outputNames(syllabus.sourceFormat).map((name) => OUTPUTS[name].key);
-  if (keys.some((key) => !allowed.includes(key))) throw httpError(404, 'Цей файл недоступний для формату силабусу.');
+  const allowed = outputNames(syllabus).map((name) => OUTPUTS[name].key);
+  if (keys.some((key) => !allowed.includes(key))) throw httpError(404, 'Цей файл недоступний для цього силабусу.', { code: 'OUTPUT_NOT_AVAILABLE' });
   const accepted = await loadAcceptedDocs(syllabusId);
   const hash = acceptedHash(accepted);
   const docVersion = doc.docVersion;
@@ -77,26 +109,10 @@ async function ensureOutputs(syllabusId, keys, { fresh = false } = {}) {
   }
   if (!toRender.length) return result;
 
-  const working = await readWorkingFile(syllabus);
+  const ctx = { syllabus, working: await readWorkingFile(syllabus), doc, accepted };
   const set = {};
-  let trackedBuffer;
-  // tracked рендеримо першим: з нього будується PDF
-  const order = ['tracked', 'clean', 'trackedPdf', 'edited', 'previewPdf', 'annotated'].filter((k) => toRender.includes(k));
-  if (order.includes('trackedPdf') && !order.includes('tracked')) {
-    trackedBuffer = await render('tracked', working, doc, accepted);
-  }
-  let presentation;
-  for (const key of order) {
-    let buffer;
-    if (key === 'edited' || key === 'previewPdf') {
-      presentation ||= await buildOutputsFor('pptx', working, doc, accepted, { pdf: toRender.includes('previewPdf') });
-      buffer = presentation[key];
-    } else if (key === 'annotated') {
-      const original = await fs.readFile(syllabus.originalFile.path);
-      const out = await buildOutputsFor('pdf', original, sourcePdfDoc(doc), mapPdfSuggestions(doc, accepted));
-      buffer = out.annotated;
-    } else buffer = await render(key, working, doc, accepted, trackedBuffer);
-    if (key === 'tracked') trackedBuffer = buffer;
+  for (const key of toRender) {
+    const buffer = await render(key, ctx);
     const target = path.join(outputDir(syllabusId), FILE_NAMES[key]);
     await writeAtomic(target, buffer);
     set[`outputs.${key}`] = { path: target, generatedAt: new Date(), docVersion, acceptedHash: hash };
@@ -111,8 +127,11 @@ async function ensureOutputs(syllabusId, keys, { fresh = false } = {}) {
 /** GET /outputs/:name → { path, filename, contentType } */
 async function getOutputFile(syllabusId, name) {
   const syllabus = await loadSyllabus(syllabusId);
-  const spec = outputNames(syllabus.sourceFormat).includes(name) ? OUTPUTS[name] : null;
-  if (!spec) throw httpError(404, 'Невідомий файл для формату силабусу.');
+  docOf(syllabus); // legacy → 409 LEGACY_SYLLABUS
+  const spec = outputNames(syllabus).includes(name) ? OUTPUTS[name] : null;
+  if (!spec) {
+    throw httpError(404, `Файл «${name}» недоступний для цього силабусу. Доступні: ${outputNames(syllabus).join(', ')}.`, { code: 'OUTPUT_NOT_AVAILABLE' });
+  }
   const files = await ensureOutputs(syllabusId, [spec.key]);
   return { path: files[spec.key].path, filename: downloadName(syllabus, name), contentType: spec.contentType };
 }
