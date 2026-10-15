@@ -2,21 +2,15 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
-const pdfParseLib = require('pdf-parse');
-const legacyPdfParse = typeof pdfParseLib === 'function'
-  ? pdfParseLib
-  : typeof pdfParseLib?.default === 'function'
-    ? pdfParseLib.default
-    : null;
-const PdfParseClass = pdfParseLib?.PDFParse || pdfParseLib?.default?.PDFParse;
-const mammoth = require('mammoth');
 const { body, validationResult } = require('express-validator');
 
 const mongoose = require('mongoose');
 const Syllabus = require('../models/Syllabus');
+const Suggestion = require('../models/Suggestion');
 const { auth, requireRole } = require('../middleware/auth');
 const { runAnalysisInBackground } = require('../services/analysisRunner');
 const { deleteSyllabiCascade, deleteConversationsFor } = require('../services/syllabusCleanup');
+const { removeOutputDir } = require('../services/outputs');
 
 const CLEANUP_GRACE_MS = 10 * 60 * 1000;
 
@@ -60,6 +54,7 @@ function isOwnerOrAdmin(user, syllabus) {
 const FORMAT_MIMETYPES = {
   pdf: 'application/pdf',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
 };
 
 async function detectFormat(filePath, ext) {
@@ -104,60 +99,12 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     const fileExt = path.extname(file.originalname).toLowerCase();
-    if (fileExt === '.doc') {
-      // TODO: окрема фаза додасть конвертацію через LibreOffice
-      return cb(httpError(415, 'Формат .doc наразі не підтримується. Збережіть файл як .docx або PDF і завантажте знову.'));
-    }
-    if (['.pdf', '.docx'].includes(fileExt)) {
+    if (['.pdf', '.docx', '.doc'].includes(fileExt)) {
       return cb(null, true);
     }
-    cb(httpError(400, 'Непідтримуваний тип файлу. Дозволені лише PDF та DOCX.'));
+    cb(httpError(400, 'Непідтримуваний тип файлу. Дозволені DOCX, DOC і PDF.'));
   }
 });
-
-// Strip any revision markup tokens that may be embedded in the source document
-// (e.g. from a previously-reviewed export). DEL spans are removed entirely;
-// ADD spans are unwrapped so only their content remains.
-function sanitizeExtractedText(text) {
-  return text
-    .replace(/\[\[KSE_DEL\]\][\s\S]*?\[\[\/KSE_DEL\]\]/g, '')
-    .replace(/\[\[KSE_ADD\]\]([\s\S]*?)\[\[\/KSE_ADD\]\]/g, '$1')
-    .replace(/\[\[\/?KSE_(?:DEL|ADD)\]\]/g, '');
-}
-
-async function extractTextFromFile(filePath, format) {
-  try {
-    let text;
-    if (format === 'pdf') {
-      const dataBuffer = await fs.readFile(filePath);
-      if (typeof legacyPdfParse === 'function') {
-        const data = await legacyPdfParse(dataBuffer);
-        text = data.text;
-      } else if (typeof PdfParseClass === 'function') {
-        const parser = new PdfParseClass({ data: dataBuffer });
-        try {
-          const result = await parser.getText();
-          text = result?.text || '';
-        } finally {
-          if (typeof parser.destroy === 'function') {
-            await parser.destroy().catch(() => {});
-          }
-        }
-      } else {
-        throw new Error('PDF parser is unavailable');
-      }
-    } else if (format === 'docx') {
-      const result = await mammoth.extractRawText({ path: filePath });
-      text = result.value;
-    } else {
-      throw new Error('Unsupported file type');
-    }
-    return sanitizeExtractedText(text);
-  } catch (error) {
-    console.error('Text extraction error:', error);
-    throw httpError(400, 'Не вдалося зчитати текст із файлу. Перевірте, що файл не пошкоджений.');
-  }
-}
 
 async function unlinkQuiet(filePath) {
   if (filePath) await fs.unlink(filePath).catch(() => {});
@@ -187,22 +134,14 @@ router.post('/upload', auth, upload.single('syllabus'), [
 
     const ext = path.extname(req.file.originalname).toLowerCase();
     const format = await detectFormat(req.file.path, ext);
-    if (format === 'doc') {
-      await unlinkQuiet(req.file.path);
-      return res.status(415).json({ message: 'Формат .doc наразі не підтримується. Збережіть файл як .docx або PDF і завантажте знову.' });
-    }
     if (!format) {
       await unlinkQuiet(req.file.path);
-      return res.status(400).json({ message: 'Вміст файлу не відповідає його розширенню. Завантажте справжній PDF або DOCX.' });
+      return res.status(400).json({ message: 'Вміст файлу не відповідає його розширенню. Завантажте справжній DOCX, DOC або PDF.' });
     }
 
     const { courseName, courseCode, credits, semester, year, programId } = req.body;
 
-    const extractedText = await extractTextFromFile(req.file.path, format);
-    if (!extractedText || extractedText.trim().length === 0) {
-      await unlinkQuiet(req.file.path);
-      return res.status(400).json({ message: 'Не вдалося отримати текст із завантаженого файлу' });
-    }
+    // Розбір документа (конвертація .doc/.pdf) іде у фоні як етап `extract`
 
     const syllabus = new Syllabus({
       title: courseName,
@@ -222,8 +161,9 @@ router.post('/upload', auth, upload.single('syllabus'), [
         size: req.file.size,
         path: req.file.path
       },
-      extractedText,
+      sourceFormat: format,
       status: 'analyzing',
+      analysisStage: 'extract',
       analysisStartedAt: new Date()
     });
 
@@ -245,6 +185,17 @@ router.post('/upload', auth, upload.single('syllabus'), [
   }
 });
 
+// Без серверних шляхів до файлів і кешу outputs
+function publicSyllabus(syllabus) {
+  const obj = syllabus.toObject();
+  if (obj.originalFile) delete obj.originalFile.path;
+  delete obj.workingFile;
+  delete obj.outputs;
+  delete obj.submittedPdfPath;
+  delete obj.submitting;
+  return obj;
+}
+
 // Get specific syllabus details
 router.get('/:id', auth, async (req, res) => {
   try {
@@ -258,7 +209,7 @@ router.get('/:id', auth, async (req, res) => {
     if (!isOwnerOrAdmin(req.user, syllabus)) {
       return res.status(403).json({ message: 'Доступ заборонено. Ви можете переглядати лише власні силабуси.' });
     }
-    res.json(syllabus.toObject());
+    res.json(publicSyllabus(syllabus));
   } catch (error) {
     console.error('Get syllabus error:', error);
     res.status(500).json({ message: 'Внутрішня помилка сервера' });
@@ -269,7 +220,7 @@ router.get('/:id', auth, async (req, res) => {
 router.get('/:id/status', auth, async (req, res) => {
   try {
     const syllabus = await Syllabus.findById(req.params.id)
-      .select('status analysisError instructor')
+      .select('status analysisStage analysisError instructor')
       .populate('instructor', '_id');
 
     if (!syllabus) {
@@ -278,7 +229,7 @@ router.get('/:id/status', auth, async (req, res) => {
     if (!isOwnerOrAdmin(req.user, syllabus)) {
       return res.status(403).json({ message: 'Доступ заборонено' });
     }
-    res.json({ status: syllabus.status, error: syllabus.analysisError });
+    res.json({ status: syllabus.status, stage: syllabus.analysisStage || null, error: syllabus.analysisError || null });
   } catch (error) {
     console.error('Get status error:', error);
     res.status(500).json({ message: 'Внутрішня помилка сервера' });
@@ -347,7 +298,7 @@ router.put('/:id', auth, [
 // Trigger AI analysis (re-analyze) — лише власник; скидає розмову й похідний стан
 router.post('/:id/analyze', auth, async (req, res) => {
   try {
-    const syllabus = await Syllabus.findById(req.params.id).select('instructor status previewPdf');
+    const syllabus = await Syllabus.findById(req.params.id).select('instructor status');
     if (!syllabus) {
       return res.status(404).json({ message: 'Силабус не знайдено' });
     }
@@ -359,8 +310,8 @@ router.post('/:id/analyze', auth, async (req, res) => {
     const claimed = await Syllabus.findOneAndUpdate(
       { _id: syllabus._id, status: { $nin: ['analyzing', 'submitted'] } },
       {
-        $set: { status: 'analyzing', analysisStartedAt: new Date(), recommendations: [] },
-        $unset: { editedText: '', revisionMarkup: '', previewPdf: '', analysisError: '' },
+        $set: { status: 'analyzing', analysisStage: null, analysisStartedAt: new Date() },
+        $unset: { outputs: '', rubricSummary: '', analysisError: '' },
       },
       { new: false }
     );
@@ -371,7 +322,8 @@ router.post('/:id/analyze', auth, async (req, res) => {
       return res.status(409).json({ message: reason, status: syllabus.status });
     }
 
-    await unlinkQuiet(claimed.previewPdf?.path);
+    await removeOutputDir(syllabus._id);
+    await Suggestion.deleteMany({ syllabusId: syllabus._id });
     await deleteConversationsFor([syllabus._id]);
     runAnalysisInBackground(syllabus._id);
 
@@ -413,13 +365,8 @@ router.post('/maintenance/cleanup-uploads', auth, requireRole('admin'), async (r
     let entries = [];
     try { entries = await fs.readdir(dir); } catch { entries = []; }
 
-    const docs = await Syllabus.find().select('originalFile.path previewPdf.path submittedPdfPath');
-    const referenced = new Set();
-    for (const d of docs) {
-      if (d.originalFile?.path) referenced.add(path.basename(d.originalFile.path));
-      if (d.previewPdf?.path) referenced.add(path.basename(d.previewPdf.path));
-      if (d.submittedPdfPath) referenced.add(path.basename(d.submittedPdfPath));
-    }
+    const docs = await Syllabus.find().select(Syllabus.FILE_FIELDS).lean();
+    const referenced = new Set(docs.flatMap((d) => Syllabus.filePaths(d)).map((p) => path.basename(p)));
 
     let deleted = 0;
     for (const name of entries) {

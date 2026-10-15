@@ -48,20 +48,38 @@ function conflictList(conflicts, titles) {
 
 // ---------- accept ----------
 
+async function claimAccepted(s, selectedOptionId, userId, now = new Date()) {
+  const claimed = await Suggestion.findOneAndUpdate(
+    { _id: s._id, status: 'pending' },
+    {
+      $set: { status: 'accepted', selectedOptionId, acceptedAt: now, decisionReason: null, rejectTag: null },
+      $push: { decisionHistory: { action: 'accepted', at: now, by: userId, optionId: selectedOptionId || undefined } },
+    },
+    { new: true },
+  );
+  if (!claimed) throw notPending();
+  return claimed;
+}
+
 async function acceptSuggestion(syllabusId, suggestionId, { optionId, conflictResolution } = {}, userId) {
   const { syllabus, suggestion: s, conversation, doc } = await context(syllabusId, suggestionId, userId);
   if (s.status !== 'pending') throw notPending();
   if (s.kind === 'question') {
     throw httpError(409, 'Спершу дайте відповідь на питання, щоб AI підготував правку.', { code: 'ANSWER_REQUIRED' });
   }
+  if (conflictResolution != null && conflictResolution !== 'replacePrevious') {
+    throw httpError(400, 'Некоректне значення conflictResolution');
+  }
+
+  // Порада без правки (applicable:false): «Зрозуміло» — статус accepted, документ не змінюється
   if (s.applicable === false) {
-    throw httpError(409, 'Це порада без готової правки: її можна лише відхилити або попросити AI переробити.', { code: 'NOT_APPLICABLE' });
+    await claimAccepted(s, null, userId);
+    await postUserMessage(conversation, `Зрозуміло: «${s.title}».`, s._id);
+    await afterDecision(conversation);
+    return;
   }
   if (s.docVersion && s.docVersion !== syllabus.document.docVersion) {
     throw httpError(409, 'Пропозиція підготовлена для іншої версії документа. Запустіть повторний аналіз.', { code: 'STALE_DOC_VERSION', retryable: true });
-  }
-  if (conflictResolution != null && conflictResolution !== 'replacePrevious') {
-    throw httpError(400, 'Некоректне значення conflictResolution');
   }
 
   let selectedOptionId = null;
@@ -92,15 +110,7 @@ async function acceptSuggestion(syllabusId, suggestionId, { optionId, conflictRe
   }
 
   const now = new Date();
-  const claimed = await Suggestion.findOneAndUpdate(
-    { _id: s._id, status: 'pending' },
-    {
-      $set: { status: 'accepted', selectedOptionId, acceptedAt: now, decisionReason: null, rejectTag: null },
-      $push: { decisionHistory: { action: 'accepted', at: now, by: userId, optionId: selectedOptionId || undefined } },
-    },
-    { new: true },
-  );
-  if (!claimed) throw notPending();
+  await claimAccepted(s, selectedOptionId, userId, now);
 
   if (replace) {
     for (const c of conflicts) {
@@ -311,13 +321,22 @@ async function answerSuggestion(syllabusId, suggestionId, { answer } = {}, userI
   await postUserMessage(conversation, text, s._id);
   const feedback = `The instructor answered the question "${s.question}": ${text}\nNow prepare the edit using these facts.`;
   const set = await regenerate(conversation, syllabus, s, { feedback, blocks: doc.blocks });
+  // Після відповіді картка завжди стає edit (контракт). Якщо модель знову питає — порада з цим питанням;
+  // уточнення можна дати через «Змінити» (refine).
+  if (set.kind !== 'edit') {
+    const followUp = set.kind === 'question' && set.question ? `\n\nAI потребує уточнення: ${set.question}` : '';
+    Object.assign(set, {
+      kind: 'edit', ops: [], options: [], question: undefined, applicable: false,
+      description: `${set.description || s.description || ''}${followUp}`.trim(),
+    });
+  }
 
   const updated = await Suggestion.findOneAndUpdate(
     { _id: s._id, status: 'pending', kind: 'question' },
     {
       $set: { ...set, answer: text },
       $push: {
-        versions: snapshotOf(s, text),
+        versions: { ...snapshotOf(s, text), answer: text },
         decisionHistory: { action: 'answered', at: new Date(), by: userId, feedback: text },
       },
     },
@@ -325,8 +344,8 @@ async function answerSuggestion(syllabusId, suggestionId, { answer } = {}, userI
   );
   if (!updated) throw notPending();
 
-  await postAiMessage(conversation, updated.kind === 'question'
-    ? 'Дякую! Мені бракує ще кількох деталей.'
+  await postAiMessage(conversation, updated.applicable === false
+    ? 'Дякую! Не вдалося одразу підготувати правку: уточніть деталі через «Змінити» або відхиліть пропозицію.'
     : 'Дякую! Підготував правку з урахуванням вашої відповіді.', s._id);
   await afterDecision(conversation, { nextCard: false });
   await postSuggestionCard(conversation, updated);

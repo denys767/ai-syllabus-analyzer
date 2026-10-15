@@ -39,6 +39,7 @@ const versionSchema = new mongoose.Schema({
   ops: opsField,
   options: { type: [optionSchema], default: undefined },
   question: String,
+  answer: String,
   applicable: Boolean,
   feedback: String,
   at: { type: Date, default: Date.now },

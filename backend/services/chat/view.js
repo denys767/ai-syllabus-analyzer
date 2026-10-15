@@ -25,16 +25,16 @@ function changesFor(doc, docSuggestion) {
   if (!docSuggestion.ops.length) return [];
   const blocks = blockMap(doc);
   return previewChanges(doc, [docSuggestion]).entries.map((e) => {
-    const change = {
-      blockId: e.blockId,
+    // Для insertAfter кожен новий блок — окремий BlockChange з blockId якоря
+    const blockId = e.anchorId || e.blockId;
+    return {
+      blockId,
       op: OP_BY_STATUS[e.status],
-      kind: e.kind || blocks.get(e.blockId)?.kind || 'paragraph',
+      kind: e.kind || blocks.get(blockId)?.kind || 'paragraph',
       before: e.before,
       after: e.after,
       parts: toParts(e.diff),
     };
-    if (e.anchorId) change.anchorId = e.anchorId;
-    return change;
   });
 }
 
@@ -118,7 +118,11 @@ async function suggestionViews(syllabus, suggestions) {
   return suggestions.map((s) => buildSuggestionView(doc, s, acceptedDocs, titles));
 }
 
-function syllabusSummary(syllabus) {
+function isOwner(syllabus, userId) {
+  return Boolean(userId) && String(syllabus.instructor?._id || syllabus.instructor) === String(userId);
+}
+
+function syllabusSummary(syllabus, userId) {
   return {
     id: String(syllabus._id),
     title: syllabus.title,
@@ -129,11 +133,15 @@ function syllabusSummary(syllabus) {
     analysisStage: syllabus.analysisStage || null,
     submittedAt: syllabus.submittedAt || null,
     submissionEmailStatus: syllabus.submissionEmailStatus || null,
+    canMutate: isOwner(syllabus, userId) && syllabus.status !== 'submitted' && !isLegacy(syllabus),
   };
 }
 
-/** GET /api/chat/:syllabusId — `{ conversation, messages, suggestions, readiness, syllabus }`. */
-async function getConversationView(syllabusId, { limit = MESSAGE_LIMIT } = {}) {
+/**
+ * GET /api/chat/:syllabusId — `{ conversation, messages, suggestions, readiness, syllabus }`.
+ * До /start conversation і readiness — null. `userId` потрібен для `syllabus.canMutate`.
+ */
+async function getConversationView(syllabusId, { userId, limit = MESSAGE_LIMIT } = {}) {
   const syllabus = await loadSyllabus(syllabusId);
   const suggestions = await Suggestion.find({ syllabusId }).sort({ order: 1, _id: 1 });
   const conversation = await Conversation.findOne({ syllabusId });
@@ -150,8 +158,8 @@ async function getConversationView(syllabusId, { limit = MESSAGE_LIMIT } = {}) {
     conversation: conversation ? conversation.toObject() : null,
     messages,
     suggestions: await suggestionViews(syllabus, suggestions),
-    readiness: computeReadiness(suggestions),
-    syllabus: syllabusSummary(syllabus),
+    readiness: conversation ? computeReadiness(suggestions) : null,
+    syllabus: syllabusSummary(syllabus, userId),
   };
 }
 

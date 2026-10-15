@@ -89,6 +89,11 @@ async function loadAccepted(syllabusId) {
   return Suggestion.find({ syllabusId, status: 'accepted' }).sort({ acceptedAt: 1, _id: 1 });
 }
 
+/** Прийняті з реальними правками (поради без ops документ не змінюють) — вхід для writer-а. */
+async function loadAcceptedDocs(syllabusId) {
+  return (await loadAccepted(syllabusId)).map((s) => toDocSuggestion(s)).filter((d) => d.ops.length > 0);
+}
+
 /** Хеш множини прийнятих правок: ключ кешу outputs. */
 function acceptedHash(docSuggestions) {
   const canonical = docSuggestions.map((s) => ({ id: s.id, ops: s.ops, supersedes: s.supersedes, rationale: s.rationale }));
@@ -130,6 +135,7 @@ module.exports = {
   opsOf,
   toDocSuggestion,
   loadAccepted,
+  loadAcceptedDocs,
   acceptedHash,
   invalidateOutputs,
   readinessFor,

@@ -1,5 +1,4 @@
 // Перетворення знахідок рубрики (services/ai/review) на документи Suggestion.
-// Пайплайн review підвантажується ліниво: сервер стартує і без нього, а тести його мокають.
 
 const { validateOps } = require('../document');
 const { SEVERITY_RANK } = require('./rubric');
@@ -8,9 +7,10 @@ const KINDS = new Set(['edit', 'choice', 'question']);
 const GROUPS = new Set(['template', 'outcomes', 'assessment', 'practice', 'policy']);
 const SEVERITIES = new Set(['critical', 'high', 'medium', 'low']);
 
+const reviewModule = require('./review');
+
 function review() {
-  // eslint-disable-next-line global-require
-  return require('./review');
+  return reviewModule;
 }
 
 function metaOf(syllabus) {
