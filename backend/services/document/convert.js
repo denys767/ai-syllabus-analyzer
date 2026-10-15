@@ -97,9 +97,10 @@ function runSoffice(bin, args, timeoutMs) {
 
 /**
  * Конвертує buffer з формату inExt у targetExt ('docx' | 'doc' | 'pdf').
+ * exportComments (лише для pdf): коментарі Word стають анотаціями PDF.
  * @returns {Promise<Buffer>}
  */
-function convert(buffer, inExt, targetExt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+function convert(buffer, inExt, targetExt, { timeoutMs = DEFAULT_TIMEOUT_MS, exportComments = false } = {}) {
   const bin = findSoffice();
   if (!bin) {
     return Promise.reject(httpError(
@@ -107,7 +108,9 @@ function convert(buffer, inExt, targetExt, { timeoutMs = DEFAULT_TIMEOUT_MS } = 
       503, 'SOFFICE_MISSING',
     ));
   }
-  const filter = FILTERS[targetExt];
+  let filter = FILTERS[targetExt];
+  // Коментарі Word → анотації PDF (ExportNotesInMargin у headless LibreOffice 25.2 падає з I/O-помилкою).
+  if (filter && targetExt === 'pdf' && exportComments) filter += ':{"ExportNotes":{"type":"boolean","value":"true"}}';
   if (!filter) return Promise.reject(httpError(`Непідтримуваний формат конвертації: ${targetExt}`, 400, 'BAD_TARGET'));
   const ext = String(inExt || '').replace(/^\./, '').toLowerCase();
 

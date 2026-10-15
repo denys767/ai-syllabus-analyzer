@@ -33,7 +33,7 @@ async function buildOutputs(originalBuffer, doc, accepted, { author, date, comme
   const clean = await writeDocx(originalBuffer, doc, accepted, { mode: 'clean', author, date });
   const tracked = await writeDocx(originalBuffer, doc, accepted, { mode: 'tracked', author, date, comments });
   const out = { clean, tracked };
-  if (pdf) out.trackedPdf = await convert.toPdf(tracked, 'docx');
+  if (pdf) out.trackedPdf = await convert.toPdf(tracked, 'docx', { exportComments: comments });
   return out;
 }
 

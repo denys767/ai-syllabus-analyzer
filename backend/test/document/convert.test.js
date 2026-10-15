@@ -26,6 +26,17 @@ describe('convert', () => {
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
   }, 120000);
 
+  lo('buildOutputs: clean, tracked і PDF з коментарями як анотаціями', async () => {
+    const { extractDocx, buildOutputs } = require('../../services/document');
+    const original = fixture('syllabus.docx');
+    const doc = await extractDocx(original);
+    const block = doc.blocks.find((b) => b.text.startsWith('Академічна доброчесність'));
+    const accepted = [{ id: 's', rationale: 'Уточнити політику.', ops: [{ op: 'replaceBlock', blockId: block.id, newText: 'Академічна доброчесність: плагіат і списування неприпустимі.' }] }];
+    const out = await buildOutputs(original, doc, accepted, { pdf: true });
+    expect(Object.keys(out)).toEqual(['clean', 'tracked', 'trackedPdf']);
+    expect(out.trackedPdf.toString('latin1')).toMatch(/\/Subtype\s*\/Text/);
+  }, 120000);
+
   test('відсутній soffice → 503 SOFFICE_MISSING', async () => {
     const prev = process.env.SOFFICE_PATH;
     process.env.SOFFICE_PATH = '/nonexistent/soffice';
