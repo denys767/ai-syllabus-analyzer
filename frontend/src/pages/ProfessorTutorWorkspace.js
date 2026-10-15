@@ -1,439 +1,111 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
+  Alert,
   Box,
-  Tabs,
-  Tab,
+  CircularProgress,
+  Drawer,
   IconButton,
   Tooltip,
-  CircularProgress,
   Typography,
-  Alert,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  Stack,
-  TextField,
+  useMediaQuery,
 } from '@mui/material';
-import { Add, Close } from '@mui/icons-material';
-import api from '../services/api';
+import { ListAlt } from '@mui/icons-material';
+import { useTheme } from '@mui/material/styles';
 import { useAuth } from '../contexts/AuthContext';
+import useWorkspace from '../hooks/useWorkspace';
+import useWorkspaceTabs from '../hooks/useWorkspaceTabs';
 import EmptyState from '../components/Workspace/EmptyState';
-import IssuesPanel from '../components/Workspace/IssuesPanel';
-import MessageBubble, { MarkdownText } from '../components/Workspace/MessageBubble';
 import ChatInput from '../components/Workspace/ChatInput';
+import MessageItem from '../components/Workspace/messages/MessageItem';
+import PendingReply from '../components/Workspace/messages/PendingReply';
+import Bubble from '../components/Workspace/messages/Bubble';
+import WorkspaceTabs from '../components/Workspace/WorkspaceTabs';
+import WorkspaceSidePanel from '../components/Workspace/WorkspaceSidePanel';
+import WorkspaceBanners from '../components/Workspace/WorkspaceBanners';
+import AnalysisProgress from '../components/Workspace/AnalysisProgress';
+import DocumentPreviewDialog from '../components/Workspace/DocumentPreviewDialog';
+import SubmitDialog from '../components/Workspace/SubmitDialog';
 
-const ANALYSIS_POLL_LIMIT_MS = 10 * 60 * 1000;
+const HIGHLIGHT_MS = 1600;
 
-// Per-user key so a different user signed in on the same browser cannot
-// see the previous user's syllabus tabs.
-const OPEN_TABS_KEY_PREFIX = 'pt.openTabs.v1.';
-const LAST_CHAT_KEY_PREFIX = 'pt.lastChat.v1.';
-function tabsKeyFor(userId) {
-  return `${OPEN_TABS_KEY_PREFIX}${userId || 'anon'}`;
-}
-function lastChatKeyFor(userId) {
-  return `${LAST_CHAT_KEY_PREFIX}${userId || 'anon'}`;
-}
-function readOpenTabs(key) {
-  try {
-    return JSON.parse(localStorage.getItem(key)) || [];
-  } catch {
-    return [];
-  }
-}
-function writeOpenTabs(key, tabs) {
-  localStorage.setItem(key, JSON.stringify(tabs));
-}
-function removeWorkspaceReference(tabsKey, lastChatKey, syllabusId) {
-  try {
-    const tabs = readOpenTabs(tabsKey);
-    writeOpenTabs(tabsKey, tabs.filter((tab) => tab.id !== syllabusId));
-    if (localStorage.getItem(lastChatKey) === syllabusId) {
-      localStorage.removeItem(lastChatKey);
-    }
-  } catch {
-    // Browser storage cleanup is best-effort; routing below is authoritative.
-  }
-}
-
-const REV_DEL_OPEN = '[[KSE_DEL]]';
-const REV_DEL_CLOSE = '[[/KSE_DEL]]';
-const REV_ADD_OPEN = '[[KSE_ADD]]';
-const REV_ADD_CLOSE = '[[/KSE_ADD]]';
-
-function splitRevisionMarkup(markup) {
-  const source = String(markup || '');
-  const parts = [];
-  let mode = 'same';
-  let buffer = '';
-  for (let i = 0; i < source.length;) {
-    const nextMarker = [REV_DEL_OPEN, REV_DEL_CLOSE, REV_ADD_OPEN, REV_ADD_CLOSE]
-      .find((marker) => source.startsWith(marker, i));
-    if (nextMarker) {
-      if (buffer) parts.push({ mode, text: buffer });
-      buffer = '';
-      if (nextMarker === REV_DEL_OPEN) mode = 'del';
-      if (nextMarker === REV_ADD_OPEN) mode = 'add';
-      if (nextMarker === REV_DEL_CLOSE || nextMarker === REV_ADD_CLOSE) mode = 'same';
-      i += nextMarker.length;
-    } else {
-      buffer += source[i];
-      i += 1;
-    }
-  }
-  if (buffer) parts.push({ mode, text: buffer });
-  return parts;
-}
-
-const RevisionPreview = ({ markup }) => (
-  <Box
-    component="pre"
-    sx={{
-      m: 0,
-      whiteSpace: 'pre-wrap',
-      overflowWrap: 'anywhere',
-      fontFamily: 'inherit',
-      fontSize: '0.875rem',
-      lineHeight: 1.6,
-    }}
-  >
-    {splitRevisionMarkup(markup).map((part, index) => (
-      <Box
-        key={`${part.mode}-${index}`}
-        component="span"
-        sx={{
-          bgcolor: part.mode === 'add' ? 'success.light' : part.mode === 'del' ? 'error.light' : 'transparent',
-          color: part.mode === 'del' ? 'error.dark' : 'inherit',
-          textDecoration: part.mode === 'del' ? 'line-through' : 'none',
-          px: part.mode === 'same' ? 0 : 0.25,
-          borderRadius: part.mode === 'same' ? 0 : 0.5,
-        }}
-      >
-        {part.text}
-      </Box>
-    ))}
-  </Box>
+const Centered = ({ children }) => (
+  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 6, gap: 2 }}>{children}</Box>
 );
 
 const ProfessorTutorWorkspace = () => {
   const { syllabusId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const tabsKey = useMemo(() => tabsKeyFor(user?.id || user?._id), [user]);
-  const lastChatKey = useMemo(() => lastChatKeyFor(user?.id || user?._id), [user]);
-  const [openTabs, setOpenTabs] = useState(() => readOpenTabs(tabsKey));
-  const [syllabus, setSyllabus] = useState(null);
-  const [conversation, setConversation] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [issuePreview, setIssuePreview] = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [cancelDialog, setCancelDialog] = useState({ open: false, issueId: null, reason: '' });
-  const [pollTimedOut, setPollTimedOut] = useState(false);
-  const [pollEpoch, setPollEpoch] = useState(0);
-  const pollRef = useRef(null);
+  const theme = useTheme();
+  const wide = useMediaQuery(theme.breakpoints.up('md'));
+  const { openTabs, closeTab, ensureTab, dropMissing } = useWorkspaceTabs(user, syllabusId);
+  const ws = useWorkspace(syllabusId, {
+    onNotFound: dropMissing,
+    onLoaded: (syl) => { if (syl) ensureTab(syl.id || syllabusId, syl.title); },
+  });
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const [highlightedId, setHighlightedId] = useState(null);
   const threadEndRef = useRef(null);
-  const lastTabsKeyRef = useRef(tabsKey);
+  const highlightTimer = useRef(null);
 
-  // When the active user changes, rehydrate tabs from their key before persisting,
-  // otherwise we'd write the previous user's tabs into the new user's slot.
-  useEffect(() => {
-    if (lastTabsKeyRef.current !== tabsKey) {
-      lastTabsKeyRef.current = tabsKey;
-      setOpenTabs(readOpenTabs(tabsKey));
-      return;
-    }
-    writeOpenTabs(tabsKey, openTabs);
-  }, [tabsKey, openTabs]);
-
-  useEffect(() => {
-    if (syllabusId) {
-      localStorage.setItem(lastChatKey, syllabusId);
-    }
-  }, [lastChatKey, syllabusId]);
-
-  const closeTab = useCallback((id) => {
-    setOpenTabs((tabs) => {
-      const next = tabs.filter((t) => t.id !== id);
-      if (id === syllabusId) {
-        const fallback = next[0]?.id;
-        navigate(fallback ? `/workspace/${fallback}` : '/workspace');
-      }
-      return next;
-    });
-  }, [syllabusId, navigate]);
-
-  const ensureTab = useCallback((id, title) => {
-    setOpenTabs((tabs) => {
-      if (tabs.some((t) => t.id === id)) {
-        return tabs.map((t) => (t.id === id && title ? { ...t, title } : t));
-      }
-      return [...tabs, { id, title: title || 'Силабус' }];
-    });
-  }, []);
-
-  const refresh = useCallback(async (id) => {
-    if (!id) return;
-    try {
-      const [{ data: syl }, { data: chat }] = await Promise.all([
-        api.syllabus.getSyllabus(id),
-        api.chat.get(id),
-      ]);
-      setSyllabus(syl);
-      setConversation(chat?.conversation || null);
-      setMessages(chat?.messages || []);
-      ensureTab(id, syl.course?.name || syl.title);
-      // Автостарт чату, коли аналіз завершено, а розмови ще немає
-      if (syl.status === 'in_progress' && !chat?.conversation) {
-        const { data: started } = await api.chat.start(id);
-        setConversation(started?.conversation || null);
-        setMessages(started?.messages || []);
-      }
-    } catch (err) {
-      if (err.response?.status === 404) {
-        removeWorkspaceReference(tabsKey, lastChatKey, id);
-        setOpenTabs(readOpenTabs(tabsKey));
-        setSyllabus(null);
-        setConversation(null);
-        setMessages([]);
-        setError('');
-        navigate('/workspace', { replace: true });
-        return;
-      }
-      setError(err.response?.data?.message || err.message || 'Не вдалося завантажити силабус');
-    }
-  }, [ensureTab, lastChatKey, navigate, tabsKey]);
-
-  // Load when route param changes
-  useEffect(() => {
-    if (!syllabusId) {
-      setSyllabus(null);
-      setConversation(null);
-      setMessages([]);
-      return;
-    }
-    setError('');
-    setLoading(true);
-    refresh(syllabusId).finally(() => setLoading(false));
-  }, [syllabusId, refresh]);
-
-  // Опитування статусу під час аналізу; після ANALYSIS_POLL_LIMIT_MS зупиняємось і пропонуємо повторити.
+  const { messages, suggestions, syllabus } = ws;
   const status = syllabus?.status;
-  useEffect(() => {
-    clearInterval(pollRef.current);
-    if (status !== 'analyzing') return undefined;
-    setPollTimedOut(false);
-    const startedAt = Date.now();
-    pollRef.current = setInterval(() => {
-      if (Date.now() - startedAt > ANALYSIS_POLL_LIMIT_MS) {
-        clearInterval(pollRef.current);
-        setPollTimedOut(true);
-        return;
-      }
-      refresh(syllabusId);
-    }, 5000);
-    return () => clearInterval(pollRef.current);
-  }, [status, syllabusId, pollEpoch, refresh]);
 
-  // Auto-scroll on new messages
+  useEffect(() => () => clearTimeout(highlightTimer.current), []);
+
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+  }, [messages.length, ws.pendingText]);
 
-  const issues = useMemo(() => syllabus?.recommendations || [], [syllabus?.recommendations]);
-  const issueById = useMemo(() => {
+  const suggestionById = useMemo(() => new Map(suggestions.map((s) => [s.id, s])), [suggestions]);
+  // Повна картка — лише на останньому повідомленні про пропозицію; раніші стають посиланнями.
+  const latestMessageForSuggestion = useMemo(() => {
     const map = new Map();
-    issues.forEach((issue) => map.set(issue.id, issue));
+    messages.forEach((m) => { if (m.kind === 'suggestion') map.set(m.relatedSuggestionId, m._id); });
     return map;
-  }, [issues]);
-  const currentIssueId = conversation?.currentIssueId;
+  }, [messages]);
+
+  const scrollToSuggestion = useCallback((id) => {
+    setPanelOpen(false);
+    const el = document.getElementById(`suggestion-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedId(id);
+    clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightedId(null), HIGHLIGHT_MS);
+  }, []);
 
   const handleUploaded = (id) => {
     ensureTab(id, '');
     navigate(`/workspace/${id}`);
   };
 
-  const handleConfirm = async (issueId, selection = null) => {
-    setBusy(true);
-    setError('');
-    try {
-      const payload = selection ? { issueId, selection } : { issueId };
-      const { data } = await api.chat.confirm(syllabusId, payload);
-      setConversation(data?.conversation || null);
-      setMessages(data?.messages || []);
-      // Refresh syllabus.recommendations for the IssuesPanel
-      const { data: syl } = await api.syllabus.getSyllabus(syllabusId);
-      setSyllabus(syl);
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Не вдалося виконати дію');
-    } finally {
-      setBusy(false);
-    }
+  const confirmSubmit = async () => {
+    await ws.submit(); // помилка потрапляє в ws.error і показується над чатом
+    setSubmitOpen(false);
   };
 
-  const performCancel = async (issueId, reason = '') => {
-    setBusy(true);
-    setError('');
-    try {
-      const payload = reason.trim() ? { issueId, reason: reason.trim() } : { issueId };
-      const { data } = await api.chat.cancel(syllabusId, payload);
-      setConversation(data?.conversation || null);
-      setMessages(data?.messages || []);
-      const { data: syl } = await api.syllabus.getSyllabus(syllabusId);
-      setSyllabus(syl);
-      setCancelDialog({ open: false, issueId: null, reason: '' });
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Не вдалося виконати дію');
-    } finally {
-      setBusy(false);
-    }
-  };
+  const tabs = (
+    <WorkspaceTabs
+      tabs={openTabs}
+      activeId={syllabusId}
+      onSelect={(id) => navigate(`/workspace/${id}`)}
+      onClose={closeTab}
+      onNew={() => navigate('/workspace')}
+      extra={syllabusId && !wide ? (
+        <Tooltip title="Готовність і файли">
+          <IconButton size="small" onClick={() => setPanelOpen(true)}><ListAlt fontSize="small" /></IconButton>
+        </Tooltip>
+      ) : null}
+    />
+  );
 
-  const handleCancel = async (issueId) => {
-    const issue = issueById.get(issueId);
-    if (['critical', 'high'].includes(issue?.priority)) {
-      setCancelDialog({ open: true, issueId, reason: '' });
-      return;
-    }
-    await performCancel(issueId);
-  };
-
-  const handleReopen = async (issueId, anchorMessageId) => {
-    setBusy(true);
-    setError('');
-    try {
-      const body = anchorMessageId ? { anchorMessageId } : {};
-      const { data } = await api.chat.reopen(syllabusId, issueId, body);
-      setConversation(data?.conversation || null);
-      setMessages(data?.messages || []);
-      const { data: syl } = await api.syllabus.getSyllabus(syllabusId);
-      setSyllabus(syl);
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Не вдалося повернутися до рекомендації');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleReanalyze = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      await api.syllabus.reanalyze(syllabusId);
-      setPollTimedOut(false);
-      setPollEpoch((n) => n + 1);
-      await refresh(syllabusId);
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Не вдалося повторити аналіз');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleSend = async (text) => {
-    setError('');
-    try {
-      const { data } = await api.chat.sendMessage(syllabusId, { text });
-      setConversation(data?.conversation || null);
-      setMessages(data?.messages || []);
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Не вдалося надіслати повідомлення');
-    }
-  };
-
-  const handlePreview = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const { data: blob } = await api.chat.preview(syllabusId);
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch (err) {
-      setError('Не вдалося сформувати попередній перегляд. Спробуйте ще раз.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleIssuePreview = async (issueId, selection = null) => {
-    setPreviewLoading(true);
-    setError('');
-    try {
-      const { data } = await api.chat.issuePreview(syllabusId, issueId, selection);
-      setIssuePreview(data);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Не вдалося показати зміни. Спробуйте ще раз.');
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  const handleSubmit = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const { data } = await api.chat.submit(syllabusId);
-      setConversation(data?.conversation || null);
-      setMessages(data?.messages || []);
-      const { data: syl } = await api.syllabus.getSyllabus(syllabusId);
-      setSyllabus(syl);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Не вдалося надіслати. Спробуйте ще раз.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const tabHeader = useMemo(() => (
-    <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid', borderColor: 'divider', px: 1, bgcolor: 'background.paper' }}>
-      <Tabs
-        value={syllabusId || false}
-        onChange={(_e, value) => navigate(`/workspace/${value}`)}
-        variant="scrollable"
-        scrollButtons="auto"
-        sx={{ flexGrow: 1, minHeight: 40 }}
-      >
-        {openTabs.map((t) => (
-          <Tab
-            key={t.id}
-            value={t.id}
-            sx={{ minHeight: 40, textTransform: 'none', pr: 1 }}
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Box sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {t.title || 'Без назви'}
-                </Box>
-                <IconButton
-                  size="small"
-                  onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}
-                  sx={{ p: 0.25 }}
-                >
-                  <Close sx={{ fontSize: 14 }} />
-                </IconButton>
-              </Box>
-            }
-          />
-        ))}
-      </Tabs>
-      <Tooltip title="Новий силабус">
-        <IconButton size="small" onClick={() => navigate('/workspace')}>
-          <Add fontSize="small" />
-        </IconButton>
-      </Tooltip>
-    </Box>
-  ), [openTabs, syllabusId, navigate, closeTab]);
-
-  // No syllabus selected → empty-state with dropzone
   if (!syllabusId) {
     return (
       <Box sx={{ height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
-        {openTabs.length > 0 && tabHeader}
+        {openTabs.length > 0 && tabs}
         <Box sx={{ flexGrow: 1, overflow: 'auto', bgcolor: 'background.default' }}>
           <EmptyState onUploaded={handleUploaded} />
         </Box>
@@ -441,115 +113,105 @@ const ProfessorTutorWorkspace = () => {
     );
   }
 
+  const analyzing = status === 'analyzing';
+  const failed = status === 'error';
+  const ready = ws.loaded && !analyzing && !failed;
+  const chatDisabled = !ready || ws.readOnly;
+
+  const sidePanel = (
+    <WorkspaceSidePanel
+      readiness={ws.readiness}
+      suggestions={suggestions}
+      filesEnabled={ready && !ws.legacy}
+      downloading={ws.downloading}
+      canSubmit={ws.canSubmit}
+      submitted={ws.submitted}
+      busy={ws.busy}
+      pendingCount={ws.pendingCount}
+      onSelectSuggestion={scrollToSuggestion}
+      onDownload={ws.downloadOutput}
+      onPreviewDocument={ws.openDocumentPreview}
+      onSubmit={() => setSubmitOpen(true)}
+    />
+  );
+
   return (
     <Box sx={{ height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
-      {tabHeader}
-      {error && <Alert severity="error" onClose={() => setError('')} sx={{ borderRadius: 0 }}>{error}</Alert>}
+      {tabs}
+      {ws.error && <Alert severity="error" onClose={ws.clearError} sx={{ borderRadius: 0 }}>{ws.error}</Alert>}
+      <WorkspaceBanners syllabus={syllabus} onUploadAgain={() => navigate('/workspace')} />
       <Box sx={{ flexGrow: 1, display: 'flex', minHeight: 0 }}>
-        <IssuesPanel issues={issues} readiness={conversation?.readiness} currentIssueId={currentIssueId} />
         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <Box sx={{ flexGrow: 1, overflow: 'auto', p: 3, bgcolor: 'background.default' }}>
-            {loading && !messages.length ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 6, gap: 2 }}>
+          <Box sx={{ flexGrow: 1, overflow: 'auto', p: { xs: 1.5, md: 3 }, bgcolor: 'background.default' }}>
+            {ws.loading && !ws.loaded ? (
+              <Centered>
                 <CircularProgress />
                 <Typography variant="body2" color="text.secondary">Завантаження розмови…</Typography>
-              </Box>
-            ) : syllabus?.status === 'error' || (syllabus?.status === 'analyzing' && pollTimedOut) ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 6, gap: 2 }}>
-                <Alert severity="error">
-                  {syllabus.status === 'error'
-                    ? 'Під час аналізу силабуса сталася помилка.'
-                    : 'Аналіз триває надто довго. Спробуйте повторити.'}
-                </Alert>
-                <Button variant="contained" onClick={handleReanalyze} disabled={busy}>Повторити аналіз</Button>
-              </Box>
-            ) : syllabus?.status === 'analyzing' ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 6, gap: 2 }}>
-                <CircularProgress />
-                <Typography variant="body2" color="text.secondary">Аналізуємо ваш силабус…</Typography>
-              </Box>
-            ) : (
+              </Centered>
+            ) : analyzing || failed ? (
+              <AnalysisProgress
+                stage={ws.analysis.stage}
+                error={ws.analysis.error}
+                failed={failed}
+                timedOut={analyzing && ws.analysis.timedOut}
+                busy={ws.busy}
+                onRetry={ws.reanalyze}
+              />
+            ) : ws.loaded ? (
               <>
+                {!messages.length && !suggestions.length && (
+                  <Alert severity="info">
+                    {ws.legacy ? 'У цьому силабусі немає збережених повідомлень.' : 'Пропозицій немає: силабус відповідає перевіреним вимогам.'}
+                  </Alert>
+                )}
                 {messages.map((m) => (
-                  <MessageBubble
+                  <MessageItem
                     key={m._id}
                     message={m}
-                    issue={m.relatedIssueId ? issueById.get(m.relatedIssueId) : null}
-                    currentIssueId={currentIssueId}
-                    onConfirm={handleConfirm}
-                    onCancel={handleCancel}
-                    onReopen={handleReopen}
-                    onPreview={handlePreview}
-                    onIssuePreview={handleIssuePreview}
-                    onSubmit={handleSubmit}
-                    busy={busy || previewLoading}
+                    suggestion={m.kind === 'suggestion' ? suggestionById.get(m.relatedSuggestionId) : null}
+                    isLatestForSuggestion={latestMessageForSuggestion.get(m.relatedSuggestionId) === m._id}
+                    actions={ws.actions}
+                    busy={ws.busy}
+                    readOnly={ws.readOnly}
+                    highlightedId={highlightedId}
+                    pendingCount={ws.pendingCount}
+                    submitted={ws.submitted}
+                    onPreviewDocument={ws.openDocumentPreview}
+                    onSubmit={() => setSubmitOpen(true)}
+                    onSelectSuggestion={scrollToSuggestion}
                   />
                 ))}
+                {ws.pendingText && (
+                  <>
+                    <Bubble role="user">
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{ws.pendingText}</Typography>
+                    </Bubble>
+                    <PendingReply />
+                  </>
+                )}
                 <div ref={threadEndRef} />
               </>
-            )}
+            ) : null}
           </Box>
-          <ChatInput onSend={handleSend} disabled={syllabus?.status === 'analyzing' || syllabus?.status === 'error'} />
+          <ChatInput onSend={ws.sendMessage} disabled={chatDisabled} />
         </Box>
+        {wide && (
+          <Box sx={{ borderLeft: '1px solid', borderColor: 'divider', flexShrink: 0 }}>{sidePanel}</Box>
+        )}
       </Box>
-      <Dialog
-        open={cancelDialog.open}
-        onClose={() => !busy && setCancelDialog({ open: false, issueId: null, reason: '' })}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>Потрібна причина відхилення</DialogTitle>
-        <DialogContent dividers>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Критичні та важливі рекомендації можна відхилити лише з указанням причини — вона потрапить у звіт для академічного директора.
-          </Typography>
-          <TextField
-            autoFocus
-            fullWidth
-            multiline
-            minRows={4}
-            label="Причина"
-            value={cancelDialog.reason}
-            onChange={(event) => setCancelDialog((current) => ({ ...current, reason: event.target.value }))}
-            disabled={busy}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={busy} onClick={() => setCancelDialog({ open: false, issueId: null, reason: '' })}>
-            Назад
-          </Button>
-          <Button
-            variant="contained"
-            color="warning"
-            disabled={busy || !cancelDialog.reason.trim()}
-            onClick={() => performCancel(cancelDialog.issueId, cancelDialog.reason)}
-          >
-            Відхилити рекомендацію
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <Dialog open={!!issuePreview} onClose={() => setIssuePreview(null)} fullWidth maxWidth="lg">
-        <DialogTitle>{issuePreview?.title || 'Перегляд рекомендації'}</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2}>
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>Зміни у тексті</Typography>
-              <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.default', maxHeight: 360, overflow: 'auto' }}>
-                <RevisionPreview markup={issuePreview?.revisionMarkup || issuePreview?.previewText || ''} />
-              </Box>
-            </Box>
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>Чистий текст</Typography>
-              <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper', maxHeight: 360, overflow: 'auto' }}>
-                <MarkdownText>{issuePreview?.previewText || ''}</MarkdownText>
-              </Box>
-            </Box>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setIssuePreview(null)}>Закрити</Button>
-        </DialogActions>
-      </Dialog>
+      {!wide && (
+        <Drawer anchor="right" open={panelOpen} onClose={() => setPanelOpen(false)}>
+          {sidePanel}
+        </Drawer>
+      )}
+      <DocumentPreviewDialog
+        open={ws.docPreview.open}
+        loading={ws.docPreview.loading}
+        blocks={ws.docPreview.blocks}
+        error={ws.docPreview.error}
+        onClose={ws.closeDocumentPreview}
+      />
+      <SubmitDialog open={submitOpen} busy={ws.busy} onClose={() => setSubmitOpen(false)} onConfirm={confirmSubmit} />
     </Box>
   );
 };

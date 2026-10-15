@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, TextField, IconButton, CircularProgress } from '@mui/material';
 import { Send } from '@mui/icons-material';
 
-const ChatInput = ({ onSend, disabled }) => {
+const ChatInput = ({ onSend, disabled, placeholder }) => {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -11,8 +11,9 @@ const ChatInput = ({ onSend, disabled }) => {
     if (!trimmed || sending) return;
     setSending(true);
     try {
-      await onSend(trimmed);
-      setText('');
+      // onSend повертає false при помилці — тоді текст лишається в полі.
+      const ok = await onSend(trimmed);
+      if (ok !== false) setText('');
     } finally {
       setSending(false);
     }
@@ -25,7 +26,7 @@ const ChatInput = ({ onSend, disabled }) => {
         size="small"
         multiline
         maxRows={4}
-        placeholder="Введіть повідомлення…"
+        placeholder={placeholder || 'Поставте питання або напишіть, як змінити поточну пропозицію…'}
         value={text}
         disabled={disabled || sending}
         onChange={(e) => setText(e.target.value)}
@@ -36,7 +37,7 @@ const ChatInput = ({ onSend, disabled }) => {
           }
         }}
       />
-      <IconButton color="primary" onClick={submit} disabled={disabled || sending || !text.trim()}>
+      <IconButton color="primary" aria-label="Надіслати" onClick={submit} disabled={disabled || sending || !text.trim()}>
         {sending ? <CircularProgress size={20} /> : <Send />}
       </IconButton>
     </Box>
