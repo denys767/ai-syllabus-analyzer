@@ -7,17 +7,24 @@ const { extractDocx } = require('./extractors/docx');
 const { writeDocx, DEFAULT_AUTHOR } = require('./writers/docx');
 const { acceptAllRevisions, rejectAllRevisions } = require('./revisions');
 const { docError } = require('./ooxml');
+const { extractPptx } = require('./extractors/pptx');
+const { writePptx, overflowRisk, previewPptxChanges } = require('./writers/pptx');
+const { extractPdf, pdfBlocksToParagraphs } = require('./extractors/pdf');
+const { annotatePdf } = require('./writers/pdfAnnotations');
+const { pdfToPng, renderPptxPreview } = require('./preview');
 
 /**
  * Завантаження файлу викладача: .doc конвертується в .docx (LibreOffice), далі екстракція.
  * docVersion рахується від .docx, з яким далі працює writer (для .doc — від результату конвертації),
  * тож зберігати треба саме повернений `buffer`.
  * @param {Buffer} buffer
- * @param {'docx'|'doc'} ext
+ * @param {'docx'|'doc'|'pptx'|'pdf'} ext
  * @returns {Promise<{buffer: Buffer, doc: import('./model').DocModel, convertedFrom: string|null}>}
  */
 async function loadDocument(buffer, ext) {
   const format = String(ext || '').replace(/^\./, '').toLowerCase();
+  if (format === 'pptx') return { buffer, doc: await extractPptx(buffer), convertedFrom: null };
+  if (format === 'pdf') return { buffer, doc: await extractPdf(buffer), convertedFrom: null };
   if (format !== 'docx' && format !== 'doc') {
     throw docError(`Формат .${format} поки не підтримується модулем документів`, 415, 'UNSUPPORTED_FORMAT');
   }
@@ -37,6 +44,16 @@ async function buildOutputs(originalBuffer, doc, accepted, { author, date, comme
   return out;
 }
 
+async function buildOutputsFor(format, originalBuffer, doc, accepted, opts = {}) {
+  if (format === 'docx') return buildOutputs(originalBuffer, doc, accepted, opts);
+  if (format === 'pptx') {
+    const edited = await writePptx(originalBuffer, doc, accepted);
+    return { edited, previewPdf: await convert.toPdf(edited, 'pptx') };
+  }
+  if (format === 'pdf') return { annotated: await annotatePdf(originalBuffer, doc, accepted, opts) };
+  throw docError(`Непідтримуваний формат: ${format}`, 415, 'UNSUPPORTED_FORMAT');
+}
+
 module.exports = {
   // модель
   computeDocVersion: model.computeDocVersion,
@@ -47,6 +64,16 @@ module.exports = {
   extractDocx,
   writeDocx,
   buildOutputs,
+  buildOutputsFor,
+  extractPptx,
+  writePptx,
+  renderPptxPreview,
+  overflowRisk,
+  previewPptxChanges,
+  extractPdf,
+  annotatePdf,
+  pdfBlocksToParagraphs,
+  pdfToPng,
   acceptAllRevisions,
   rejectAllRevisions,
   DEFAULT_AUTHOR,

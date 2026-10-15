@@ -95,3 +95,109 @@ buildOutputs(buffer, doc, accepted, { pdf: true }) ─► { clean, tracked, trac
 ## Фікстури
 
 `backend/test/fixtures/docx/generate.js` створює `syllabus.docx` (бібліотека `docx`), `tricky.docx` (XML вручну: TOC, поля, smartTag, контроли вмісту, напис, вкладена таблиця, виноска, paraId, чужі правки) і `legacy.doc` (через LibreOffice). Файли закомічені, тож генератор потрібен лише для їх зміни.
+
+## PPTX і PDF (фаза 5)
+
+`loadDocument(buffer, 'pptx'|'pdf')` повертає той самий контракт `{ buffer, doc, convertedFrom: null }`.
+`buffer` — оригінальні байти; `docVersion` — їхній SHA-1. Гілки `docx`/`doc` та `buildOutputs` не змінені.
+`applyAccepted`, `findConflicts`, `validateOps` і `previewChanges` спільні для всіх форматів;
+операції `replaceBlock`, `insertAfter`, `deleteBlock` мають той самий JSON-синтаксис.
+
+### PPTX
+
+- `extractPptx(buffer)` → `Promise<DocModel>`, `format: 'pptx'`, `meta: { slideCount }`.
+- Слайди обходяться через `presentation.xml/sldIdLst` і relationships, незалежно від імен файлів.
+  На кожному слайді спочатку йдуть title/ctrTitle placeholders (`slide-title`), далі інші
+  непорожні `a:p` (`slide-text`), клітинки таблиць (`table-cell`), рекурсивно групи; потім нотатки (`notes`).
+  ID `b0001…` стабільні для однакових байтів. `sectionId` усіх блоків слайду — ID першого title;
+  без title не встановлюється. `notes` і абзаци з полями — `readOnly`.
+- Локатор PPTX без додаткової обгортки:
+  `{ slide, slidePart, shapeId, paraIndex, cell?: { table, row, col }, notesPart? }`.
+  `slide` починається з 1; `paraIndex` — індекс серед **усіх** `a:p` конкретного text body
+  (у shape або клітинці), включно з порожніми; `table`, `row`, `col` починаються з 0;
+  індекс `table` локальний для graphicFrame, який визначений через `shapeId`.
+- SmartArt, chart і зображення не витягуються. Placeholder-стилі з layout/master не розгортаються;
+  title розпізнається за явним `p:ph@type` у самому слайді.
+- `writePptx(originalBuffer, doc, accepted)` → `Promise<Buffer>`. Перевіряє SHA-1, операції,
+  readOnly і конфлікти. Word-diff зберігає незмінні run-и та їхнє `a:rPr`; новий текст бере
+  `a:rPr` першого run-а. Зберігаються `a:pPr`, bullets та `a:endParaRPr`.
+  Вставки копіюють стиль і bullets **якоря**, незалежно від `newBlocks[].kind`;
+  вставка в клітинку лишається в ній. Видалення останнього абзацу text body залишає порожній `a:p`.
+  Незачеплені ZIP-частини мають ідентичні байти вмісту, no-op повертає оригінальні байти файлу.
+- `overflowRisk(oldText, newText)` → `boolean`, true при зростанні понад 115% символів.
+  `previewPptxChanges(doc, accepted)` розширює стандартне прев’ю:
+  `entries[].meta = { slide, overflowRisk }`. Для вставки ризик завжди true.
+  Це попередження, а не перевірка реального розміщення; autofit не вмикається автоматично.
+- `renderPptxPreview(originalBuffer, editedBuffer, changedSlides)` →
+  `Promise<{ slides: [{ slide, before: Buffer, after: Buffer }] }>`.
+  Обидві презентації конвертуються через існуючий `convert.js` (та сама черга LibreOffice),
+  потім `pdftoppm -png -r 80 -f N -l N` створює PNG лише запитаних слайдів.
+  Слайди нумеруються з 1; дублікати прибираються, результат відсортований.
+  Порожній список повертає `{ slides: [] }` без конвертацій. Контурів змінених shapes немає.
+
+### PDF
+
+- `extractPdf(buffer)` → `Promise<DocModel>`, `format: 'pdf'`, `meta: { pageCount }`.
+  Використовує `getTextContent` з `pdfjs-dist/legacy/build/pdf.mjs` через dynamic import
+  у Node worker thread (ізоляція ресурсу й сумісність із CommonJS/Jest без ESM VM flags).
+  На виклик — окремий worker з таймаутом 120 с (`PDF_TIMEOUT`, 504).
+- Текстові items групуються в рядки за baseline/y tolerance, у абзаци — за вертикальним
+  проміжком, відступом і розміром шрифту. Збільшений шрифт дає `heading`, прості маркери —
+  `list-item`; решта — `paragraph`. Багаторядковий абзац з’єднується пробілом.
+  Широкі горизонтальні проміжки розділяють клітинки/колонки; структура таблиці не реконструюється.
+- Локатор PDF без додаткової обгортки:
+  `{ page, bbox: [x0,y0,x1,y1], lineBoxes: [{ bbox, text, start, end, spans: [{ bbox, text, start, end }] }] }`.
+  `page` починається з 1; координати — **PDF user space**, до viewport rotation/scale,
+  початок зазвичай знизу ліворуч. `start/end` — UTF-16 offsets у `block.text`.
+- Відсутність тексту в усьому PDF дає 422 `PDF_NO_TEXT` з українським повідомленням про OCR.
+  Image-only сторінки змішаного PDF пропускаються. OCR не реалізовано. Некоректний PDF — 422 `INVALID_PDF`.
+- `pdfBlocksToParagraphs(doc)` → `[{ kind, level, text }]`: заголовки й списки зберігають тип,
+  інші блоки стають `paragraph`. Це вхід для окремого синтезу DOCX; цей модуль його не генерує.
+- `annotatePdf(originalBuffer, doc, accepted, { author = 'KSE Syllabus Analyzer' })` → `Promise<Buffer>`.
+  `replaceBlock` додає StrikeOut на рядки зі зміненими словами та Text note з новим текстом
+  і rationale; якщо слово має окремий pdf.js item, використовується точніший bbox цього item.
+  За відсутності деталізації — bbox усього блоку; заміна лише зі вставкою теж позначає весь блок.
+  `deleteBlock` — StrikeOut + note «Видалити» з rationale;
+  `insertAfter` — Caret наприкінці останнього рядка + Text note з новими абзацами й rationale.
+  `T` і `Contents` — UTF-16 PDFHexString для кирилиці; автор перевизначається опцією.
+  Наявні анотації зберігаються. Content streams, ресурси та текст сторінок не змінюються;
+  структура/серіалізація PDF може змінитися. No-op повертає оригінальні байти.
+
+### Артефакти та інтеграція
+
+`buildOutputsFor(format, originalBuffer, doc, accepted, opts)`:
+
+| format | результат |
+| --- | --- |
+| `docx` | існуючий `buildOutputs`: `{ clean, tracked, trackedPdf? }` |
+| `pptx` | `{ edited: Buffer, previewPdf: Buffer }` — edited PPTX і його PDF |
+| `pdf` | `{ annotated: Buffer }` — оригінальний PDF з анотаціями |
+
+Для вхідного `.doc` викликати dispatch з `doc.format` (`docx`) після `loadDocument`.
+Невідомий format → 415 `UNSUPPORTED_FORMAT`; writer-и повертають ті самі коди stale/invalid/conflict,
+що DOCX. Рекомендації передавати вже відфільтрованими за `accepted`; `supersedes` і merge обробляє `apply.js`.
+
+Інтеграційний крок має дозволити PPTX/PDF у перевірці upload, зберегти оригінальний `buffer`,
+`doc.format`, `docVersion` і всі локатори, передати `renderForPrompt(doc)` в аналіз і використовувати
+спільні validate/conflict/apply у чаті. Для карток PPTX брати `previewPptxChanges`, номери слайдів
+для PNG — з локаторів змінених/якірних блоків. Після Confirm/Reopen інвалідовувати артефакти.
+Outputs зберігати/віддавати за dispatch вище; PDF показувати як анотований оригінал.
+Окремий PDF→DOCX синтез бере `pdfBlocksToParagraphs(doc)`; його clean/tracked копії слід явно
+позначати як конвертовані. Шаблони upload/chat/email та UI цей модуль не змінює.
+
+`pdfToPng(pdfBuffer, pages, { timeoutMs = 120000 })` → `Promise<[{ page, png: Buffer }]>`.
+Список сторінок відсортований і унікальний; власна черга `createQueue(1)` з convert.js,
+окремий tmp-каталог і cleanup; таймаут на сторінку вбиває групу процесів.
+Помилки: `BAD_PAGES` 400, `PDF_RENDER_MISSING` 503, `PDF_RENDER_TIMEOUT` 504,
+`PDF_RENDER_FAILED` 422. Потрібні `soffice` та `pdftoppm`; `pdftotext` використовується тестами.
+
+Обмеження: LibreOffice може підміняти відсутні шрифти й інакше рендерити PowerPoint;
+бюджет символів не гарантує відсутності overflow; PDF paragraph/heading heuristics можуть
+зливати сусідні абзаци без відступів або помилятися у колонках, складних таблицях і повернутому тексті.
+PDF-анотації пропонують зміни, але не переписують текст і не дають editable clean PDF.
+
+Фікстури: `test/fixtures/pptx/generate.js` → `syllabus.pptx` (4 слайди, таблиця, група, нотатки);
+`test/fixtures/pdf/generate.js` → `source.docx`, `syllabus.pdf` (3 сторінки), `slides.pdf`, `scanned.pdf`.
+Генератори запускаються з backend; PDF-генератор потребує LibreOffice і poppler.
+Закомічені виходи дозволяють тестувати екстракцію й анотації без LibreOffice;
+тести живої конвертації/прев’ю PPTX пропускаються лише за відсутності soffice.
