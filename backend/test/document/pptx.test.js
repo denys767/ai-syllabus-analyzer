@@ -102,3 +102,12 @@ lo('LibreOffice відкриває edited PPTX; PNG лише змінених с
   expect(preview.slides[0].before.equals(preview.slides[0].after)).toBe(false);
   expect(await api.renderPptxPreview(original, edited, [])).toEqual({ slides: [] });
 }, 120000);
+
+test('insertAfter після заголовка слайда відхиляється, після тексту слайда — дозволено', () => {
+  const title = doc.blocks.find((b) => b.kind === 'slide-title');
+  const text = doc.blocks.find((b) => b.kind === 'slide-text' && !b.readOnly);
+  const newBlocks = [{ kind: 'paragraph', text: 'Новий абзац' }];
+  expect(api.validateOps(doc, [{ op: 'insertAfter', blockId: title.id, newBlocks }]))
+    .toEqual([expect.objectContaining({ code: 'INSERT_AFTER_SLIDE_TITLE' })]);
+  expect(api.validateOps(doc, [{ op: 'insertAfter', blockId: text.id, newBlocks }])).toEqual([]);
+});

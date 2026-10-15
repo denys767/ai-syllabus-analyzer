@@ -147,6 +147,11 @@ function validateOps(doc, ops, { strict = true } = {}) {
       errors.push(...(strict ? textErrors : textErrors.filter((e) => e.code !== 'MULTI_PARAGRAPH_TEXT')));
       if (strict && op.newText === block.text) errors.push(opError(index, op, 'NO_CHANGE', 'newText equals the current block text'));
     } else if (op.op === 'insertAfter') {
+      // Вставка після заголовка слайда потрапила б у placeholder заголовка
+      if (block.kind === 'slide-title') {
+        errors.push(opError(index, op, 'INSERT_AFTER_SLIDE_TITLE', `cannot insert after slide title ${op.blockId}; insert after a slide-text block of the same slide`));
+        return;
+      }
       if (!Array.isArray(op.newBlocks) || op.newBlocks.length === 0) {
         errors.push(opError(index, op, 'EMPTY_TEXT', 'newBlocks must be a non-empty array'));
         return;
