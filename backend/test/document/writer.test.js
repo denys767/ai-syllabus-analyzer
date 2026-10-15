@@ -265,3 +265,56 @@ describe('кирилиця', () => {
     expect(p).not.toMatch(/�/);
   });
 });
+
+describe('граничні випадки структури', () => {
+  let original;
+  let doc;
+  beforeAll(async () => {
+    original = fixture('syllabus.docx');
+    doc = await extractDocx(original);
+  });
+
+  test('видалення останнього абзацу тіла і єдиного абзацу клітинки не ламає структуру', async () => {
+    const last = byText(doc, 'Академічна доброчесність: плагіат неприпустимий.');
+    const cell = byText(doc, 'Monobank');
+    const accepted = [
+      { id: 'a', ops: [{ op: 'deleteBlock', blockId: last.id }] },
+      { id: 'b', ops: [{ op: 'deleteBlock', blockId: cell.id }] },
+    ];
+    const clean = await writeDocx(original, doc, accepted, { mode: 'clean' });
+    const tracked = await writeDocx(original, doc, accepted, { mode: 'tracked', date: DATE });
+    const cleanXml = await documentXml(clean);
+    // клітинка зберігає обов'язковий w:p, тіло — останній абзац перед sectPr
+    const emptyP = '(?:<w:p/>|<w:p>(?:<w:pPr>(?:(?!</w:pPr>).)*</w:pPr>)?</w:p>)';
+    expect(paragraphsXml(cleanXml)[cell.locator.docx.paraIndex]).toMatch(new RegExp(`^${emptyP}$`));
+    expect(cleanXml).toMatch(new RegExp(`${emptyP}<w:sectPr`));
+    const trackedXml = await documentXml(tracked);
+    // знак останнього абзацу клітинки/тіла не видаляється
+    const cellPara = paragraphsXml(trackedXml)[cell.locator.docx.paraIndex];
+    expect(cellPara).toContain('<w:delText xml:space="preserve">Monobank</w:delText>');
+    expect(cellPara).not.toMatch(/<w:rPr><w:del /);
+    for (const buf of [clean, await acceptAllRevisions(tracked)]) {
+      const t = await visibleTexts(buf);
+      expect(t).not.toContain('Monobank');
+      expect(t).not.toContain(last.text);
+    }
+    expect(paragraphsXml(await documentXml(await acceptAllRevisions(tracked))).length)
+      .toBe(paragraphsXml(cleanXml).length);
+  });
+
+  test('insertAfter у клітинці таблиці лишається в тій самій клітинці', async () => {
+    const cell = byText(doc, 'Вступ до стратегії');
+    const out = await writeDocx(original, doc, [{ id: 'c', ops: [{ op: 'insertAfter', blockId: cell.id, newBlocks: [{ kind: 'paragraph', text: 'Читання: HBR, глава 1' }] }] }], { mode: 'tracked', date: DATE });
+    const after = await extractDocx(await acceptAllRevisions(out));
+    expect(byText(after, 'Читання: HBR, глава 1')).toMatchObject({ kind: 'table-cell', cell: cell.cell });
+  });
+
+  test('видалення абзацу перед таблицею', async () => {
+    const before = byText(doc, '3. Розклад занять');
+    const accepted = [{ id: 'd', ops: [{ op: 'deleteBlock', blockId: before.id }] }];
+    const tracked = await writeDocx(original, doc, accepted, { mode: 'tracked', date: DATE });
+    const clean = await writeDocx(original, doc, accepted, { mode: 'clean' });
+    expect(await visibleTexts(await acceptAllRevisions(tracked))).toEqual(await visibleTexts(clean));
+    expect(await visibleTexts(clean)).not.toContain('3. Розклад занять');
+  });
+});
