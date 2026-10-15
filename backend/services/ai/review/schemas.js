@@ -23,7 +23,8 @@ const verification = object({ results: array(object({
 })) });
 const op = { anyOf: [
   object({ op: enumeration(['replaceBlock']), blockId: str, newText: str }),
-  object({ op: enumeration(['insertAfter']), blockId: str, newBlocks: array(object({ kind: enumeration(kinds), text: str })) }),
+  // Нові блоки — лише типи, які вміють вставляти writer-и (для pptx стиль береться з якоря)
+  object({ op: enumeration(['insertAfter']), blockId: str, newBlocks: array(object({ kind: enumeration(['paragraph', 'heading', 'list-item']), text: str })) }),
   object({ op: enumeration(['deleteBlock']), blockId: str }),
 ] };
 const rewrite = object({ kind: enumeration(['edit', 'question']), title: str, description: str, rationale: str, ops: array(op), question: nullableString });

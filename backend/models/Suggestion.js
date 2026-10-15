@@ -18,6 +18,14 @@ const optionSchema = new mongoose.Schema({
   ops: opsField,
 }, { _id: false });
 
+const sourceSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  publisher: { type: String, default: null },
+  year: { type: Number, default: null },
+  url: { type: String, default: null },
+  verified: { type: Boolean, default: false },
+}, { _id: false });
+
 const historySchema = new mongoose.Schema({
   action: {
     type: String,
@@ -63,6 +71,8 @@ const suggestionSchema = new mongoose.Schema({
   question: String,
   answer: String,
   applicable: { type: Boolean, default: true },
+  // Джерела кейсів з веб-пошуку (CASE_WEB_SEARCH=1); url лише для підтверджених сервером
+  sources: { type: [sourceSchema], default: [] },
   status: { type: String, enum: STATUSES, default: 'pending' },
   selectedOptionId: { type: String, default: null },
   // Порядок застосування прийнятих пропозицій (merge іде в порядку прийняття)

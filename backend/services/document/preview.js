@@ -49,10 +49,11 @@ async function pdfToPng(pdfBuffer, pages, { timeoutMs = 120000 } = {}) {
     } finally { await fs.rm(dir, { recursive: true, force: true }).catch(() => {}); }
   });
 }
-async function renderPptxPreview(originalBuffer, editedBuffer, changedSlides) {
+/** `opts.beforePdf` — уже сконвертований оригінал (кеш викликача), щоб не запускати LibreOffice вдруге. */
+async function renderPptxPreview(originalBuffer, editedBuffer, changedSlides, opts = {}) {
   const pages = pageNumbers(changedSlides);
   if (!pages.length) return { slides: [] };
-  const beforePdf = await toPdf(originalBuffer, 'pptx');
+  const beforePdf = opts.beforePdf || await toPdf(originalBuffer, 'pptx');
   const afterPdf = await toPdf(editedBuffer, 'pptx');
   const before = await pdfToPng(beforePdf, pages);
   const after = await pdfToPng(afterPdf, pages);

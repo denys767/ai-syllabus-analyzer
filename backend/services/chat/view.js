@@ -8,6 +8,7 @@ const { previewChanges, findConflicts, applyAccepted, diffBlock } = require('../
 const { blockMap } = require('../document/model');
 const { httpError } = require('../../utils/httpError');
 const { computeReadiness } = require('./readiness');
+const { outputList } = require('../outputFormats');
 const { getCriterion } = require('../ai/rubric');
 const {
   loadSyllabus, isLegacy, docOf, toDocSuggestion, loadAccepted, requiresReason, optionOf,
@@ -21,6 +22,12 @@ function toParts(diff) {
   return (diff || []).map((p) => ({ type: PART_TYPES[p.type] || p.type, text: p.text }));
 }
 
+/** Для pptx — номер слайду (з 1) за локатором блоку; для вставки передається якір. */
+function withSlide(doc, blocks, blockId, entry) {
+  if (doc.format !== 'pptx') return entry;
+  return { ...entry, slide: blocks.get(blockId)?.locator?.slide ?? null };
+}
+
 /** BlockChange[] для однієї пропозиції (або варіанта) відносно оригіналу. */
 function changesFor(doc, docSuggestion) {
   if (!docSuggestion.ops.length) return [];
@@ -28,14 +35,14 @@ function changesFor(doc, docSuggestion) {
   return previewChanges(doc, [docSuggestion]).entries.map((e) => {
     // Для insertAfter кожен новий блок — окремий BlockChange з blockId якоря
     const blockId = e.anchorId || e.blockId;
-    return {
+    return withSlide(doc, blocks, blockId, {
       blockId,
       op: OP_BY_STATUS[e.status],
       kind: e.kind || blocks.get(blockId)?.kind || 'paragraph',
       before: e.before,
       after: e.after,
       parts: toParts(e.diff),
-    };
+    });
   });
 }
 
@@ -65,7 +72,7 @@ function buildSuggestionView(doc, s, acceptedDocs, titles) {
     severity: s.severity,
     group: s.group,
     criterionId: s.criterionId || null,
-    criterionTitle: (s.criterionId && getCriterion(s.criterionId)?.title) || null,
+    criterionTitle: (s.criterionId && (getCriterion(s.criterionId)?.titleUk || getCriterion(s.criterionId)?.title)) || null,
     title: s.title,
     description: s.description,
     rationale: s.rationale || null,
@@ -80,6 +87,9 @@ function buildSuggestionView(doc, s, acceptedDocs, titles) {
     supersedes: (s.supersedes || []).map(String),
     versionsCount: (s.versions || []).length,
     requiresReason: requiresReason(s),
+    sources: (s.sources || []).map(({ title, publisher, year, url, verified }) => ({
+      title, publisher: publisher ?? null, year: year ?? null, url: url ?? null, verified: Boolean(verified),
+    })),
     changes: [],
     options: [],
     conflictsWith: [],
@@ -130,6 +140,7 @@ function syllabusSummary(syllabus, userId) {
     title: syllabus.title,
     status: syllabus.status,
     sourceFormat: syllabus.sourceFormat || null,
+    outputs: outputList(syllabus),
     convertedFrom: syllabus.document?.convertedFrom || null,
     legacy: isLegacy(syllabus),
     analysisStage: syllabus.analysisStage || null,
@@ -192,7 +203,9 @@ async function documentPreview(syllabusId) {
     if (b.status !== 'inserted') byId.set(b.id, b);
     else insertsByAnchor.set(b.anchorId, [...(insertsByAnchor.get(b.anchorId) || []), b]);
   }
-  const entry = (b, status, parts) => ({ blockId: b.id, kind: b.kind, level: b.level ?? null, parts, status });
+  const blockIndex = blockMap(doc);
+  const entry = (b, status, parts) => withSlide(doc, blockIndex, b.anchorId || b.id,
+    { blockId: b.id, kind: b.kind, level: b.level ?? null, parts, status });
   const blocks = [];
   for (const ob of doc.blocks) {
     if (deleted.has(ob.id)) {

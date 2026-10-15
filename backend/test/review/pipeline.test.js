@@ -154,3 +154,20 @@ test('empty final candidate list skips verifier call', async () => {
   createResponse.mockImplementation(async (p) => response(p.text.format.name === 'review_structure' ? emptyStructure() : verdictsFor(p.text.format.name.replace('review_diagnose_', ''))));
   const result = await runReview({ blocks: complete }); expect(result.findings).toEqual([]); expect(result.stats.llmCalls).toBe(6);
 });
+
+ test('stage callbacks are awaited in order and failures do not interrupt analysis', async () => {
+  const stages = [];
+  createResponse.mockImplementation(async (p) => {
+    const name = p.text.format.name;
+    expect(stages).toContain(name === 'review_structure' ? 'structure' : name.startsWith('review_diagnose_') ? 'diagnose' : 'verify');
+    if (name === 'review_structure') return response(emptyStructure());
+    if (name.startsWith('review_diagnose_')) return response(verdictsFor(name.replace('review_diagnose_', '')));
+    const findings = JSON.parse(p.input[1].content.match(/^Findings: (.*)\n/)[1]);
+    return response({ results: findings.map((f) => approval(f)) });
+  });
+  await runReview({ blocks, options: { onStage: async (stage) => {
+    await Promise.resolve(); stages.push(stage);
+    if (stage === 'diagnose') throw new Error('progress unavailable');
+  } } });
+  expect(stages).toEqual(['structure', 'diagnose', 'verify']);
+});

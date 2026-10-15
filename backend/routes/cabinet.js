@@ -9,6 +9,7 @@ const User = require('../models/User');
 const Syllabus = require('../models/Syllabus');
 const Suggestion = require('../models/Suggestion');
 const { computeReadiness } = require('../services/chat/readiness');
+const { outputList } = require('../services/outputFormats');
 const { isLegacy } = require('../services/chat/state');
 const { sendSubmissionEmail, sendLegacySubmissionEmail } = require('../services/submission');
 const { sendInvitationEmail } = require('../services/emailService');
@@ -119,7 +120,7 @@ router.get('/metrics', auth, async (req, res) => {
 // Проєкція для списку: метадані, без документа і текстів
 const LIST_PROJECTION = [
   'title', 'course', 'instructor', 'programId', 'status', 'analysisStage', 'submittedAt',
-  'submissionEmailStatus', 'analysisError', 'sourceFormat', 'legacy', 'document.convertedFrom', 'createdAt', 'updatedAt',
+  'submissionEmailStatus', 'analysisError', 'sourceFormat', 'legacy', 'document.convertedFrom', 'document.docVersion', 'document.sourceDocVersion', 'createdAt', 'updatedAt',
 ].join(' ');
 
 // Лічильники пропозицій по силабусах: { syllabusId → [{ group, status, count }] }
@@ -170,6 +171,7 @@ router.get('/syllabi', auth, async (req, res) => {
         ...meta,
         convertedFrom: document?.convertedFrom || null,
         legacy: Boolean(meta.legacy),
+        outputs: outputList(syllabus),
         readiness: ['analyzing', 'error'].includes(meta.status)
           ? { score: 0, breakdown: {} }
           : { score: readiness.score, breakdown: readiness.breakdown },

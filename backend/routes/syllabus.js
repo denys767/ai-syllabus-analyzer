@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const JSZip = require('jszip');
 const path = require('path');
 const fs = require('fs').promises;
 const { body, validationResult } = require('express-validator');
@@ -53,6 +54,7 @@ function isOwnerOrAdmin(user, syllabus) {
 // Формат визначаємо за розширенням І сигнатурою файлу, а не за mimetype клієнта.
 const FORMAT_MIMETYPES = {
   pdf: 'application/pdf',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   doc: 'application/msword',
 };
@@ -71,8 +73,17 @@ async function detectFormat(filePath, ext) {
   const isZip = head[0] === 0x50 && head[1] === 0x4b; // 'PK'
   const isOle = head.subarray(0, 4).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0]));
   if (ext === '.pdf' && isPdf) return 'pdf';
-  if (ext === '.docx' && isZip) return 'docx';
   if (ext === '.doc' && isOle) return 'doc';
+  // OOXML — це zip: DOCX і PPTX розрізняємо за головною частиною пакета
+  const ooxmlPart = { '.docx': 'word/document.xml', '.pptx': 'ppt/presentation.xml' }[ext];
+  if (ooxmlPart && isZip) {
+    try {
+      const zip = await JSZip.loadAsync(await fs.readFile(filePath));
+      return zip.file(ooxmlPart) ? ext.slice(1) : null;
+    } catch {
+      return null;
+    }
+  }
   return null;
 }
 
@@ -99,10 +110,10 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     const fileExt = path.extname(file.originalname).toLowerCase();
-    if (['.pdf', '.docx', '.doc'].includes(fileExt)) {
+    if (['.pdf', '.docx', '.doc', '.pptx'].includes(fileExt)) {
       return cb(null, true);
     }
-    cb(httpError(400, 'Непідтримуваний тип файлу. Дозволені DOCX, DOC і PDF.'));
+    cb(httpError(400, 'Непідтримуваний тип файлу. Дозволені DOCX, DOC, PDF і PPTX.'));
   }
 });
 
@@ -136,7 +147,7 @@ router.post('/upload', auth, upload.single('syllabus'), [
     const format = await detectFormat(req.file.path, ext);
     if (!format) {
       await unlinkQuiet(req.file.path);
-      return res.status(400).json({ message: 'Вміст файлу не відповідає його розширенню. Завантажте справжній DOCX, DOC або PDF.' });
+      return res.status(400).json({ message: 'Вміст файлу не відповідає його розширенню. Завантажте справжній DOCX, DOC, PDF або PPTX.' });
     }
 
     const { courseName, courseCode, credits, semester, year, programId } = req.body;
@@ -310,8 +321,8 @@ router.post('/:id/analyze', auth, async (req, res) => {
     const claimed = await Syllabus.findOneAndUpdate(
       { _id: syllabus._id, status: { $nin: ['analyzing', 'submitted'] } },
       {
-        $set: { status: 'analyzing', analysisStage: null, analysisStartedAt: new Date() },
-        $unset: { outputs: '', rubricSummary: '', analysisError: '' },
+        $set: { status: 'analyzing', analysisStage: null, analysisStartedAt: new Date(), analysisAttempts: 0 },
+        $unset: { outputs: '', rubricSummary: '', analysisError: '', analysisLeaseUntil: '', analysisLeaseToken: '' },
       },
       { new: false }
     );

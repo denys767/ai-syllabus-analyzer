@@ -1,10 +1,11 @@
 // pdf.js працює в окремому Node-контексті (також сумісно з Jest без ESM VM flags).
 const { parentPort, workerData } = require('worker_threads');
 (async () => {
-  let pdf;
+  let task;
   try {
     const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    pdf = await getDocument({ data: new Uint8Array(workerData.buffer), useSystemFonts: true, isEvalSupported: false }).promise;
+    task = getDocument({ data: new Uint8Array(workerData.buffer), useSystemFonts: true, isEvalSupported: false });
+    const pdf = await task.promise;
     const pages = [];
     for (let n = 1; n <= pdf.numPages; n += 1) {
       const page = await pdf.getPage(n);
@@ -19,6 +20,7 @@ const { parentPort, workerData } = require('worker_threads');
   } catch (e) {
     parentPort.postMessage({ error: { message: e.message, name: e.name } });
   } finally {
-    if (pdf) await pdf.destroy();
+    // Помилка звільнення ресурсів не повинна підміняти вже надісланий результат
+    if (task) await task.destroy().catch(() => {});
   }
-})().catch((e) => { throw e; });
+})();

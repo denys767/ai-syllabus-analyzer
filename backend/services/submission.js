@@ -1,5 +1,5 @@
 // Відправка силабусу академічному директору: gate (немає pending), атомарне захоплення,
-// свіжі outputs, лист з tracked.docx + tracked.pdf і звітом.
+// свіжі outputs, лист з файлами формату (outputFormats.submissionFiles) і звітом.
 
 const fs = require('fs').promises;
 const Syllabus = require('../models/Syllabus');
@@ -8,13 +8,15 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const { httpError } = require('../utils/httpError');
 const { ensureOutputs, downloadName, OUTPUTS } = require('./outputs');
+const { submissionFiles, outputNames } = require('./outputFormats');
 const { isLegacy, SEVERITY_LABELS, GROUP_LABELS, REJECT_TAG_LABELS } = require('./chat/state');
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low'];
 const FORMAT_LABELS = {
   docx: 'DOCX',
   doc: 'DOC (сконвертовано в DOCX)',
-  pdf: 'PDF (текст перенесено в DOCX, форматування оригіналу не збережено)',
+  pdf: 'PDF (правки — примітками на оригінальному PDF; DOCX синтезовано з тексту, форматування оригіналу не збережено)',
+  pptx: 'PPTX (правки внесено в презентацію)',
 };
 
 function item(s) {
@@ -83,8 +85,9 @@ function generateSubmissionReport(syllabus, suggestions) {
 }
 
 /**
- * Збирає вкладення (tracked.docx + tracked.pdf) і надсилає лист директору.
- * PDF необов'язковий: якщо LibreOffice недоступний, лист іде з DOCX і приміткою у звіті.
+ * Збирає вкладення і надсилає лист директору: docx/doc — tracked.docx (+ tracked.pdf),
+ * pdf — annotated.pdf + tracked.docx (+ tracked.pdf), pptx — edited.pptx (+ preview.pdf).
+ * PDF через LibreOffice необов'язковий: якщо він недоступний, лист іде без нього з приміткою у звіті.
  * @returns {Promise<'sent'|'failed'>}
  */
 async function sendSubmissionEmail(syllabus, { fresh = false } = {}) {
@@ -98,22 +101,27 @@ async function sendSubmissionEmail(syllabus, { fresh = false } = {}) {
   let summaryText = generateSubmissionReport(syllabus, suggestions);
 
   const attachments = [];
-  const tracked = await ensureOutputs(syllabus._id, ['tracked'], { fresh });
-  attachments.push({
-    filename: downloadName(syllabus, 'tracked.docx'),
-    content: tracked.tracked.buffer || await fs.readFile(tracked.tracked.path),
-    contentType: OUTPUTS['tracked.docx'].contentType,
-  });
-  try {
-    const pdf = await ensureOutputs(syllabus._id, ['trackedPdf'], { fresh });
+  const addAttachment = async (name) => {
+    const { key, contentType } = OUTPUTS[name];
+    const files = await ensureOutputs(syllabus._id, [key], { fresh });
     attachments.push({
-      filename: downloadName(syllabus, 'tracked.pdf'),
-      content: pdf.trackedPdf.buffer || await fs.readFile(pdf.trackedPdf.path),
-      contentType: OUTPUTS['tracked.pdf'].contentType,
+      filename: downloadName(syllabus, name),
+      content: files[key].buffer || await fs.readFile(files[key].path),
+      contentType,
     });
-  } catch (err) {
-    console.error('submission: tracked PDF failed:', err.message);
-    summaryText += '\n\nPDF-версію не вдалося згенерувати; документ зі змінами додано у форматі DOCX.';
+  };
+  const available = outputNames(syllabus);
+  const { required, optional } = submissionFiles(syllabus.sourceFormat);
+  for (const name of required.filter((n) => available.includes(n))) await addAttachment(name);
+  for (const name of optional.filter((n) => available.includes(n))) {
+    try {
+      await addAttachment(name);
+    } catch (err) {
+      console.error(`submission: ${name} failed:`, err.message);
+      summaryText += syllabus.sourceFormat === 'pptx'
+        ? '\n\nPDF-версію презентації не вдалося згенерувати; додано лише PPTX з правками.'
+        : '\n\nPDF-версію правок не вдалося згенерувати; правки додано у форматі DOCX.';
+    }
   }
 
   try {
@@ -189,7 +197,7 @@ async function submitSyllabus(syllabusId) {
         role: 'ai',
         kind: 'text',
         content: emailStatus === 'sent'
-          ? `Силабус **${courseName}** відправлено. Лист із документом зі змінами (DOCX і PDF) і звітом надіслано академічному директору (${adEmail}).`
+          ? `Силабус **${courseName}** відправлено. Лист із файлами силабусу та звітом надіслано академічному директору (${adEmail}).`
           : `Силабус **${courseName}** відправлено, але лист академічному директору не вдалося доставити. Зверніться, будь ласка, до офісу програми.`,
       });
     }

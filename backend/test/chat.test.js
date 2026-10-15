@@ -177,7 +177,9 @@ describe('upload і аналіз', () => {
     expect(s.sourceFormat).toBe('pdf');
     expect(s.document.convertedFrom).toBe('pdf');
     expect(s.workingFile.path).toMatch(/\.working\.docx$/);
-    expect(s.document.blocks.some((b) => b.text === B4)).toBe(true);
+    // pdf.js-екстрактор зливає абзац за геометрією, тож B4 — початок блоку
+    expect(s.document.blocks.some((b) => b.text.startsWith(B4))).toBe(true);
+    expect(s.document.sourceBlocks).toHaveLength(s.document.blocks.length);
   });
 
   const withSoffice = isConverterAvailable() ? test : test.skip;
@@ -217,7 +219,7 @@ describe('start, доступи, next-card', () => {
     expect(before.body.readiness).toBeNull();
     expect(before.body.suggestions).toHaveLength(2);
     const { getCriterion } = require('../services/ai/rubric');
-    expect(before.body.suggestions[0].criterionTitle).toBe(getCriterion('T-1').title);
+    expect(before.body.suggestions[0].criterionTitle).toBe(getCriterion('T-1').titleUk);
     expect(before.body.syllabus).toMatchObject({ sourceFormat: 'docx', convertedFrom: null, legacy: false, canMutate: true });
 
     const view = await start(s);

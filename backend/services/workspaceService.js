@@ -12,6 +12,7 @@ module.exports = {
   getConversationView: view.getConversationView,
   previewSuggestion: view.previewSuggestion,
   documentPreview: view.documentPreview,
+  suggestionSlides: require('./chat/slides').suggestionSlides,
   getOrCreateConversation: flow.getOrCreateConversation,
   startConversation: flow.startConversation,
   postNextCard: flow.postNextCard,

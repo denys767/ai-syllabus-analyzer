@@ -7,8 +7,8 @@
 ## Потік
 
 ```
-upload ─► loadDocument(buffer, 'docx'|'doc'|'pdf') ─► { buffer: docx, doc: DocModel, convertedFrom }
-                │ (.doc → .docx через LibreOffice; .pdf → синтезований .docx, extractors/pdfToDocx.js)
+upload ─► loadDocument(buffer, 'docx'|'doc'|'pdf'|'pptx') ─► { buffer, doc: DocModel, convertedFrom }
+                │ (.doc → .docx через LibreOffice; .pdf → синтезований .docx 1:1 з блоками PDF; .pptx — як є)
 LLM бачить renderForPrompt(doc) і повертає Suggestion.ops
 validateSuggestion(doc, s)              ─► помилки для повтору LLM
 findConflicts(doc, accepted, s)         ─► перед Confirm (409 SUGGESTION_CONFLICT)
@@ -21,7 +21,12 @@ buildOutputs(buffer, doc, accepted, { pdf: true }) ─► { clean, tracked, trac
 
 ## PDF → DOCX (`extractors/pdfToDocx.js`)
 
-Текст береться `pdf-parse` в окремому процесі (`pdfText.worker.js`: pdfjs використовує dynamic import, який не працює під Jest, а кривий PDF не валить сервер; таймаут `PDF_EXTRACT_TIMEOUT_MS`, 60 с). `paragraphsFromText` розбиває текст на абзаци: порожній рядок — межа; маркери і номери сторінок прибираються; «1. Вступ», «2.1 Навички» без кінцевої крапки і короткі рядки ВЕЛИКИМИ — заголовки; «•», «-», «1.» — пункти списку; рядок без кінцевого розділового знака продовжується наступним, якщо той з малої літери або рядок довгий; перенос з дефісом склеюється. Перший короткий абзац — Title. `synthesizeDocx` будує DOCX бібліотекою `docx` (Title/Heading N, bullet, нумерація з рестартом на кожну серію). Форматування і таблиці оригіналу не зберігаються. Скан без тексту — 422 `PDF_NO_TEXT`, пошкоджений файл — 422 `INVALID_PDF`.
+`loadDocument(buffer, 'pdf')`: `extractPdf` (pdf.js, див. «PDF» нижче) → `pdfBlocksToParagraphs` → `synthesizeDocx` (бібліотека `docx`: Title/Heading N, bullet, нумерація з рестартом на кожну серію) → `extractDocx`. Кожен PDF-блок стає рівно одним абзацом, тож блоки синтезованого DOCX і PDF відповідають 1:1 за порядком (кількість блоків перевіряється, інакше 422 `PDF_BLOCK_MISMATCH`). Крім звичайного DocModel повертаються:
+
+- `doc.sourceBlocks` — блоки PDF з локаторами сторінок, `doc.sourceDocVersion` — sha1 оригінального PDF;
+- `doc.pdfBlockMap: { [docxBlockId]: pdfBlockId }`.
+
+`pdfMapping.js`: `sourcePdfDoc(document)` відновлює DocModel PDF зі збереженого `Syllabus.document`, `mapPdfSuggestions(document, accepted)` переводить `blockId` операцій на PDF-блоки (для синтетичних id вставок `b0005+<sid>.1` — за якорем). Так `annotatePdf` будує анотації на оригінальному PDF з тих самих прийнятих пропозицій, що й tracked/clean DOCX. Форматування і таблиці оригіналу в DOCX не зберігаються. Скан без тексту — 422 `PDF_NO_TEXT`, пошкоджений файл — 422 `INVALID_PDF`, таймаут читання (`PDF_EXTRACT_TIMEOUT_MS`, 120 с) — 504 `PDF_TIMEOUT`.
 
 ## DocModel
 
@@ -132,7 +137,7 @@ buildOutputs(buffer, doc, accepted, { pdf: true }) ─► { clean, tracked, trac
   `previewPptxChanges(doc, accepted)` розширює стандартне прев’ю:
   `entries[].meta = { slide, overflowRisk }`. Для вставки ризик завжди true.
   Це попередження, а не перевірка реального розміщення; autofit не вмикається автоматично.
-- `renderPptxPreview(originalBuffer, editedBuffer, changedSlides)` →
+- `renderPptxPreview(originalBuffer, editedBuffer, changedSlides, { beforePdf? })` →
   `Promise<{ slides: [{ slide, before: Buffer, after: Buffer }] }>`.
   Обидві презентації конвертуються через існуючий `convert.js` (та сама черга LibreOffice),
   потім `pdftoppm -png -r 80 -f N -l N` створює PNG лише запитаних слайдів.
@@ -155,8 +160,8 @@ buildOutputs(buffer, doc, accepted, { pdf: true }) ─► { clean, tracked, trac
   початок зазвичай знизу ліворуч. `start/end` — UTF-16 offsets у `block.text`.
 - Відсутність тексту в усьому PDF дає 422 `PDF_NO_TEXT` з українським повідомленням про OCR.
   Image-only сторінки змішаного PDF пропускаються. OCR не реалізовано. Некоректний PDF — 422 `INVALID_PDF`.
-- `pdfBlocksToParagraphs(doc)` → `[{ kind, level, text }]`: заголовки й списки зберігають тип,
-  інші блоки стають `paragraph`. Це вхід для окремого синтезу DOCX; цей модуль його не генерує.
+- `pdfBlocksToParagraphs(doc)` → `[{ kind, level, listFormat, text }]` для **всіх** блоків (1:1): заголовки
+  й списки зберігають тип, інші блоки стають `paragraph`. Вхід для `synthesizeDocx` (див. «PDF → DOCX»).
 - `annotatePdf(originalBuffer, doc, accepted, { author = 'KSE Syllabus Analyzer' })` → `Promise<Buffer>`.
   `replaceBlock` додає StrikeOut на рядки зі зміненими словами та Text note з новим текстом
   і rationale; якщо слово має окремий pdf.js item, використовується точніший bbox цього item.
@@ -181,13 +186,10 @@ buildOutputs(buffer, doc, accepted, { pdf: true }) ─► { clean, tracked, trac
 Невідомий format → 415 `UNSUPPORTED_FORMAT`; writer-и повертають ті самі коди stale/invalid/conflict,
 що DOCX. Рекомендації передавати вже відфільтрованими за `accepted`; `supersedes` і merge обробляє `apply.js`.
 
-Інтеграційний крок має дозволити PPTX/PDF у перевірці upload, зберегти оригінальний `buffer`,
-`doc.format`, `docVersion` і всі локатори, передати `renderForPrompt(doc)` в аналіз і використовувати
-спільні validate/conflict/apply у чаті. Для карток PPTX брати `previewPptxChanges`, номери слайдів
-для PNG — з локаторів змінених/якірних блоків. Після Confirm/Reopen інвалідовувати артефакти.
-Outputs зберігати/віддавати за dispatch вище; PDF показувати як анотований оригінал.
-Окремий PDF→DOCX синтез бере `pdfBlocksToParagraphs(doc)`; його clean/tracked копії слід явно
-позначати як конвертовані. Шаблони upload/chat/email та UI цей модуль не змінює.
+Інтеграція (хвиля 5): upload приймає `.pptx`/`.pdf`; `services/outputs.js` рендерить файли за ключем
+(`writeDocx`, `writePptx` + `toPdf`, `annotatePdf` з `pdfMapping.js`), перелік файлів за форматом —
+`services/outputFormats.js`; прев'ю слайдів картки — `services/chat/slides.js` (`previewPptxChanges` для номерів
+слайдів і `overflowRisk`, `renderPptxPreview` з опцією `beforePdf` — уже сконвертований оригінал).
 
 `pdfToPng(pdfBuffer, pages, { timeoutMs = 120000 })` → `Promise<[{ page, png: Buffer }]>`.
 Список сторінок відсортований і унікальний; власна черга `createQueue(1)` з convert.js,

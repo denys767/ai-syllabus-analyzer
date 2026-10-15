@@ -98,7 +98,7 @@ BlockChange = { blockId, op, kind, before, after, parts: [{ type: 'eq'|'del'|'in
 - **Коди помилок** (`{ message, code, ...details }`): 400 `REASON_REQUIRED`, `OPTION_REQUIRED`; 409 `NOT_PENDING`, `NOT_DECIDED`, `ANSWER_REQUIRED`, `NOT_APPLICABLE` (варіант choice без ops), `NOT_A_QUESTION`, `SUGGESTION_CONFLICT`, `STALE_DOC_VERSION`, `ALREADY_SUBMITTED`, `ANALYSIS_IN_PROGRESS`, `ANALYSIS_FAILED`, `LEGACY_SYLLABUS`, `PENDING_SUGGESTIONS` (`pending: [{ suggestionId, title, severity }]`), `SUBMIT_IN_PROGRESS`; 422 `INVALID_OPS` (`errors`); 503 з `retryable: true` при збої LLM.
 - **Legacy**: `GET /outputs/:name` і `GET /document/preview` теж повертають 409 `LEGACY_SYLLABUS`.
 - **Submit без LibreOffice**: лист іде лише з `tracked.docx`, у звіті примітка; `GET /outputs/tracked.pdf` → 503 `SOFFICE_MISSING`.
-- **Upload**: розбір документа (конвертація `.doc`, синтез з `.pdf`) — фоновий етап `extract`; помилки розбору дають `status: 'error'` з українським `error` у `/status`, а не 4xx на upload. `stage` проходить `extract → structure → rewrite → done` (пайплайн review не повідомляє проміжних етапів `diagnose`/`verify`).
+- **Upload**: розбір документа (конвертація `.doc`, синтез з `.pdf`) — фоновий етап `extract`; помилки розбору дають `status: 'error'` з українським `error` у `/status`, а не 4xx на upload. `stage` проходить `extract → structure → rewrite → done` (до хвилі 5; тепер і `diagnose`/`verify`, див. нижче).
 - **Cabinet `/cabinet/syllabi`**: `issueCounts: { pending, accepted, rejected, total }`, `readiness: { score, breakdown }` (рахується з Suggestion; для `analyzing`/`error` — `{ score: 0, breakdown: {} }`), а також `sourceFormat`, `convertedFrom`, `legacy`, `analysisStage`.
 
 ## Фаза 5: PPTX і анотований PDF (хвиля 5)
@@ -114,3 +114,22 @@ BlockChange = { blockId, op, kind, before, after, parts: [{ type: 'eq'|'del'|'in
 - **SuggestionView.criterionTitle** — українська назва критерію (`titleUk` з рубрики; англійська `title` — запасний варіант).
 - **Етапи аналізу:** `runReview` викликає `options.onStage(stage)` для `structure`, `diagnose`, `verify`, тож `stage` проходить `extract → structure → diagnose → verify → rewrite → done`.
 - **Відновлення аналізу:** аналіз — job із lease (`analysisLeaseUntil`, `analysisAttempts`). Після рестарту прострочений `analyzing` перезапускається (до 2 спроб), а не переводиться одразу в `error`.
+
+### Доповнення реалізації (бекенд, хвиля 5)
+
+Розширення і уточнення розділу вище; наявні поля не змінювались.
+
+- **`BlockChange.slide`** (лише `pptx`): номер слайду з 1 за локатором блоку. Є в `SuggestionView.changes`, `options[].changes`, `GET /suggestions/:sid/preview` і в кожному елементі `blocks` `GET /document/preview`. Для вставки (`insertAfter`, `status: 'inserted'`) — слайд якоря. Для інших форматів поля немає.
+- **`syllabus.outputs`** залежить від стану силабусу, а не лише від формату:
+  - legacy або ще не розібраний документ (`analyzing` до кінця `extract`) → `[]`;
+  - PDF, розібраний до хвилі 5 (без блоків оригіналу) → без `annotated.pdf`. `POST /syllabus/:id/analyze` для такого PDF розбирає файл заново, після чого `annotated.pdf` з'являється.
+  
+  `GET /outputs/:name` з іменем поза списком → 404 `OUTPUT_NOT_AVAILABLE`; legacy, як і раніше, → 409 `LEGACY_SYLLABUS`. `tracked.pdf` і `preview.pdf` без LibreOffice → 503 `SOFFICE_MISSING`.
+- **Кабінет** `/cabinet/syllabi`: кожен елемент має `outputs: [{ name, label }]` за тими самими правилами.
+- **Submit, вкладення:** `docx`/`doc` — `tracked.docx` + `tracked.pdf`; `pdf` — `annotated.pdf` + `tracked.docx` + `tracked.pdf`; `pptx` — `edited.pptx` + `preview.pdf`. PDF, який рендерить LibreOffice (`tracked.pdf`, `preview.pdf`), необов'язковий для **усіх** форматів: якщо він не згенерувався, лист іде без нього, а у звіті є примітка. Збій головного файлу формату (`tracked.docx`, `annotated.pdf`, `edited.pptx`) зриває submit (статус не змінюється).
+- **GET `/suggestions/:sid/slides`:** для не-`pptx` → 404 `NOT_PPTX`; для choice без `optionId` і без вибраного варіанта → 400 `OPTION_REQUIRED`; пропозиція без ops (порада, питання) → `{ slides: [] }`; `docVersion` пропозиції ≠ документа → 409 `STALE_DOC_VERSION`. Кеш у пам'яті процесу (LRU, ≤ 32 записи / 48 МБ), ключ — `suggestionId + optionId + docVersion` + хеш ops, тож після Refine прев'ю перебудовується. PDF оригіналу кешується окремо за `docVersion`. Відповідь займає кілька секунд (дві конвертації LibreOffice); помилки рендеру: 503 `SOFFICE_MISSING`, 503 `PDF_RENDER_MISSING` (немає `pdftoppm`), 504 `CONVERSION_TIMEOUT`/`PDF_RENDER_TIMEOUT` (`retryable`).
+- **Upload:** `.docx` теж перевіряється за вмістом zip (`word/document.xml`); презентація з розширенням `.docx` і навпаки → 400.
+- **PDF, серверні поля:** `document.sourceBlocks` (блоки `extractPdf` з локаторами сторінок), `document.sourceDocVersion` (sha1 оригінального PDF), `document.pdfBlockMap`. Анотації будуються з прийнятих пропозицій, переведених на PDF-блоки (для вставок — блок-якір). `docVersion` і далі — sha1 синтезованого `.docx`.
+- **Відновлення аналізу:** поля `analysisLeaseUntil`, `analysisAttempts` (у `GET /syllabus/:id` видно; токен lease не віддається). Lease (`ANALYSIS_LEASE_MS`, 60 с) продовжується кожну третину періоду. Sweeper на старті й кожні 5 періодів lease: прострочений `analyzing` з `analysisAttempts < 2` перезапускається, інакше `status: 'error'` з повідомленням «Аналіз двічі переривався (перезапуск сервера або збій). Запустіть аналіз повторно.». `analyze` скидає лічильник спроб. `/status` не змінився.
+- **`SuggestionView.sources`:** `[{ title, publisher, year, url, verified }]` — джерела кейсів з веб-пошуку (лише з `CASE_WEB_SEARCH=1` і для знахідок `PR-1`–`PR-3`; інакше `[]`). `url` є лише в підтверджених сервером (`verified: true`). Неперевірені посилання вирізаються з тексту правки й опису, а в `description` додається абзац «Джерело не підтверджено: …». Refine перевикористовує збережені джерела без нового пошуку.
+- **Звіт для AD:** рядок «Формат оригіналу» для `pdf` і `pptx` описує, де правки (примітки на оригінальному PDF / правки в презентації).
