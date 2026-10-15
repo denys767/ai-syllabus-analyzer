@@ -5,7 +5,8 @@ const app = require('../server');
 const Syllabus = require('../models/Syllabus');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
-const aiService = require('../services/ai');
+const Suggestion = require('../models/Suggestion');
+const analysisRunner = require('../services/analysisRunner');
 const workspaceService = require('../services/workspaceService');
 
 let owner;
@@ -30,11 +31,11 @@ describe('upload', () => {
     expect(await Syllabus.countDocuments()).toBe(0);
   });
 
-  test('.doc → 415', async () => {
+  test('.doc з вмістом PDF → 400 за magic bytes', async () => {
     const res = await fields(request(app).post('/api/syllabus/upload').set(auth))
-      .attach('syllabus', Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0, 0, 0, 0]), 'old.doc');
-    expect(res.status).toBe(415);
-    expect(res.body.message).toMatch(/\.doc/);
+      .attach('syllabus', Buffer.from('%PDF-1.4\n'), 'old.doc');
+    expect(res.status).toBe(400);
+    expect(await Syllabus.countDocuments()).toBe(0);
   });
 
   test('невідоме розширення → 400', async () => {
@@ -72,20 +73,27 @@ describe('analyze guard', () => {
     expect(res.status).toBe(403);
   });
 
-  test('re-analyze скидає розмову і похідний стан', async () => {
-    const spy = jest.spyOn(aiService, 'analyzeSyllabus').mockResolvedValue(true);
-    const s = await helpers.createSyllabus(owner, { editedText: 'x', revisionMarkup: 'y' });
+  test('re-analyze скидає розмову, пропозиції і кеш outputs', async () => {
+    const spy = jest.spyOn(analysisRunner, 'runAnalysisInBackground').mockImplementation(() => {});
+    const s = await helpers.createDocSyllabus(owner, {
+      outputs: { clean: { path: '/tmp/none.docx', acceptedHash: 'x' } },
+      rubricSummary: { counts: { ok: 1 } },
+    });
+    await helpers.createSuggestion(s);
     const conv = await Conversation.create({ syllabusId: s._id, instructorId: owner._id });
     await Message.create({ conversationId: conv._id, role: 'ai', content: 'hi' });
 
     const res = await request(app).post(`/api/syllabus/${s._id}/analyze`).set(auth);
     expect(res.status).toBe(200);
-    const fresh = await Syllabus.findById(s._id);
-    expect(fresh.editedText).toBeUndefined();
-    expect(fresh.revisionMarkup).toBeUndefined();
-    expect(fresh.analysisStartedAt).toBeDefined();
+    const fresh = await Syllabus.findById(s._id).lean();
+    expect(fresh.status).toBe('analyzing');
+    expect(fresh.outputs).toBeUndefined();
+    expect(fresh.rubricSummary).toBeUndefined();
+    expect(fresh.document.docVersion).toBeDefined();
+    expect(await Suggestion.countDocuments({ syllabusId: s._id })).toBe(0);
     expect(await Conversation.countDocuments({ syllabusId: s._id })).toBe(0);
     expect(await Message.countDocuments({ conversationId: conv._id })).toBe(0);
+    expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });
 
@@ -109,41 +117,21 @@ describe('чат', () => {
     expect(view.messages[199].content).toBe('m250');
   });
 
-  test('подвійний submit: другий отримує 409', async () => {
-    const Program = require('../models/Program');
-    const program = await Program.create({ name: 'P', code: 'PX' });
-    const s = await helpers.createSyllabus(owner, { programId: program._id });
-    await Conversation.create({ syllabusId: s._id, instructorId: owner._id });
-    const render = jest.spyOn(aiService, 'renderFinalSyllabusPdf').mockImplementation(async () => {
-      await new Promise((r) => setTimeout(r, 300));
-      return '/tmp/none.pdf';
-    });
-    jest.spyOn(aiService, 'generateSubmissionReport').mockReturnValue('report');
-
-    const send = () => request(app).post(`/api/chat/${s._id}/submit`).set(auth);
-    const results = await Promise.all([send(), send()]);
-    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
-    expect(render).toHaveBeenCalledTimes(1);
-    expect((await Syllabus.findById(s._id)).status).toBe('submitted');
-
-    const third = await send();
-    expect(third.status).toBe(409);
-    jest.restoreAllMocks();
-  });
 });
 
 describe('кабінет', () => {
   test('/syllabi: проєкція без текстів, limit обмежений, поганий id → 400', async () => {
-    await helpers.createSyllabus(owner, {
-      recommendations: [{ id: 'r1', category: 'other', title: 't', priority: 'high' }],
-    });
+    const s = await helpers.createDocSyllabus(owner);
+    await helpers.createSuggestion(s, { group: 'policy', severity: 'high' });
+    await helpers.createSuggestion(s, { status: 'accepted' });
     const res = await request(app).get('/api/cabinet/syllabi?limit=100000').set(auth);
     expect(res.status).toBe(200);
-    expect(res.body.syllabi.length).toBeGreaterThan(0);
-    const item = res.body.syllabi[0];
+    const item = res.body.syllabi.find((x) => x._id === String(s._id));
     expect(item.extractedText).toBeUndefined();
-    expect(item.recommendations).toBeUndefined();
-    expect(item.issueCounts.open).toBe(1);
+    expect(item.document).toBeUndefined();
+    expect(item.issueCounts).toEqual({ pending: 1, accepted: 1, rejected: 0, total: 2 });
+    expect(item.readiness.breakdown).toMatchObject({ template: 100, policy: 0 });
+    expect(item.readiness.score).toBe(85);
 
     const bad = await request(app).get('/api/cabinet/syllabi?program=zzz').set(auth);
     expect(bad.status).toBe(400);

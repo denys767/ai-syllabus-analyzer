@@ -2,7 +2,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const Syllabus = require('../models/Syllabus');
 const { loadDocument, toPlainText } = require('./document');
-const { analyzeSyllabus } = require('./ai/orchestrator');
+const orchestrator = require('./ai/orchestrator');
 
 const GENERIC_ERROR = 'Не вдалося проаналізувати силабус. Спробуйте повторити аналіз.';
 
@@ -55,8 +55,8 @@ async function extractDocument(syllabusId) {
 
 async function runAnalysis(syllabusId) {
   try {
-    await extractDocument(syllabusId);
-    await analyzeSyllabus(syllabusId);
+    await module.exports.extractDocument(syllabusId);
+    await orchestrator.analyzeSyllabus(syllabusId);
   } catch (error) {
     console.error('AI analysis error for syllabus', String(syllabusId), ':', error);
     // Повідомлення з statusCode < 500 (модуль документів, наші перевірки) — українською і для користувача

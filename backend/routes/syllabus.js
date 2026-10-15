@@ -8,7 +8,7 @@ const mongoose = require('mongoose');
 const Syllabus = require('../models/Syllabus');
 const Suggestion = require('../models/Suggestion');
 const { auth, requireRole } = require('../middleware/auth');
-const { runAnalysisInBackground } = require('../services/analysisRunner');
+const analysisRunner = require('../services/analysisRunner');
 const { deleteSyllabiCascade, deleteConversationsFor } = require('../services/syllabusCleanup');
 const { removeOutputDir } = require('../services/outputs');
 
@@ -168,7 +168,7 @@ router.post('/upload', auth, upload.single('syllabus'), [
     });
 
     await syllabus.save();
-    runAnalysisInBackground(syllabus._id);
+    analysisRunner.runAnalysisInBackground(syllabus._id);
 
     res.status(201).json({
       message: 'Силабус завантажено. Триває аналіз.',
@@ -325,7 +325,7 @@ router.post('/:id/analyze', auth, async (req, res) => {
     await removeOutputDir(syllabus._id);
     await Suggestion.deleteMany({ syllabusId: syllabus._id });
     await deleteConversationsFor([syllabus._id]);
-    runAnalysisInBackground(syllabus._id);
+    analysisRunner.runAnalysisInBackground(syllabus._id);
 
     res.json({ message: 'Аналіз розпочато', status: 'analyzing' });
   } catch (error) {

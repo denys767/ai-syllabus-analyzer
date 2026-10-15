@@ -38,7 +38,8 @@ async function loadSyllabus(syllabusId, select) {
 }
 
 function isLegacy(syllabus) {
-  return Boolean(syllabus.legacy) || !(syllabus.document && Array.isArray(syllabus.document.blocks) && syllabus.document.docVersion);
+  // docVersion і blocks записуються разом (етап extract), тож достатньо перевірити docVersion
+  return Boolean(syllabus.legacy) || !syllabus.document?.docVersion;
 }
 
 function legacyError() {

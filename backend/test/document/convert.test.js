@@ -49,7 +49,7 @@ describe('convert', () => {
   });
 
   test('непідтримуваний формат', async () => {
-    await expect(loadDocument(Buffer.from('x'), 'pdf')).rejects.toMatchObject({ statusCode: 415 });
+    await expect(loadDocument(Buffer.from('x'), 'pptx')).rejects.toMatchObject({ statusCode: 415 });
   });
 
   test('черга обмежує паралельність', async () => {
