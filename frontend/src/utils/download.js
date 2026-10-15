@@ -37,7 +37,7 @@ export async function downloadOutput(syllabusId, name, fallbackBase = 'syllabus'
   try {
     const response = await api.chat.downloadOutput(syllabusId, name);
     const filename = filenameFromDisposition(response.headers?.['content-disposition'])
-      || `${fallbackBase}_${name.replace('.', '_')}.${name.split('.').pop()}`;
+      || `${fallbackBase}_${name}`;
     saveBlob(response.data, filename);
     return null;
   } catch (err) {
