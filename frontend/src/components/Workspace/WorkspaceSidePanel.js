@@ -1,11 +1,15 @@
 import React from 'react';
 import { Box, Button, CircularProgress, Divider, Stack, Typography } from '@mui/material';
-import { Description, PictureAsPdf, Send, Visibility } from '@mui/icons-material';
+import { Description, PictureAsPdf, Send, Slideshow, Visibility } from '@mui/icons-material';
 import ReadinessSummary from './ReadinessSummary';
 import SuggestionsList from './SuggestionsList';
-import { OUTPUT_FILES } from '../../utils/download';
+import { outputsForFormat } from '../../utils/download';
 
-const FILE_ICONS = { 'tracked.pdf': <PictureAsPdf /> };
+const fileIcon = (name) => {
+  if (name.endsWith('.pdf')) return <PictureAsPdf />;
+  if (name.endsWith('.pptx')) return <Slideshow />;
+  return <Description />;
+};
 
 const Section = ({ title, children }) => (
   <Box sx={{ p: 2 }}>
@@ -18,6 +22,7 @@ const Section = ({ title, children }) => (
 const WorkspaceSidePanel = ({
   readiness,
   suggestions,
+  outputs,
   filesEnabled,
   downloading,
   canSubmit,
@@ -59,12 +64,12 @@ const WorkspaceSidePanel = ({
         >
           Переглянути документ
         </Button>
-        {OUTPUT_FILES.map((file) => (
+        {(outputs || outputsForFormat()).map((file) => (
           <Button
             key={file.name}
             size="small"
             variant="outlined"
-            startIcon={downloading === file.name ? <CircularProgress size={16} /> : (FILE_ICONS[file.name] || <Description />)}
+            startIcon={downloading === file.name ? <CircularProgress size={16} /> : fileIcon(file.name)}
             disabled={!filesEnabled || !!downloading}
             onClick={() => onDownload(file.name)}
             sx={{ justifyContent: 'flex-start', textAlign: 'left' }}

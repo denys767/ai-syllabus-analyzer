@@ -124,6 +124,7 @@ const ProfessorTutorWorkspace = () => {
     <WorkspaceSidePanel
       readiness={ws.readiness}
       suggestions={suggestions}
+      outputs={ws.outputs}
       filesEnabled={ready && !ws.legacy}
       downloading={ws.downloading}
       canSubmit={ws.canSubmit}

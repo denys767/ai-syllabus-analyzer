@@ -20,10 +20,16 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { Chat, Delete, Description, Email, PictureAsPdf, Refresh } from '@mui/icons-material';
+import { Chat, Delete, Description, Email, PictureAsPdf, Refresh, Slideshow } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
-import { downloadOutput } from '../../utils/download';
+import { cabinetOutputs, downloadOutput } from '../../utils/download';
+
+const fileIcon = (name) => {
+  if (name.endsWith('.pdf')) return <PictureAsPdf fontSize="small" />;
+  if (name.endsWith('.pptx')) return <Slideshow fontSize="small" />;
+  return <Description fontSize="small" />;
+};
 
 const statusColor = { submitted: 'success', in_progress: 'warning', analyzing: 'info', error: 'error' };
 const statusLabel = {
@@ -192,16 +198,11 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
                   <Tooltip title="Відкрити чат">
                     <IconButton size="small" onClick={() => navigate(`/workspace/${s._id}`)}><Chat fontSize="small" /></IconButton>
                   </Tooltip>
-                  {s.status === 'submitted' && (
-                    <>
-                      <Tooltip title="DOCX з правками (tracked changes)">
-                        <IconButton size="small" onClick={() => download(s, 'tracked.docx')}><Description fontSize="small" /></IconButton>
-                      </Tooltip>
-                      <Tooltip title="PDF з правками">
-                        <IconButton size="small" onClick={() => download(s, 'tracked.pdf')}><PictureAsPdf fontSize="small" /></IconButton>
-                      </Tooltip>
-                    </>
-                  )}
+                  {s.status === 'submitted' && cabinetOutputs(s).map((file) => (
+                    <Tooltip key={file.name} title={file.label}>
+                      <IconButton size="small" onClick={() => download(s, file.name)}>{fileIcon(file.name)}</IconButton>
+                    </Tooltip>
+                  ))}
                   {s.status === 'submitted' && s.submissionEmailStatus === 'failed' && isAdmin && (
                     <Tooltip title="Надіслати лист повторно">
                       <IconButton size="small" onClick={() => resend(s._id)}><Email fontSize="small" /></IconButton>

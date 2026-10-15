@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../services/api';
 import { describeError } from '../utils/apiError';
-import { downloadOutput as saveOutput } from '../utils/download';
+import { downloadOutput as saveOutput, syllabusOutputs } from '../utils/download';
 
 export const ANALYSIS_POLL_INTERVAL_MS = 5000;
 export const ANALYSIS_POLL_LIMIT_MS = 10 * 60 * 1000;
@@ -248,6 +248,7 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
 
   return {
     syllabus,
+    outputs: syllabusOutputs(syllabus),
     conversation: view?.conversation || null,
     messages: view?.messages || [],
     suggestions: view?.suggestions || [],

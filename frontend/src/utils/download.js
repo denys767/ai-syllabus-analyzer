@@ -1,11 +1,53 @@
 import api from '../services/api';
 import { describeError } from './apiError';
 
-export const OUTPUT_FILES = [
-  { name: 'tracked.docx', label: 'DOCX з правками (tracked changes)' },
-  { name: 'clean.docx', label: 'Чистий DOCX' },
-  { name: 'tracked.pdf', label: 'PDF з правками' },
-];
+const FILE_LABELS = {
+  'tracked.docx': 'DOCX з правками (tracked changes)',
+  'clean.docx': 'Чистий DOCX',
+  'tracked.pdf': 'PDF з правками',
+  'annotated.pdf': 'Оригінальний PDF з примітками',
+  'edited.pptx': 'Презентація з правками',
+  'preview.pdf': 'PDF презентації з правками',
+};
+
+const file = (name) => ({ name, label: FILE_LABELS[name] });
+
+// Набір файлів за форматом силабуса (docs/api-v3.md, «Фаза 5»). Запасний варіант, коли сервер
+// не передав `syllabus.outputs`; для docx/doc і невідомого формату — класична трійка.
+const OUTPUTS_BY_FORMAT = {
+  pdf: ['annotated.pdf', 'tracked.docx', 'clean.docx', 'tracked.pdf'].map(file),
+  pptx: ['edited.pptx', 'preview.pdf'].map(file),
+  default: ['tracked.docx', 'clean.docx', 'tracked.pdf'].map(file),
+};
+
+// Головний файл і PDF для кабінету (відправлені силабуси)
+const CABINET_BY_FORMAT = {
+  pdf: ['annotated.pdf', 'tracked.docx'].map(file),
+  pptx: ['edited.pptx', 'preview.pdf'].map(file),
+  default: ['tracked.docx', 'tracked.pdf'].map(file),
+};
+
+const pick = (table, sourceFormat) => table[sourceFormat] || table.default;
+
+export const outputsForFormat = (sourceFormat) => pick(OUTPUTS_BY_FORMAT, sourceFormat);
+
+// Файли для кнопок: список із сервера, інакше за форматом.
+export const syllabusOutputs = (syllabus) => (
+  Array.isArray(syllabus?.outputs) && syllabus.outputs.length
+    ? syllabus.outputs
+    : outputsForFormat(syllabus?.sourceFormat)
+);
+
+// Кабінет: головний файл формату + другий (PDF для docx/pptx, DOCX для pdf), без чистої версії.
+export const cabinetOutputs = (syllabus) => {
+  if (Array.isArray(syllabus?.outputs) && syllabus.outputs.length) {
+    const list = syllabus.outputs;
+    const main = list[0];
+    const second = list.find((o) => o.name !== main.name && o.name !== 'clean.docx');
+    return second ? [main, second] : [main];
+  }
+  return pick(CABINET_BY_FORMAT, syllabus?.sourceFormat);
+};
 
 function filenameFromDisposition(header) {
   if (!header) return null;
