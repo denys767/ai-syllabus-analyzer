@@ -35,10 +35,12 @@ test('zero issues is valid; disabled criteria are neither prompted nor expected'
   const prompt = createResponse.mock.calls.find(([p]) => p.text.format.name === 'review_diagnose_outcomes')[0].input[0].content;
   expect(prompt).not.toContain('[LO-1]');
 });
-test('missing, duplicate or unknown criterion verdicts are rejected', async () => {
+test('persistent missing, duplicate or unknown criterion verdicts skip only the failed group', async () => {
   for (const bad of [[], [verdictsFor('template').verdicts[0], verdictsFor('template').verdicts[0]], [{ ...verdictsFor('template').verdicts[0], criterionId: 'X' }]]) {
     createResponse.mockImplementation(async (p) => response(p.text.format.name === 'review_diagnose_template' ? { verdicts: bad } : verdictsFor(p.text.format.name.replace('review_diagnose_', ''))));
-    await expect(diagnose(diagnoseInput())).rejects.toThrow(/criterion/);
+    const result = await diagnose(diagnoseInput());
+    expect(result.failedGroups).toEqual(['template']);
+    expect(result.verdicts.filter((v) => v.verdict === 'not_evaluated')).toHaveLength(9);
   }
 });
 test('coverage is computed in code from explicit MBA, outcome and direct assessment links', () => {
@@ -129,10 +131,10 @@ test('runReview smoke provides public API, rubric summary and call stats', async
   expect(result.findings.length).toBeLessThanOrEqual(10);
   expect(Object.keys(result.findings[0]).sort()).toEqual(['id','criterionId','group','severity','confidence','materiality','claim','rationale','evidenceBlockIds','mba27','fixType','standardClauseId','suggestedAction','promptVersion'].sort());
 });
-test('input rejects duplicate ids and invalid options before calling LLM', async () => {
+test('input rejects duplicate ids and invalid block fields before calling LLM', async () => {
   await expect(runReview({ blocks: [blocks[0], blocks[0]] })).rejects.toThrow(/unique/);
-  await expect(runReview({ blocks, options: { concurrency: 0 } })).rejects.toThrow(/concurrency/);
-  await expect(runReview({ blocks, options: { maxFindings: -1 } })).rejects.toThrow(/maxFindings/);
+  await expect(runReview({ blocks: [{ ...blocks[0], kind: 'unknown' }] })).rejects.toThrow(/valid kinds/);
+  await expect(runReview({ blocks: [{ ...blocks[0], level: NaN }] })).rejects.toThrow(/optional fields/);
   expect(createResponse).not.toHaveBeenCalled();
 });
 test('valid structure extraction retains evidence and produces coverage', async () => {
