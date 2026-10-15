@@ -36,4 +36,15 @@ const suggestion = await generateSuggestion({ finding: findings[0], blocks, meta
 
 Без повторів типово 7 викликів на аналіз (1 + 5 + 1), або 6 без кандидатів для verifier; із повторами максимум 28 для п’яти груп. Rewrite/Refine має 1–3 спроби виправлення ops, кожна окремо використовує транспортні/форматні повтори `requestJSON` (до 9 викликів загалом). За вимкнення цілої групи викликів менше.
 
-Eval описано у `backend/eval/README.md`. На реальному golden set якість ще не виміряна; checks є консервативними евристиками, а семантичний зв’язок доказу з твердженням оцінює LLM. Модуль не обчислює diff, не застосовує ops, не шукає нові кейси в інтернеті та не перевіряє їх URL. Інтеграція з оркестратором, документами, БД і чатом належить наступній фазі.
+Eval описано у `backend/eval/README.md`. На реальному golden set якість ще не виміряна; checks є консервативними евристиками, а семантичний зв’язок доказу з твердженням оцінює LLM. Модуль не обчислює diff і не застосовує ops. Інтеграція з документами, БД і чатом — `services/ai/orchestrator.js` і `suggestionBuilder.js`.
+
+## Кейси з перевіреними джерелами (`caseSources.js`, хвиля 5)
+
+Опційно: `CASE_WEB_SEARCH=1` (за замовчуванням вимкнено). Для знахідок `PR-1`–`PR-3` групи practice (`PR-1` з `fixType: question` — лише коли є відповідь викладача) `generateSuggestion` перед rewrite:
+
+1. робить виклик `createResponse` з `tools: [{ type: 'web_search_preview' }]` (вільний текст + `url_citation`);
+2. окремим викликом `requestJSON('case_sources', …)` (strict `json_schema`) зводить знайдене до ≤ 3 кейсів `{ title, publisher, year, url, relevance }`;
+3. перевіряє кожен URL на сервері (`verifyUrl`): http(s) без облікових даних, доменне ім'я з літерним TLD, порт 80/443, DNS лише в публічні адреси; `HEAD`, при відмові/обриві — `GET`, `redirect: 'manual'`, таймаут 5 с; підтверджено = 2xx/3xx;
+4. передає моделі список з `verified` (URL лише в підтверджених) і після валідації `applyVerifiedSources` вирізає всі URL, яких немає серед підтверджених (з ops, опису, rationale, варіантів), додаючи до `description` «Джерело не підтверджено: …». Результат має `sources: [{ title, publisher, year, url, verified }]`.
+
+Параметр `caseSources` (збережені джерела) пропускає пошук — так робить Refine. Збій пошуку не зриває генерацію: джерел немає, і будь-який URL у відповіді вирізається. У тестах `fetch` і `dns.promises.lookup` замінені mock-ами (`test/review/caseSources.test.js`).
