@@ -6,44 +6,36 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "update": "npm update",
-    "check-updates": "npm outdated",
-    "clean": "rm -rf node_modules package-lock.json && npm install"
+    "test": "jest",
+    "eval": "node eval/run.js"
   },
   "dependencies": {
-    "adm-zip": "^0.5.17",
-    "bcryptjs": "latest",
-    "cors": "latest",
-    "csv-parser": "latest",
-    "csv-writer": "latest",
-    "diff-match-patch": "latest",
-    "dotenv": "latest",
-    "exceljs": "latest",
+    "@cantoo/pdf-lib": "^2.11.1",
+    "@xmldom/xmldom": "^0.9.12",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "diff": "^8.0.4",
+    "docx": "^9.11.0",
+    "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "express-rate-limit": "^7.4.1",
-    "express-validator": "latest",
-    "helmet": "latest",
-    "jsonwebtoken": "latest",
-    "mammoth": "latest",
-    "markdown-it": "^14.1.1",
-    "moment": "latest",
-    "mongodb-memory-server": "latest",
-    "mongoose": "latest",
-    "multer": "latest",
-    "natural": "latest",
-    "nodemailer": "latest",
-    "openai": "latest",
-    "pdf-parse": "latest",
-    "pdfkit": "latest",
-    "puppeteer": "latest"
-  },
-  "optionalDependencies": {
-    "docx": "^9.0.3"
+    "express-validator": "^7.3.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "jszip": "^3.10.2",
+    "mongoose": "^8.19.3",
+    "multer": "^2.0.2",
+    "node-diff3": "^3.2.1",
+    "nodemailer": "^7.0.10",
+    "openai": "^6.8.1",
+    "pdfjs-dist": "^6.4.299",
+    "validator": "^13.15.23"
   },
   "devDependencies": {
-    "jest": "latest",
-    "nodemon": "latest",
-    "supertest": "latest"
+    "jest": "^30.2.0",
+    "mongodb-memory-server": "^10.3.0",
+    "nodemon": "^3.1.11",
+    "supertest": "^7.1.4"
   },
   "keywords": [
     "ai",
@@ -67,5 +59,11 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/kse/ai-syllabus-analyzer"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "globalSetup": "<rootDir>/test/globalSetup.js",
+    "testTimeout": 30000,
+    "maxWorkers": 2
   }
 }

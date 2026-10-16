@@ -3,52 +3,19 @@ const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const { auth } = require('../middleware/auth');
 const Syllabus = require('../models/Syllabus');
-// const { Survey, SurveyResponse } = require('../models/Survey'); // removed unused survey stats for now
 const User = require('../models/User');
-const PracticalIdea = require('../models/PracticalIdea');
+const { generateToken, hashToken } = require('../utils/tokens');
+const { isLastActiveAdmin } = require('../services/userService');
+const { deleteSyllabiCascade } = require('../services/syllabusCleanup');
 const { sendAccountDeletionEmail, sendEmailChangeConfirmation } = require('../services/emailService');
-const crypto = require('crypto');
 
 const router = express.Router();
-
-// Get user statistics for dashboard
-router.get('/stats', auth, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    
-    // Get user's syllabi count
-    const totalSyllabi = await Syllabus.countDocuments({ instructor: userId });
-    
-    const inProgressSyllabi = await Syllabus.countDocuments({
-      instructor: userId,
-      status: 'in_progress'
-    });
-    const submittedSyllabi = await Syllabus.countDocuments({
-      instructor: userId,
-      status: 'submitted'
-    });
-
-    const stats = {
-      totalSyllabi,
-      inProgressSyllabi,
-      submittedSyllabi
-    };
-    
-    res.json(stats);
-    
-  } catch (error) {
-    console.error('User stats error:', error);
-    res.status(500).json({
-      message: 'Помилка отримання статистики користувача'
-    });
-  }
-});
 
 // Update user settings
 router.put('/settings', auth, async (req, res) => {
   try {
     const userId = req.user.userId;
-  const { notifications, language, theme } = req.body;
+    const { notifications, theme } = req.body;
     
     const user = await User.findById(userId);
     if (!user) {
@@ -57,7 +24,6 @@ router.put('/settings', auth, async (req, res) => {
     
     // Update user settings
     if (notifications !== undefined) user.settings.notifications = notifications;
-  if (language !== undefined) user.settings.language = language;
   if (theme !== undefined) user.settings.theme = theme; // now accepts 'system'|'light'|'dark'
     
     await user.save();
@@ -97,11 +63,6 @@ router.put('/change-password', auth, [
       return res.status(404).json({ message: 'Користувача не знайдено' });
     }
 
-    // Only verified users can change password
-    if (!user.isVerified) {
-      return res.status(403).json({ message: 'Спочатку підтвердіть email, щоб змінити пароль' });
-    }
-    
     // Verify current password
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
@@ -153,12 +114,14 @@ router.delete('/account', auth, [
       return res.status(400).json({ message: 'Неправильний пароль' });
     }
 
-    // Delete user's syllabi
-    await Syllabus.deleteMany({ instructor: userId });
-    
-  // Delete user's practical ideas
-  await PracticalIdea.deleteMany({ instructor: userId });
-    
+    // Не можна залишити систему без активного адміна
+    if (await isLastActiveAdmin(user)) {
+      return res.status(409).json({ message: 'Неможливо видалити останнього активного адміністратора' });
+    }
+
+    // Каскад: файли, розмови й повідомлення, силабуси
+    await deleteSyllabiCascade({ instructor: userId });
+
     // Delete user account
     await User.findByIdAndDelete(userId);
 
@@ -203,14 +166,15 @@ router.post('/email-change/request', auth, [
     const exists = await User.findOne({ email: newEmail.toLowerCase() });
     if (exists) return res.status(409).json({ message: 'Цей email вже використовується' });
 
+    const { raw, hash } = generateToken();
     user.pendingEmail = newEmail.toLowerCase();
-    user.emailChangeToken = crypto.randomBytes(32).toString('hex');
+    user.emailChangeToken = hash;
     user.emailChangeTokenExpires = Date.now() + 24 * 60 * 60 * 1000; // 24h
     await user.save();
 
     // Best-effort email to new address
     try {
-      await sendEmailChangeConfirmation(user.pendingEmail, user.emailChangeToken);
+      await sendEmailChangeConfirmation(user.pendingEmail, raw);
     } catch (e) {
       console.warn('Failed to send email change confirmation:', e.message);
     }
@@ -233,7 +197,7 @@ router.post('/email-change/confirm', [
     }
 
     const { token } = req.body;
-    const user = await User.findOne({ emailChangeToken: token, emailChangeTokenExpires: { $gt: Date.now() } });
+    const user = await User.findOne({ emailChangeToken: hashToken(token), emailChangeTokenExpires: { $gt: Date.now() } });
     if (!user) {
       return res.status(400).json({ message: 'Недійсний або прострочений токен' });
     }
@@ -252,9 +216,6 @@ router.post('/email-change/confirm', [
     user.pendingEmail = undefined;
     user.emailChangeToken = undefined;
     user.emailChangeTokenExpires = undefined;
-
-    // When changing email, user must re-verify? Typically not if already verified, but business can decide.
-    // We'll keep existing verification status. Optionally could set isVerified=false and issue new verification.
 
     await user.save();
 

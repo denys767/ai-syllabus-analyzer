@@ -80,15 +80,14 @@ function buildFrontendUrl(pathWithQuery) {
 }
 
 // Єдиний лист-запрошення: користувач переходить за посиланням встановлення паролю.
-// Після встановлення паролю бекенд також автоматично верифікує email (isVerified=true).
-// Таким чином один токен = і підтвердження пошти, і первинне задання паролю.
+// Встановлення пароля за посиланням підтверджує володіння поштою.
 async function sendInvitationEmail(email, resetToken) {
   const setPasswordUrl = buildFrontendUrl(`/reset-password?token=${encodeURIComponent(resetToken)}`);
   const subject = 'Ваш обліковий запис створено — встановіть пароль та активуйте доступ';
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#333">
       <h2>Ласкаво просимо до KSE AI Syllabus Analyzer</h2>
-      <p>Адміністратор створив для вас обліковий запис. Щоб активувати його, встановіть власний пароль. Після цього ваш email буде автоматично підтверджено.</p>
+      <p>Адміністратор створив для вас обліковий запис. Щоб активувати його, встановіть власний пароль.</p>
       <p style="margin:24px 0">
         <a href="${setPasswordUrl}" style="background:#1976d2;color:#fff;padding:12px 18px;border-radius:6px;text-decoration:none;display:inline-block">Встановити пароль</a>
       </p>
@@ -147,23 +146,30 @@ async function sendEmailChangeConfirmation(newEmail, token) {
   return sendMail({ to: newEmail, subject, html });
 }
 
-async function sendSubmissionToAdEmail({ adEmail, syllabusMeta, summaryText, pdfBuffer, pdfFilename }) {
-  const courseTitle = syllabusMeta?.course?.name || syllabusMeta?.title || 'Syllabus';
-  const instructor = `${syllabusMeta?.instructor?.firstName || ''} ${syllabusMeta?.instructor?.lastName || ''}`.trim() || 'Instructor';
-  const subject = `Syllabus submitted for review — ${courseTitle}`;
+/**
+ * Лист академічному директору після submit.
+ * @param {{adEmail: string, syllabusMeta: object, summaryText: string,
+ *   attachments?: {filename: string, content: Buffer, contentType: string}[]}} params
+ */
+async function sendSubmissionToAdEmail({ adEmail, syllabusMeta, summaryText, attachments = [] }) {
+  const escape = (v) => String(v || '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+  const courseTitle = syllabusMeta?.course?.name || syllabusMeta?.title || 'Силабус';
+  const instructor = `${syllabusMeta?.instructor?.firstName || ''} ${syllabusMeta?.instructor?.lastName || ''}`.trim() || 'викладач';
+  const subject = `Силабус на перевірку — ${courseTitle}`;
+  const files = attachments.map((a) => escape(a.filename)).join(', ');
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#333">
-      <h2>Syllabus ready for review</h2>
-      <p><strong>${courseTitle}</strong> has been submitted by ${instructor} after walking through the AI review.</p>
-      <p>The full final syllabus is attached as a PDF. A short summary of the AI review is below.</p>
-      <pre style="background:#f6f8fa;padding:12px;border-radius:6px;white-space:pre-wrap;font-family:'Segoe UI',Roboto,sans-serif;font-size:14px">${(summaryText || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</pre>
+      <h2>Силабус готовий до перевірки</h2>
+      <p><strong>${escape(courseTitle)}</strong> відправив(-ла) ${escape(instructor)} після проходження AI-рецензії.</p>
+      <p>У вкладенні документ зі змінами в режимі рецензування (їх можна прийняти чи відхилити у Word)${files ? `: ${files}` : ''}. Нижче — підсумок рецензії.</p>
+      <pre style="background:#f6f8fa;padding:12px;border-radius:6px;white-space:pre-wrap;font-family:'Segoe UI',Roboto,sans-serif;font-size:14px">${escape(summaryText)}</pre>
     </div>
   `;
   return sendMail({
     to: adEmail,
     subject,
     html,
-    attachments: pdfBuffer ? [{ filename: pdfFilename || `${courseTitle}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }] : undefined,
+    attachments: attachments.length ? attachments : undefined,
   });
 }
 

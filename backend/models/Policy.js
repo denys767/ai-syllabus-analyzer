@@ -76,9 +76,11 @@ PolicySchema.virtual('acknowledgmentCount').get(function() {
   return this.acknowledgments ? this.acknowledgments.length : 0;
 });
 
-// Method to check if user has acknowledged
+// Чи ознайомився користувач із поточною версією документа
 PolicySchema.methods.isAcknowledgedBy = function(userId) {
-  return this.acknowledgments.some(ack => ack.user.toString() === userId.toString());
+  return this.acknowledgments.some(
+    ack => ack.user.toString() === userId.toString() && (ack.version || 1) >= this.version
+  );
 };
 
 module.exports = mongoose.model('Policy', PolicySchema);

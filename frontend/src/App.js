@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 
@@ -9,7 +9,6 @@ import ProtectedRoute from './components/Auth/ProtectedRoute';
 // Auth pages
 import Login from './components/Auth/Login';
 import ResetPassword from './components/Auth/ResetPassword';
-import VerifyEmail from './components/Auth/VerifyEmail';
 
 // Main pages
 import ProfessorTutorWorkspace from './pages/ProfessorTutorWorkspace';
@@ -18,6 +17,11 @@ import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import PoliciesPage from './pages/PoliciesPage';
 import ConfirmEmailChange from './pages/ConfirmEmailChange';
+
+// Лише для розробки: сторінка з усіма картками на фікстурах (без бекенду).
+const DevCards = process.env.NODE_ENV === 'development'
+  ? React.lazy(() => import('./pages/DevCards'))
+  : null;
 
 function App() {
   const { user, isLoading } = useAuth();
@@ -47,7 +51,12 @@ function App() {
       />
       <Route path="/confirm-email-change" element={<ConfirmEmailChange />} />
       <Route path="/reset-password" element={<ResetPassword />} />
-      <Route path="/verify-email" element={<VerifyEmail />} />
+      {DevCards && (
+        <Route
+          path="/dev/cards"
+          element={<Suspense fallback={null}><DevCards /></Suspense>}
+        />
+      )}
 
       {/* Protected routes */}
       <Route

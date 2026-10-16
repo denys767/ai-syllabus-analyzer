@@ -18,16 +18,17 @@ import { useDropzone } from 'react-dropzone';
 import api from '../../services/api';
 
 const STEPS = [
-  { title: 'Upload', detail: 'Drop a PDF or DOCX of your draft syllabus.' },
-  { title: 'Check', detail: 'I scan it against the KSE MBA template and the MBA-27 outcomes.' },
-  { title: 'Fix together', detail: 'I walk you through one issue at a time with a Before/After preview.' },
-  { title: 'Submit', detail: 'Preview the final PDF, then submit to your Academic Director.' },
+  { title: 'Завантаження', detail: 'Додайте DOCX, DOC, PPTX або PDF з чернеткою силабуса. DOCX або PPTX дають найкращий результат.' },
+  { title: 'Перевірка', detail: 'Я звіряю його з шаблоном KSE MBA та результатами навчання MBA-27.' },
+  { title: 'Виправлення', detail: 'Ми проходимо пропозиції по одній: кожну можна прийняти, змінити або відхилити, зміни показано прямо в тексті.' },
+  { title: 'Надсилання', detail: 'Завантажте файл з правками (DOCX з tracked changes, презентацію, PDF) і надішліть його академічному директору.' },
 ];
 
 const ACCEPTED = {
-  'application/pdf': ['.pdf'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'application/msword': ['.doc'],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+  'application/pdf': ['.pdf'],
 };
 
 const EmptyState = ({ onUploaded }) => {
@@ -53,7 +54,7 @@ const EmptyState = ({ onUploaded }) => {
       } catch (err) {
         if (!active) return;
         setPrograms([]);
-        setProgramsError(err.response?.data?.message || err.message || 'Failed to load programs');
+        setProgramsError(err.response?.data?.message || err.message || 'Не вдалося завантажити програми');
       } finally {
         if (active) setProgramsLoading(false);
       }
@@ -85,19 +86,19 @@ const EmptyState = ({ onUploaded }) => {
 
   const upload = async () => {
     if (!pendingFile || !courseName.trim()) {
-      setError('Please name the course before uploading.');
+      setError('Вкажіть назву курсу перед завантаженням.');
       return;
     }
     if (programsLoading) {
-      setError('Programs are still loading. Please wait a moment and try again.');
+      setError('Програми ще завантажуються. Зачекайте і спробуйте ще раз.');
       return;
     }
     if (programsError || programs.length === 0) {
-      setError('A program must be available before uploading a syllabus.');
+      setError('Для завантаження силабуса потрібна хоча б одна програма.');
       return;
     }
     if (!programId) {
-      setError('Please choose a program before uploading.');
+      setError('Оберіть програму перед завантаженням.');
       return;
     }
     setUploading(true);
@@ -110,7 +111,7 @@ const EmptyState = ({ onUploaded }) => {
       const { data } = await api.syllabus.upload(fd);
       onUploaded?.(data.syllabusId);
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Upload failed');
+      setError(err.response?.data?.message || err.message || 'Не вдалося завантажити');
     } finally {
       setUploading(false);
     }
@@ -119,10 +120,10 @@ const EmptyState = ({ onUploaded }) => {
   return (
     <Box sx={{ maxWidth: 720, mx: 'auto', p: 4 }}>
       <Typography variant="h4" gutterBottom>
-        Hi! I'm here to help you build a syllabus that meets all KSE Graduate Business School standards.
+        Вітаю! Я допоможу підготувати силабус, що відповідає всім стандартам KSE Graduate Business School.
       </Typography>
       <Typography variant="body1" color="text.secondary" gutterBottom>
-        Upload your draft and I'll take it from there.
+        Завантажте чернетку — далі я допоможу.
       </Typography>
 
       <Paper
@@ -145,11 +146,14 @@ const EmptyState = ({ onUploaded }) => {
           {pendingFile
             ? pendingFile.name
             : isDragActive
-              ? 'Drop your syllabus here'
-              : 'Drop your syllabus here or click to browse'}
+              ? 'Перетягніть силабус сюди'
+              : 'Перетягніть силабус сюди або натисніть, щоб обрати файл'}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          PDF, DOCX · up to 10MB
+          DOCX, DOC, PPTX, PDF · до 10 МБ
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          DOCX або PPTX дають найкращий результат; PDF — з примітками на оригіналі.
         </Typography>
       </Paper>
 
@@ -166,20 +170,20 @@ const EmptyState = ({ onUploaded }) => {
           <TextField
             fullWidth
             size="small"
-            label="Course name"
+            label="Назва курсу"
             value={courseName}
             onChange={(e) => setCourseName(e.target.value)}
           />
           <FormControl size="small" fullWidth disabled={programsLoading || programs.length === 0}>
-            <InputLabel id="syllabus-program-label">Program</InputLabel>
+            <InputLabel id="syllabus-program-label">Програма</InputLabel>
             <Select
               labelId="syllabus-program-label"
-              label="Program"
+              label="Програма"
               value={programId}
               onChange={(e) => setProgramId(e.target.value)}
             >
               <MenuItem value="" disabled>
-                {programsLoading ? 'Loading programs' : programs.length ? 'Choose program' : 'No programs available'}
+                {programsLoading ? 'Завантаження програм' : programs.length ? 'Оберіть програму' : 'Немає доступних програм'}
               </MenuItem>
               {programs.map((program) => (
                 <MenuItem key={program._id} value={program._id}>
@@ -195,7 +199,7 @@ const EmptyState = ({ onUploaded }) => {
             startIcon={uploading ? <CircularProgress size={16} color="inherit" /> : <Description />}
             sx={{ minWidth: 160, width: { xs: '100%', md: 'auto' } }}
           >
-            {uploading ? 'Uploading' : 'Upload & analyze'}
+            {uploading ? 'Завантаження' : 'Завантажити й проаналізувати'}
           </Button>
         </Box>
       )}
@@ -209,7 +213,7 @@ const EmptyState = ({ onUploaded }) => {
           onClick={() => setHowOpen((v) => !v)}
           endIcon={howOpen ? <ExpandLess /> : <ExpandMore />}
         >
-          How does this work?
+          Як це працює?
         </Button>
         <Collapse in={howOpen}>
           <Box sx={{ mt: 2, display: 'grid', gap: 2 }}>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import {
   Box,
   CssBaseline,
@@ -20,6 +20,8 @@ const Layout = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(true);
+  // Чат займає всю висоту під app bar без відступів і власного скролу сторінки
+  const fullHeight = useLocation().pathname.startsWith('/workspace');
 
   const handleDrawerToggle = () => {
     if (isMobile) {
@@ -114,6 +116,7 @@ const Layout = () => {
         sx={{
           flexGrow: 1,
           minHeight: '100vh',
+          ...(fullHeight && { height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }),
           backgroundColor: 'background.default',
           width: { 
             sm: desktopOpen ? `calc(100% - ${drawerWidth}px)` : '100%',
@@ -127,7 +130,7 @@ const Layout = () => {
       >
         <Toolbar /> {/* This adds space for the fixed AppBar */}
         
-        <Box sx={{ p: 3 }}>
+        <Box sx={fullHeight ? { flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : { p: 3 }}>
           <Outlet />
         </Box>
       </Box>

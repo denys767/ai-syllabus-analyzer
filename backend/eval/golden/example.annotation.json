@@ -1,0 +1,33 @@
+{
+  "file": "example-syllabus-anonymized.docx",
+  "annotator": "Academic Director",
+  "annotatedAt": "2026-10-14",
+  "isClean": false,
+  "notes": "Illustrative example only (partial criteria list). A real file must contain all criteria.",
+  "criteria": [
+    { "criterionId": "T-1", "verdict": "ok" },
+    {
+      "criterionId": "T-7",
+      "verdict": "issue",
+      "severity": "critical",
+      "evidence": ["4. Course Materials: \"see Moodle\""],
+      "acceptableFix": "Ask for 2–3 required readings with author and year."
+    },
+    {
+      "criterionId": "LO-1",
+      "verdict": "issue",
+      "severity": "high",
+      "evidence": ["Outcome 2: \"Understand pricing strategies\""],
+      "acceptableFix": "Replace \"understand\" with a measurable verb such as evaluate or justify."
+    },
+    { "criterionId": "AS-1", "verdict": "ok" },
+    { "criterionId": "AS-7", "verdict": "not_applicable", "notes": "Credits and hours are not stated." },
+    {
+      "criterionId": "PO-1",
+      "verdict": "issue",
+      "severity": "critical",
+      "evidence": ["document-level"],
+      "acceptableFix": "Insert one of the approved AI-policy variants."
+    }
+  ]
+}

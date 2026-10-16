@@ -1,225 +1,216 @@
 const express = require('express');
-const fs = require('fs');
 const rateLimit = require('express-rate-limit');
-const jwt = require('jsonwebtoken');
-const { body, validationResult } = require('express-validator');
+const mongoose = require('mongoose');
+const { body, query, validationResult } = require('express-validator');
 const { auth } = require('../middleware/auth');
 const Syllabus = require('../models/Syllabus');
+const Suggestion = require('../models/Suggestion');
 const workspaceService = require('../services/workspaceService');
+const { isLegacy, legacyError } = require('../services/chat/state');
+const { sendError } = require('../utils/httpError');
 
 const router = express.Router();
 
-// Tighter limit on free-chat to cap LLM cost from a runaway client. Keyed per-user.
+// Жорсткіший ліміт на LLM-дії чату (вільні повідомлення, Refine, Answer). Ключ — користувач.
 const messageLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: parseInt(process.env.CHAT_MESSAGE_RATE_LIMIT || '30', 10),
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    try {
-      const auth = req.headers.authorization || '';
-      const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-      if (!token) return req.ip;
-      const decoded = jwt.decode(token);
-      return decoded?.userId || req.ip;
-    } catch {
-      return req.ip;
-    }
-  },
+  // Викликається після auth, тож ключ — перевірений userId
+  keyGenerator: (req) => (req.user?.userId ? `user:${req.user.userId}` : req.ip),
+  message: { message: 'Забагато запитів до AI. Зачекайте хвилину.' },
 });
 
-async function loadSyllabusOrFail(syllabusId, res) {
-  const syllabus = await Syllabus.findById(syllabusId).select('instructor status');
-  if (!syllabus) {
-    res.status(404).json({ message: 'Syllabus not found' });
-    return null;
+router.param('syllabusId', (req, res, next, id) => {
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ message: 'Некоректний id силабусу' });
   }
-  return syllabus;
-}
+  next();
+});
+
+router.param('sid', (req, res, next, id) => {
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ message: 'Некоректний id пропозиції' });
+  }
+  next();
+});
 
 function isOwner(syllabus, user) {
   return syllabus.instructor && syllabus.instructor.toString() === user.userId;
 }
 
-// Read access: owner OR admin. Mutation access: owner only (admins are read-only on chat).
-async function gateRead(req, res, next) {
-  const syllabus = await loadSyllabusOrFail(req.params.syllabusId, res);
-  if (!syllabus) return;
-  if (!isOwner(syllabus, req.user) && req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'Access denied' });
+async function loadSyllabusOrFail(syllabusId, res) {
+  const syllabus = await Syllabus.findById(syllabusId).select('instructor status legacy document.docVersion');
+  if (!syllabus) {
+    res.status(404).json({ message: 'Силабус не знайдено' });
+    return null;
   }
-  req.syllabus = syllabus;
-  next();
+  return syllabus;
+}
+
+// Читання: власник або admin. Мутації: лише власник (admin — read-only у чаті), не для legacy.
+async function gateRead(req, res, next) {
+  try {
+    const syllabus = await loadSyllabusOrFail(req.params.syllabusId, res);
+    if (!syllabus) return;
+    if (!isOwner(syllabus, req.user) && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Доступ заборонено' });
+    }
+    req.syllabus = syllabus;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 async function gateMutate(req, res, next) {
-  const syllabus = await loadSyllabusOrFail(req.params.syllabusId, res);
-  if (!syllabus) return;
-  if (!isOwner(syllabus, req.user)) {
-    return res.status(403).json({ message: 'Only the instructor can change this conversation' });
+  try {
+    const syllabus = await loadSyllabusOrFail(req.params.syllabusId, res);
+    if (!syllabus) return;
+    if (!isOwner(syllabus, req.user)) {
+      return res.status(403).json({ message: 'Змінювати розмову може лише викладач' });
+    }
+    if (isLegacy(syllabus)) return sendError(res, legacyError());
+    req.syllabus = syllabus;
+    next();
+  } catch (err) {
+    next(err);
   }
-  req.syllabus = syllabus;
-  next();
 }
 
-// GET /api/chat/:syllabusId — full conversation + messages + current issue
+function validationFailed(req, res) {
+  const errors = validationResult(req);
+  if (errors.isEmpty()) return false;
+  res.status(400).json({ message: 'Помилка валідації', errors: errors.array() });
+  return true;
+}
+
+function view(req) {
+  return workspaceService.getConversationView(req.params.syllabusId, { userId: req.user.userId });
+}
+
+/** Обгортка для мутацій: валідація → дія → GET-view. */
+function mutation(action, fallbackMessage) {
+  return async (req, res) => {
+    if (validationFailed(req, res)) return;
+    try {
+      await action(req);
+      res.json(await view(req));
+    } catch (err) {
+      sendError(res, err, fallbackMessage);
+    }
+  };
+}
+
+
+// GET /api/chat/:syllabusId — розмова, повідомлення, пропозиції, readiness
 router.get('/:syllabusId', auth, gateRead, async (req, res) => {
   try {
-    const view = await workspaceService.getConversationView(req.params.syllabusId);
-    res.json(view || { conversation: null, messages: [] });
+    res.json(await view(req));
   } catch (err) {
-    console.error('chat get error:', err);
-    res.status(err.statusCode || 500).json({ message: err.message || 'Internal server error' });
+    sendError(res, err);
   }
 });
 
-// POST /api/chat/:syllabusId/start — bootstrap (idempotent) + ensure first issue is queued
-router.post('/:syllabusId/start', auth, gateMutate, async (req, res) => {
-  try {
-    if (req.syllabus.status === 'analyzing') {
-      return res.status(409).json({ message: 'Analysis still in progress', status: req.syllabus.status });
-    }
-    const conversation = await workspaceService.getOrCreateConversation(req.params.syllabusId, req.user.userId);
-    await workspaceService.nextIssueMessage(conversation);
-    const view = await workspaceService.getConversationView(req.params.syllabusId);
-    res.json(view);
-  } catch (err) {
-    console.error('chat start error:', err);
-    res.status(err.statusCode || 500).json({
-      message: err.message || 'Internal server error',
-      retryable: !!err.retryable,
-    });
-  }
-});
+// POST /api/chat/:syllabusId/start — створити розмову (ідемпотентно) і показати першу картку
+router.post('/:syllabusId/start', auth, gateMutate,
+  mutation((req) => workspaceService.startConversation(req.params.syllabusId, req.user.userId)));
 
-// POST /api/chat/:syllabusId/confirm — accept the current issue's suggested change
-router.post('/:syllabusId/confirm', auth, gateMutate, [
-  body('issueId').notEmpty().withMessage('issueId is required'),
-  body('selection').optional().isObject().withMessage('selection must be an object'),
+// GET /api/chat/:syllabusId/suggestions/:sid/preview?optionId=
+router.get('/:syllabusId/suggestions/:sid/preview', auth, gateRead, [
+  query('optionId').optional().isString().isLength({ max: 100 }),
 ], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  if (validationFailed(req, res)) return;
   try {
-    const conversation = await workspaceService.getOrCreateConversation(req.params.syllabusId, req.user.userId);
-    await workspaceService.confirmIssue(conversation, req.body.issueId, req.body.selection || null);
-    const view = await workspaceService.getConversationView(req.params.syllabusId);
-    res.json(view);
+    res.json(await workspaceService.previewSuggestion(req.params.syllabusId, req.params.sid, req.query.optionId || null));
   } catch (err) {
-    console.error('chat confirm error:', err);
-    res.status(err.statusCode || 500).json({
-      message: err.message || 'Internal server error',
-      retryable: !!err.retryable,
-    });
+    sendError(res, err, 'Не вдалося побудувати попередній перегляд');
   }
 });
 
-// POST /api/chat/:syllabusId/cancel — reject the current issue
-router.post('/:syllabusId/cancel', auth, gateMutate, [
-  body('issueId').notEmpty().withMessage('issueId is required'),
-  body('reason').optional({ nullable: true }).isString().trim().isLength({ max: 2000 }).withMessage('reason must be a string up to 2000 characters'),
+router.get('/:syllabusId/suggestions/:sid/slides', auth, gateRead, [
+  query('optionId').optional().isString().isLength({ max: 100 }),
 ], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  if (validationFailed(req, res)) return;
   try {
-    const conversation = await workspaceService.getOrCreateConversation(req.params.syllabusId, req.user.userId);
-    await workspaceService.cancelIssue(conversation, req.body.issueId, req.body.reason || null);
-    const view = await workspaceService.getConversationView(req.params.syllabusId);
-    res.json(view);
+    res.json(await workspaceService.suggestionSlides(req.params.syllabusId, req.params.sid, req.query.optionId || null));
   } catch (err) {
-    console.error('chat cancel error:', err);
-    res.status(err.statusCode || 500).json({
-      message: err.message || 'Internal server error',
-      retryable: !!err.retryable,
-    });
+    sendError(res, err, 'Не вдалося побудувати перегляд слайдів');
   }
 });
 
-// POST /api/chat/:syllabusId/issues/:issueId/reopen — rewind to a resolved issue card
-router.post('/:syllabusId/issues/:issueId/reopen', auth, gateMutate, [
-  body('anchorMessageId').optional({ nullable: true }).isMongoId().withMessage('anchorMessageId must be a valid message id'),
-], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-  try {
-    const conversation = await workspaceService.getOrCreateConversation(req.params.syllabusId, req.user.userId);
-    await workspaceService.reopenIssue(conversation, req.params.issueId, req.body.anchorMessageId || null);
-    const view = await workspaceService.getConversationView(req.params.syllabusId);
-    res.json(view);
-  } catch (err) {
-    console.error('chat reopen error:', err);
-    res.status(err.statusCode || 500).json({
-      message: err.message || 'Reopen failed',
-      retryable: !!err.retryable,
-    });
-  }
-});
+router.post('/:syllabusId/suggestions/:sid/accept', auth, gateMutate, [
+  body('optionId').optional({ nullable: true }).isString().isLength({ max: 100 }).withMessage('Некоректний optionId'),
+  body('conflictResolution').optional({ nullable: true }).isIn(['replacePrevious']).withMessage('Некоректне значення conflictResolution'),
+], mutation((req) => workspaceService.acceptSuggestion(
+  req.params.syllabusId, req.params.sid,
+  { optionId: req.body.optionId || null, conflictResolution: req.body.conflictResolution || null },
+  req.user.userId,
+)));
 
-// POST /api/chat/:syllabusId/message — free-text question to the AI
+router.post('/:syllabusId/suggestions/:sid/reject', auth, gateMutate, [
+  body('reason').optional({ nullable: true }).isString().trim().isLength({ max: 2000 }).withMessage('Причина має бути рядком до 2000 символів'),
+  body('rejectTag').optional({ nullable: true }).isIn(Suggestion.REJECT_TAGS).withMessage('Некоректна категорія причини'),
+], mutation((req) => workspaceService.rejectSuggestion(
+  req.params.syllabusId, req.params.sid,
+  { reason: req.body.reason || null, rejectTag: req.body.rejectTag || null },
+  req.user.userId,
+)));
+
+router.post('/:syllabusId/suggestions/:sid/refine', auth, messageLimiter, gateMutate, [
+  body('feedback').optional({ nullable: true }).isString().trim().isLength({ max: 4000 }).withMessage('Коментар має бути до 4000 символів'),
+  body('mergeWithAccepted').optional({ nullable: true }).isBoolean().withMessage('mergeWithAccepted має бути boolean').toBoolean(),
+], mutation((req) => workspaceService.refineSuggestion(
+  req.params.syllabusId, req.params.sid,
+  { feedback: req.body.feedback || '', mergeWithAccepted: Boolean(req.body.mergeWithAccepted) },
+  req.user.userId,
+), 'Не вдалося переробити пропозицію'));
+
+router.post('/:syllabusId/suggestions/:sid/answer', auth, messageLimiter, gateMutate, [
+  body('answer').isString().trim().isLength({ min: 1, max: 4000 }).withMessage('Відповідь має містити від 1 до 4000 символів'),
+], mutation((req) => workspaceService.answerSuggestion(
+  req.params.syllabusId, req.params.sid, { answer: req.body.answer }, req.user.userId,
+), 'Не вдалося підготувати правку'));
+
+router.post('/:syllabusId/suggestions/:sid/reopen', auth, gateMutate,
+  mutation((req) => workspaceService.reopenSuggestion(req.params.syllabusId, req.params.sid, req.user.userId),
+    'Не вдалося повторно відкрити пропозицію'));
+
+// POST /api/chat/:syllabusId/message — вільне питання або прохання змінити поточну картку
 router.post('/:syllabusId/message', auth, messageLimiter, gateMutate, [
-  body('text').isString().trim().isLength({ min: 1, max: 4000 }).withMessage('text must be 1-4000 chars'),
-], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  body('text').isString().trim().isLength({ min: 1, max: 4000 }).withMessage('Текст має містити від 1 до 4000 символів'),
+], mutation((req) => workspaceService.freeChatMessage(req.params.syllabusId, req.body.text, req.user.userId)));
+
+// GET /api/chat/:syllabusId/document/preview — увесь документ з прийнятими змінами
+router.get('/:syllabusId/document/preview', auth, gateRead, async (req, res) => {
   try {
-    const conversation = await workspaceService.getOrCreateConversation(req.params.syllabusId, req.user.userId);
-    await workspaceService.freeChatMessage(conversation, req.body.text);
-    const view = await workspaceService.getConversationView(req.params.syllabusId);
-    res.json(view);
+    res.json(await workspaceService.documentPreview(req.params.syllabusId));
   } catch (err) {
-    console.error('chat message error:', err);
-    res.status(err.statusCode || 500).json({
-      message: err.message || 'Internal server error',
-      retryable: !!err.retryable,
+    sendError(res, err, 'Не вдалося побудувати попередній перегляд документа');
+  }
+});
+
+// GET /api/chat/:syllabusId/outputs/:name — tracked.docx | clean.docx | tracked.pdf
+router.get('/:syllabusId/outputs/:name', auth, gateRead, async (req, res) => {
+  try {
+    const file = await workspaceService.getOutputFile(req.params.syllabusId, req.params.name);
+    res.setHeader('Content-Type', file.contentType);
+    res.download(file.path, file.filename, { headers: { 'Content-Type': file.contentType } }, (err) => {
+      if (err && !res.headersSent) sendError(res, err, 'Помилка передачі файлу');
     });
-  }
-});
-
-// POST /api/chat/:syllabusId/issues/:issueId/preview — stream a per-issue preview PDF
-router.post('/:syllabusId/issues/:issueId/preview', auth, gateMutate, [
-  body('selection').optional().isObject().withMessage('selection must be an object'),
-], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-  try {
-    const preview = await workspaceService.previewIssueChangeText(
-      req.params.syllabusId,
-      req.params.issueId,
-      req.body?.selection || null,
-    );
-    res.json(preview);
   } catch (err) {
-    console.error('chat issue preview error:', err);
-    res.status(err.statusCode || 500).json({ message: err.message || 'Issue preview failed' });
+    sendError(res, err, 'Не вдалося підготувати файл');
   }
 });
 
-// POST /api/chat/:syllabusId/preview — stream the generated PDF
-router.post('/:syllabusId/preview', auth, gateMutate, async (req, res) => {
-  try {
-    const pdfPath = await workspaceService.previewFinalPdf(req.params.syllabusId);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"');
-    const stream = fs.createReadStream(pdfPath);
-    stream.on('error', (err) => {
-      if (!res.headersSent) res.status(500).json({ message: 'Error streaming PDF' });
-      console.error('PDF stream error:', err);
-    });
-    stream.pipe(res);
-  } catch (err) {
-    console.error('chat preview error:', err);
-    res.status(err.statusCode || 500).json({ message: err.message || 'Preview generation failed' });
-  }
-});
-
-// POST /api/chat/:syllabusId/submit — finalize and email the Academic Director
+// POST /api/chat/:syllabusId/submit — фінал: лист академічному директору
 router.post('/:syllabusId/submit', auth, gateMutate, async (req, res) => {
   try {
     await workspaceService.submitSyllabus(req.params.syllabusId);
-    const view = await workspaceService.getConversationView(req.params.syllabusId);
-    res.json({ ...view, submitted: true });
+    res.json({ ...(await view(req)), submitted: true });
   } catch (err) {
-    console.error('chat submit error:', err);
-    res.status(err.statusCode || 500).json({ message: err.message || 'Submission failed' });
+    sendError(res, err, 'Не вдалося відправити силабус');
   }
 });
 

@@ -47,23 +47,11 @@ const Login = () => {
     setLoading(true);
     setError('');
 
-    console.log('Login attempt:', { email: formData.email, password: '***' });
-
     try {
-      console.log('Calling login function...');
       await login(formData.email, formData.password);
-      console.log('Login successful, navigating...');
       navigate(from, { replace: true });
     } catch (err) {
-      console.error('Login failed:', err);
-      console.error('Error details:', {
-        message: err.message,
-        response: err.response,
-        status: err.response?.status,
-        data: err.response?.data
-      });
-      const errorMessage = err.message || err.response?.data?.message || 'Login error';
-      console.log('Setting error message:', errorMessage);
+      const errorMessage = err.message || err.response?.data?.message || 'Помилка входу';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -105,17 +93,17 @@ const Login = () => {
             KSE
           </Typography>
           <Typography variant="subtitle1" opacity={0.9}>
-            AI Syllabus Analyzer
+            AI-аналізатор силабусів
           </Typography>
         </Box>
 
         <CardContent sx={{ p: 4 }}>
           <Box sx={{ textAlign: 'center', mb: 3 }}>
             <Typography variant="h5" fontWeight="600" gutterBottom>
-              System Login
+              Вхід до системи
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Enter your credentials
+              Введіть свої облікові дані
             </Typography>
           </Box>
 
@@ -141,7 +129,7 @@ const Login = () => {
 
             <TextField
               fullWidth
-              label="Password"
+              label="Пароль"
               name="password"
               type={showPassword ? 'text' : 'password'}
               value={formData.password}
@@ -180,18 +168,18 @@ const Login = () => {
                 },
               }}
             >
-              {loading ? 'Logging in...' : 'Login'}
+              {loading ? 'Вхід…' : 'Увійти'}
             </Button>
 
             <Box sx={{ textAlign: 'center', mt: 2 }}>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Forgot password?{' '}
+                Забули пароль?{' '}
                 <Link to="/reset-password" style={{ color: '#00665a', fontWeight: 600 }}>
-                  Reset password
+                  Відновити пароль
                 </Link>
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Didn't receive confirmation email? Contact administrator
+                Немає доступу? Зверніться до адміністратора
               </Typography>
             </Box>
           </form>

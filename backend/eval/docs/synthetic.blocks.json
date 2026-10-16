@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "title": "Synthetic strategy syllabus"
+  },
+  "blocks": [
+    {
+      "id": "b0001",
+      "kind": "heading",
+      "text": "Course Summary"
+    },
+    {
+      "id": "b0002",
+      "kind": "paragraph",
+      "text": "Strategic Management MBA101. Instructor: Dr. Test."
+    },
+    {
+      "id": "b0003",
+      "kind": "paragraph",
+      "text": "Prerequisites: none."
+    },
+    {
+      "id": "b0004",
+      "kind": "heading",
+      "text": "Course Aims"
+    },
+    {
+      "id": "b0005",
+      "kind": "paragraph",
+      "text": "This course explores competitive strategy."
+    },
+    {
+      "id": "b0006",
+      "kind": "heading",
+      "text": "Learning Outcomes"
+    },
+    {
+      "id": "b0007",
+      "kind": "list-item",
+      "text": "Evaluate strategic options for a Ukrainian SME."
+    },
+    {
+      "id": "b0008",
+      "kind": "heading",
+      "text": "Course Outline"
+    },
+    {
+      "id": "b0009",
+      "kind": "paragraph",
+      "text": "Week 1: Strategy; discuss a Ukrainian company."
+    },
+    {
+      "id": "b0010",
+      "kind": "heading",
+      "text": "Evaluation"
+    },
+    {
+      "id": "b0011",
+      "kind": "paragraph",
+      "text": "Case project: 40%."
+    },
+    {
+      "id": "b0012",
+      "kind": "paragraph",
+      "text": "Final exam: 50%."
+    },
+    {
+      "id": "b0013",
+      "kind": "heading",
+      "text": "Required Readings"
+    },
+    {
+      "id": "b0014",
+      "kind": "paragraph",
+      "text": "Required: instructor notes distributed in class; no recommended readings."
+    },
+    {
+      "id": "b0015",
+      "kind": "heading",
+      "text": "Course Policies"
+    },
+    {
+      "id": "b0016",
+      "kind": "paragraph",
+      "text": "Use of AI. Generative AI is prohibited for all graded work."
+    },
+    {
+      "id": "b0017",
+      "kind": "paragraph",
+      "text": "Academic integrity: cite sources; plagiarism is reported to the program office."
+    },
+    {
+      "id": "b0018",
+      "kind": "paragraph",
+      "text": "Attendance is expected at every session."
+    }
+  ]
+}
