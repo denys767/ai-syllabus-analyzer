@@ -109,6 +109,19 @@ const syllabusSchema = new mongoose.Schema({
   },
   // Лише для legacy: фінальний PDF старого пайплайну (для resend-submission)
   submittedPdfPath: String,
+  // v5: структурований стан — єдине джерело правди (docs/api-v5.md §1). Пише лише syllabusState/store
+  state: mongoose.Schema.Types.Mixed,
+  stateRevision: { type: Number, default: 0 },
+  // Знімок стану після парсингу (трек 2) або створення (трек 1) — основа для diff у правій панелі
+  baselineState: mongoose.Schema.Types.Mixed,
+  // Лічильник завантажень .docx (метрика MVP)
+  downloads: { type: Number, default: 0 },
+  // Силабус v4, ще не перебудований у v5
+  needsRebuild: { type: Boolean, default: false },
+  // Заготовка з ТЗ §10
+  plagiarismCheck: {
+    similarSyllabi: { type: mongoose.Schema.Types.Mixed, default: null },
+  },
 }, {
   timestamps: true
 });
