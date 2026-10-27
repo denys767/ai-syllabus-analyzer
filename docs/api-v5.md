@@ -185,3 +185,22 @@ readiness = {
 | `run_checks()` | Повертає Check[] і Readiness | — |
 
 Для `locked`-слотів усі мутуючі інструменти повертають `{ error: 'LOCKED' }`.
+
+## 9. Спільні модулі та інтерфейси (W2)
+
+- **`services/ai/facts.js` — серверний сканер фактів.** `scanFacts(text, { known })`, `mergeProposedValues(modelValues, scanned)`, `toTemplate`, `renderTemplate`. Застосовується до **кожної** чернетки моделі; `known` = репліки викладача + тексти довідників + поточне значення слота.
+- **`services/chat/draftSuggestions.js` — створення v5-карток.** `buildDraftSuggestion(input, { syllabusId, state, refs, known })` і `createDraftSuggestions(inputs, ctx)`; `hashValue(value)` дає `basisHash`. Порядок: severity (`SEVERITY_ORDER`) × 100 + `TemplateSection.order`.
+- **`target.path` — конкретний шлях стану.** Приклади: `summary.shortDescription`, `outcomes[]` (увесь масив), `assessments[as1].criteria`, `policies{policy.late}`.
+  - Для політик `draft.value` — текст. Accept записує в блок `text`, `source` (`fixture_edited`, якщо був обраний варіант, інакше `instructor_directed`) і `modified: true` (якщо змінено текст довідника).
+  - Вибір варіанта — картка `choice` з `options[{ id, label, optionKey }]`.
+- **Інтерфейси-заготовки** (кидають 501 `NOT_IMPLEMENTED`, доки їх не реалізовано):
+
+| Модуль | Функції | Хто реалізує |
+|---|---|---|
+| `services/ai/prompts/formulator.js` | `draftFromNarrative`, `reword` | F |
+| `services/ai/tools/runner.js` | `runOrchestratorTurn` | F |
+| `services/ai/parse/index.js` | `parseToState` | G |
+| `services/ai/prompts/reviewer.js` | `reviewState` | G |
+| `services/ai/prompts/interviewer.js` | `nextQuestion` | W3 |
+
+  Маршрути й сервіси чату (H) викликають лише ці сигнатури; у тестах H їх мокає через `jest.mock`.
