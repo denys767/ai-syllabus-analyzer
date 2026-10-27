@@ -29,13 +29,15 @@ const obj = (properties, required = Object.keys(properties)) => ({ type: 'object
 const prov = { source, evidenceBlockIds: strArr };
 const entity = (properties) => obj({ id: { type: 'string' }, ...properties, ...prov });
 const textItem = entity({ text: str });
+// Об'єкт, у якому перелічені ключі необов'язкові (стани, створені до їх появи, лишаються валідними)
+const optionalKeys = (keys, properties) => obj(properties, Object.keys(properties).filter((k) => !keys.includes(k)));
 
 const stateSchema = obj({
   schemaVersion: { type: 'number' },
   programCode: str,
   track: { type: 'string', enum: TRACKS },
   language: { type: ['string', 'null'], enum: ['en', 'uk', null] },
-  header: obj({
+  header: optionalKeys(['declared'], {
     courseTitle: str, courseCode: str, department: str,
     ects: num, totalHours: num,
     studyMode: str, // форма навчання
@@ -48,6 +50,15 @@ const stateSchema = obj({
       selfStudyHours: num, assessmentTotal: num, deliveryModes: strArr,
       termFromSchedule: obj({ start: str, end: str }),
     }),
+    // Необов'язкове: значення таблиці At a Glance, розпізнані у вхідному файлі (трек 2); трек 1 — null.
+    // Тіло силабуса з ними не синхронізується: services/checks/glance.js порівнює declared із тілом.
+    // term — ISO-діапазон { start, end } або текст як у файлі; deliveryMode нормалізований до DELIVERY_FORMATS.
+    declared: { ...obj({
+      assessmentTotal: num, contactHours: num, selfStudyHours: num,
+      deliveryMode: { type: ['string', 'null'], enum: [...DELIVERY_FORMATS, null] },
+      term: { anyOf: [str, obj({ start: str, end: str })] },
+      instructor: str,
+    }), type: ['object', 'null'] },
     ...prov,
   }),
   summary: obj({
