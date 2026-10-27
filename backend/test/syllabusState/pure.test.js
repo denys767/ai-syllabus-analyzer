@@ -88,6 +88,7 @@ describe('recompute', () => {
 
   test('courseKind — за courseCode у ProgramCourse своєї програми', () => {
     const state = riskManagementState({ programCode: 'MBA27' });
+    state.header.courseCode = null;
     expect(recompute(state, refs27).header.courseKind).toBe('elective'); // коду немає — назва не рахується
     state.header.courseCode = ' нд.4 ';
     expect(recompute(state, refs27).header.courseKind).toBe('core');
