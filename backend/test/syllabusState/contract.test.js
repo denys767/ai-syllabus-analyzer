@@ -54,3 +54,9 @@ test('validateState відхиляє невідомий розділ і зайв
   expect(errors.some((e) => e.includes('nope'))).toBe(true);
   expect(errors.some((e) => e.includes('extra'))).toBe(true);
 });
+
+test('еталонний стан Risk Management валідний за схемою', () => {
+  const { riskManagementState } = require('../fixtures/state/riskManagement');
+  expect(validateState(riskManagementState())).toEqual([]);
+  expect(validateState(riskManagementState({ programCode: 'MBA27' }))).toEqual([]);
+});
