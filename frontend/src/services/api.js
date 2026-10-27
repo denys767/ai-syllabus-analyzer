@@ -136,6 +136,15 @@ class ApiService {
     resendSubmission: (syllabusId) => this.client.post(`/cabinet/syllabi/${syllabusId}/resend-submission`),
   };
 
+  // Довідники v5 за programCode
+  references = {
+    programs: () => this.client.get('/references/programs'),
+    template: (programCode) => this.client.get(`/references/${programCode}/template`),
+    outcomes: (programCode) => this.client.get(`/references/${programCode}/outcomes`),
+    courses: (programCode) => this.client.get(`/references/${programCode}/courses`),
+    capstone: (programCode) => this.client.get(`/references/${programCode}/capstone`),
+  };
+
   policies = {
     getAll: (params = {}) => this.client.get('/policies', { params }),
     create: (data) =>

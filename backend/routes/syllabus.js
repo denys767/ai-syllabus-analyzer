@@ -8,6 +8,7 @@ const { body, validationResult } = require('express-validator');
 const mongoose = require('mongoose');
 const Syllabus = require('../models/Syllabus');
 const Suggestion = require('../models/Suggestion');
+const Program = require('../models/Program');
 const { auth, requireRole } = require('../middleware/auth');
 const analysisRunner = require('../services/analysisRunner');
 const { deleteSyllabiCascade, deleteConversationsFor } = require('../services/syllabusCleanup');
@@ -152,6 +153,24 @@ router.post('/upload', auth, upload.single('syllabus'), [
 
     const { courseName, courseCode, credits, semester, year, programId } = req.body;
 
+    // programCode — редакція програми; без редакцій у програмі він дорівнює коду програми
+    const program = await Program.findById(programId).lean();
+    if (!program) {
+      await unlinkQuiet(req.file.path);
+      return res.status(400).json({ message: 'Program not found', code: 'INVALID_PROGRAM_CODE' });
+    }
+    let programCode = program.code;
+    if (program.editions && program.editions.length) {
+      programCode = String(req.body.programCode || '').trim().toUpperCase();
+      if (!program.editions.some((e) => e.code === programCode)) {
+        await unlinkQuiet(req.file.path);
+        return res.status(400).json({
+          message: `programCode must be one of: ${program.editions.map((e) => e.code).join(', ')}`,
+          code: 'INVALID_PROGRAM_CODE',
+        });
+      }
+    }
+
     // Розбір документа (конвертація .doc/.pdf) іде у фоні як етап `extract`
 
     const syllabus = new Syllabus({
@@ -165,6 +184,8 @@ router.post('/upload', auth, upload.single('syllabus'), [
       },
       instructor: req.user.userId,
       programId,
+      programCode,
+      track: 'upload',
       originalFile: {
         filename: req.file.filename,
         originalName: req.file.originalname,
