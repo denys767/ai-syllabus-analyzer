@@ -16,6 +16,7 @@ const cabinetRoutes = require('./routes/cabinet');
 const userRoutes = require('./routes/users');
 const policiesRoutes = require('./routes/policies');
 const referencesRoutes = require('./routes/references');
+const { seedReferences } = require('./services/references/seed');
 
 const Program = require('./models/Program');
 const { startBackgroundSweepers } = require('./services/syllabusCleanup');
@@ -221,6 +222,13 @@ async function initializeAdmin() {
     console.log('✅ Programs seeded');
   } catch (error) {
     console.error('❌ Error seeding programs:', error);
+  }
+
+  try {
+    await seedReferences();
+    console.log('✅ References seeded');
+  } catch (error) {
+    console.error('❌ Error seeding references:', error);
   }
 }
 

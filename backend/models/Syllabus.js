@@ -32,6 +32,9 @@ const syllabusSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Program'
   },
+  // Редакція програми (MBA27/MBA28…): за нею вибираються довідники і тип курсу
+  programCode: { type: String, uppercase: true, trim: true },
+  track: { type: String, enum: ['scratch', 'upload'], default: 'upload' },
   // Формат, який завантажив викладач
   sourceFormat: {
     type: String,

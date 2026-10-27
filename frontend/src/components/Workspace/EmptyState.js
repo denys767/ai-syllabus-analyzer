@@ -39,6 +39,7 @@ const EmptyState = ({ onUploaded }) => {
   const [pendingFile, setPendingFile] = useState(null);
   const [programs, setPrograms] = useState([]);
   const [programId, setProgramId] = useState('');
+  const [programCode, setProgramCode] = useState('');
   const [programsLoading, setProgramsLoading] = useState(true);
   const [programsError, setProgramsError] = useState('');
 
@@ -47,7 +48,7 @@ const EmptyState = ({ onUploaded }) => {
 
     const loadPrograms = async () => {
       try {
-        const { data } = await api.cabinet.listPrograms();
+        const { data } = await api.references.programs();
         if (!active) return;
         setPrograms(Array.isArray(data) ? data : []);
         setProgramsError('');
@@ -65,6 +66,8 @@ const EmptyState = ({ onUploaded }) => {
       active = false;
     };
   }, []);
+
+  const editions = programs.find((p) => p.id === programId)?.editions || [];
 
   const onDrop = (accepted) => {
     setError('');
@@ -101,6 +104,10 @@ const EmptyState = ({ onUploaded }) => {
       setError('Оберіть програму перед завантаженням.');
       return;
     }
+    if (editions.length && !programCode) {
+      setError('Select the programme edition before uploading.');
+      return;
+    }
     setUploading(true);
     setError('');
     try {
@@ -108,6 +115,7 @@ const EmptyState = ({ onUploaded }) => {
       fd.append('syllabus', pendingFile);
       fd.append('courseName', courseName.trim());
       if (programId) fd.append('programId', programId);
+      if (editions.length) fd.append('programCode', programCode);
       const { data } = await api.syllabus.upload(fd);
       onUploaded?.(data.syllabusId);
     } catch (err) {
@@ -162,7 +170,7 @@ const EmptyState = ({ onUploaded }) => {
           sx={{
             mt: 2,
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) minmax(180px, 240px) auto' },
+            gridTemplateColumns: { xs: '1fr', md: editions.length ? 'minmax(0, 1fr) minmax(160px, 200px) minmax(180px, 240px) auto' : 'minmax(0, 1fr) minmax(180px, 240px) auto' },
             gap: 2,
             alignItems: 'center',
           }}
@@ -180,18 +188,33 @@ const EmptyState = ({ onUploaded }) => {
               labelId="syllabus-program-label"
               label="Програма"
               value={programId}
-              onChange={(e) => setProgramId(e.target.value)}
+              onChange={(e) => { setProgramId(e.target.value); setProgramCode(''); }}
             >
               <MenuItem value="" disabled>
                 {programsLoading ? 'Завантаження програм' : programs.length ? 'Оберіть програму' : 'Немає доступних програм'}
               </MenuItem>
               {programs.map((program) => (
-                <MenuItem key={program._id} value={program._id}>
+                <MenuItem key={program.id} value={program.id}>
                   {program.name}
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
+          {editions.length > 0 && (
+            <FormControl size="small" fullWidth>
+              <InputLabel id="syllabus-edition-label">Programme edition</InputLabel>
+              <Select
+                labelId="syllabus-edition-label"
+                label="Programme edition"
+                value={programCode}
+                onChange={(e) => setProgramCode(e.target.value)}
+              >
+                {editions.map((ed) => (
+                  <MenuItem key={ed.code} value={ed.code}>{ed.label || ed.code}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           <Button
             variant="contained"
             onClick={upload}
