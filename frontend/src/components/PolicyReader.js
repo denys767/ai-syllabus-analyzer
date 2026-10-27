@@ -143,6 +143,7 @@ const PolicyReader = () => {
       case 'ai-policy': return 'Політика щодо AI';
       case 'academic-integrity': return 'Академічна доброчесність';
       case 'teaching-tips': return 'Поради з викладання';
+      case 'syllabus-policy': return 'Course policy library';
       default: return type;
     }
   };
@@ -152,9 +153,15 @@ const PolicyReader = () => {
       case 'ai-policy': return 'primary';
       case 'academic-integrity': return 'error';
       case 'teaching-tips': return 'success';
+      case 'syllabus-policy': return 'info';
       default: return 'default';
     }
   };
+
+  const documents = policies.filter((p) => p.type !== 'syllabus-policy');
+  const library = policies
+    .filter((p) => p.type === 'syllabus-policy')
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
 
   if (loading) {
     return (
@@ -184,7 +191,7 @@ const PolicyReader = () => {
       )}
 
       <Grid container spacing={3}>
-        {policies.map((policy) => (
+        {documents.map((policy) => (
           <Grid item xs={12} md={6} lg={4} key={policy._id}>
             <Card sx={{
               height: '100%',
@@ -300,6 +307,60 @@ const PolicyReader = () => {
           </Grid>
         ))}
       </Grid>
+
+      {policies.length === 0 && !error && (
+        <Alert severity="info">No documents yet.</Alert>
+      )}
+
+      {library.length > 0 && (
+        <Box sx={{ mt: 5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <Typography variant="h5">Course policy library</Typography>
+            <Chip label={getTypeLabel('syllabus-policy')} color={getTypeColor('syllabus-policy')} size="small" />
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Approved wording for the Course Policies section. Locked blocks are identical in every syllabus;
+            for the others the instructor chooses one option.
+          </Typography>
+          <Stack spacing={2}>
+            {library.map((block) => (
+              <Card key={block._id} variant="outlined">
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                    <Typography variant="h6" sx={{ flex: 1 }}>
+                      {block.order}. {block.title}
+                      {block.titleUk && (
+                        <Typography component="span" variant="body2" color="text.secondary"> · {block.titleUk}</Typography>
+                      )}
+                    </Typography>
+                    <Chip
+                      label={block.mode === 'locked' ? 'Locked' : 'Choose one option'}
+                      color={block.mode === 'locked' ? 'default' : 'primary'}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </Box>
+                  {block.rationale && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{block.rationale}</Typography>
+                  )}
+                  {block.mode === 'locked' ? (
+                    <Typography variant="body1" sx={{ lineHeight: 1.6 }}>{block.text}</Typography>
+                  ) : (
+                    <Stack component="ul" spacing={1} sx={{ pl: 3, m: 0 }}>
+                      {(block.options || []).map((option) => (
+                        <li key={option.key}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>{option.label}</Typography>
+                          <Typography variant="body2" sx={{ lineHeight: 1.6 }}>{option.text}</Typography>
+                        </li>
+                      ))}
+                    </Stack>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        </Box>
+      )}
 
       {/* Policy Viewer Dialog */}
       <Dialog

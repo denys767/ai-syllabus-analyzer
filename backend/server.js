@@ -19,6 +19,7 @@ const referencesRoutes = require('./routes/references');
 const { seedReferences } = require('./services/references/seed');
 
 const Program = require('./models/Program');
+const { seedPolicyLibrary } = require('./services/references/policies');
 const { startBackgroundSweepers } = require('./services/syllabusCleanup');
 
 const app = express();
@@ -224,6 +225,14 @@ async function initializeAdmin() {
     console.error('❌ Error seeding programs:', error);
   }
 
+  try {
+    const stats = await seedPolicyLibrary();
+    console.log('✅ Policy library seeded', stats);
+  } catch (error) {
+    console.error('❌ Error seeding policy library:', error);
+  }
+
+  // Після політик: getRefs підтягує policyLibrary, а сід довідників скидає кеш
   try {
     await seedReferences();
     console.log('✅ References seeded');
