@@ -28,7 +28,7 @@ function riskManagementState({ programCode = 'MBA28' } = {}) {
     track: 'upload',
     language: 'en',
     header: {
-      courseTitle: 'Risk Management', courseCode: null, department: null,
+      courseTitle: 'Risk Management', courseCode: programCode === 'MBA27' ? 'НД.4' : null, department: null,
       ects: 2, totalHours: null, studyMode: null, deliveryFormat: 'hybrid', language: 'en',
       term: { start: null, end: null },
       courseKind: programCode === 'MBA27' ? 'core' : 'elective',
