@@ -1,9 +1,9 @@
 // Чисті функції над DocModel: валідація операцій, застосування прийнятих пропозицій,
 // word-level diff і 3-way merge, пошук конфліктів. Жодного XML тут немає.
 
-const { diffArrays } = require('diff');
 const { diff3Merge } = require('node-diff3');
 const { blockMap } = require('./model');
+const { tokenize, diffBlock } = require('../syllabusState/diff');
 
 const OPS = new Set(['replaceBlock', 'insertAfter', 'deleteBlock']);
 const NEW_BLOCK_KINDS = new Set(['paragraph', 'heading', 'list-item']);
@@ -12,54 +12,7 @@ const INVALID_XML_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/;
 
 // ---------- diff ----------
 
-const TOKEN_RE = /\s+|[\p{L}\p{M}\p{N}_]+(?:['’ʼ][\p{L}\p{M}\p{N}_]+)*|[^\s\p{L}\p{M}\p{N}_]/gu;
-
-/** Токени: слова (з апострофами всередині), пробільні послідовності, окремі знаки. */
-function tokenize(text) {
-  return String(text || '').match(TOKEN_RE) || [];
-}
-
-function pushPart(parts, type, text) {
-  if (!text) return;
-  const last = parts[parts.length - 1];
-  if (last && last.type === type) last.text += text;
-  else parts.push({ type, text });
-}
-
-/**
- * Пробіл (не табуляція і не розрив рядка) між двома замінами поглинається, щоб не було «конфеті»:
- * [-a-][+x+] [-b-][+y+] → [-a b-][+x y+].
- */
-function absorbWhitespace(parts) {
-  const out = [];
-  let i = 0;
-  while (i < parts.length) {
-    const p = parts[i];
-    const prevDel = out.length >= 2 && out[out.length - 2].type === 'delete' && out[out.length - 1].type === 'insert';
-    const nextDel = parts[i + 1] && parts[i + 1].type === 'delete' && parts[i + 2] && parts[i + 2].type === 'insert';
-    if (p.type === 'equal' && /^[ \u00a0]+$/.test(p.text) && prevDel && nextDel) {
-      out[out.length - 2].text += p.text + parts[i + 1].text;
-      out[out.length - 1].text += p.text + parts[i + 2].text;
-      i += 3;
-    } else {
-      out.push({ ...p });
-      i += 1;
-    }
-  }
-  return out;
-}
-
-/**
- * Word-level diff двох текстів блоку.
- * @returns {{type: 'equal'|'delete'|'insert', text: string}[]}  (delete завжди перед insert)
- */
-function diffBlock(oldText, newText) {
-  const parts = [];
-  for (const ch of diffArrays(tokenize(oldText), tokenize(newText))) {
-    pushPart(parts, ch.added ? 'insert' : ch.removed ? 'delete' : 'equal', ch.value.join(''));
-  }
-  return absorbWhitespace(parts);
-}
+// Word-level diff живе в syllabusState/diff.js (v5); тут лише реекспорт для наявних модулів.
 
 /** Частка зміненого тексту в [0, 1]: (видалене + вставлене) / (старе + нове). */
 function changeRatio(oldText, newText) {
