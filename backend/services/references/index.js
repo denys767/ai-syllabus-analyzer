@@ -5,7 +5,7 @@ const ProgramOutcome = require('../../models/ProgramOutcome');
 const ProgramCourse = require('../../models/ProgramCourse');
 const CapstoneGuide = require('../../models/CapstoneGuide');
 const { httpError } = require('../../utils/httpError');
-const { readFixture } = require('./fixtureRefs');
+const { getPolicyLibrary } = require('./policies');
 
 const CACHE_MS = 60 * 1000;
 const cache = new Map();
@@ -25,18 +25,6 @@ async function cached(key, load) {
 const norm = (code) => String(code || '').trim().toUpperCase();
 const lean = (doc) => { const { _id, __v, createdAt, updatedAt, ...rest } = doc; return rest; };
 
-function policyLibrary() {
-  // Модуль ./policies додає гілка A (getPolicyLibrary); до злиття — фікстура
-  try {
-    // eslint-disable-next-line global-require
-    const { getPolicyLibrary } = require('./policies');
-    if (typeof getPolicyLibrary === 'function') return getPolicyLibrary();
-  } catch (err) {
-    if (err.code !== 'MODULE_NOT_FOUND') throw err;
-  }
-  const { version, blocks } = readFixture('policies.library.json');
-  return { version, blocks };
-}
 
 /** Редакція існує, якщо для неї є довідники ПРН/курсів або вона вказана в Program.editions */
 async function assertKnownProgramCode(programCode) {
@@ -85,8 +73,8 @@ async function getCapstone(programCode) {
 
 async function getRefs(programCode) {
   const code = norm(programCode);
-  const [template, outcomes, courses, capstone] = await Promise.all([
-    getTemplate(code), getOutcomes(code), getCourses(code), getCapstone(code),
+  const [template, outcomes, courses, capstone, policyLibrary] = await Promise.all([
+    getTemplate(code), getOutcomes(code), getCourses(code), getCapstone(code), getPolicyLibrary(),
   ]);
   const { projectTypes, structure, criteria, deliverables, plagiarismThreshold } = capstone || {};
   return {
@@ -95,7 +83,7 @@ async function getRefs(programCode) {
     outcomes: outcomes.map(({ code: c, text, themeDraft }) => ({ code: c, text, themeDraft })),
     coreCourses: courses.map(({ code: c, uk, en, ects }) => ({ code: c, uk, en, ects })),
     capstone: { projectTypes, structure, criteria, deliverables, plagiarismThreshold },
-    policyLibrary: policyLibrary(),
+    policyLibrary,
   };
 }
 
