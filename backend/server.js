@@ -18,6 +18,7 @@ const policiesRoutes = require('./routes/policies');
 const referencesRoutes = require('./routes/references');
 
 const Program = require('./models/Program');
+const { seedPolicyLibrary } = require('./services/references/policies');
 const { startBackgroundSweepers } = require('./services/syllabusCleanup');
 
 const app = express();
@@ -221,6 +222,13 @@ async function initializeAdmin() {
     console.log('✅ Programs seeded');
   } catch (error) {
     console.error('❌ Error seeding programs:', error);
+  }
+
+  try {
+    const stats = await seedPolicyLibrary();
+    console.log('✅ Policy library seeded', stats);
+  } catch (error) {
+    console.error('❌ Error seeding policy library:', error);
   }
 }
 
