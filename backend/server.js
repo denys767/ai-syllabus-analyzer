@@ -15,6 +15,7 @@ const chatRoutes = require('./routes/chat');
 const cabinetRoutes = require('./routes/cabinet');
 const userRoutes = require('./routes/users');
 const policiesRoutes = require('./routes/policies');
+const referencesRoutes = require('./routes/references');
 
 const Program = require('./models/Program');
 const { startBackgroundSweepers } = require('./services/syllabusCleanup');
@@ -135,6 +136,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/cabinet', cabinetRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/policies', policiesRoutes);
+app.use('/api/references', referencesRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

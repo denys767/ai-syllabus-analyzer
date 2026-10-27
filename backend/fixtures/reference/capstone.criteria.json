@@ -1,0 +1,80 @@
+{
+  "version": "1.0",
+  "source": "KSE_GBS_Capstone_Guidelines_MBA28, Google Drive, ред. 20.10.2026",
+  "note": "Довідник для слота connection_to_capstone. Курс має назвати, до якого з шести критеріїв він готує студента, і до якого типу проєкту це застосовне.",
+  "projectTypes": [
+    {
+      "key": "new_business",
+      "label": "New Business: Investment Project"
+    },
+    {
+      "key": "existing_business",
+      "label": "Existing Business: Operational Profit Optimization"
+    }
+  ],
+  "structure": [
+    "Business Context and Diagnostics",
+    "Options Analysis",
+    "Planning",
+    "Implementation and Change Management"
+  ],
+  "criteria": [
+    {
+      "n": 1,
+      "key": "problem_definition",
+      "name": "Problem Definition & Relevance",
+      "weight": 0.15,
+      "description": "Clarity and relevance of the problem or opportunity addressed. Contextual understanding of the industry or organizational challenge, including war, post-war and EU integration challenges.",
+      "assessmentFocus": "Can the student define a meaningful and relevant challenge with clear business implications?"
+    },
+    {
+      "n": 2,
+      "key": "analytical_depth",
+      "name": "Analytical Depth and Methodology",
+      "weight": 0.15,
+      "description": "Quality and appropriateness of the methods and tools used, qualitative or quantitative. Soundness of analysis and conclusions.",
+      "assessmentFocus": "Are frameworks and models applied correctly? Is the analysis robust and evidence-based?"
+    },
+    {
+      "n": 3,
+      "key": "solution_design",
+      "name": "Solution Design & Feasibility",
+      "weight": 0.2,
+      "description": "Innovativeness, practicality and implementability of the proposed solution. Alignment with the defined problem. Correctness of financial calculations.",
+      "assessmentFocus": "Are business and financial models feasible and coherent? Is the solution actionable and scalable?"
+    },
+    {
+      "n": 4,
+      "key": "implementation_plan",
+      "name": "Implementation Plan & Execution Readiness",
+      "weight": 0.2,
+      "description": "Quality and clarity of the implementation strategy: operational model, organizational structure, required resources, timeline and milestones, risk assessment and mitigation.",
+      "assessmentFocus": "Can the student translate the solution into a realistic execution plan? Have they considered risks and organizational impact?"
+    },
+    {
+      "n": 5,
+      "key": "materials_quality",
+      "name": "Quality of Materials & Presentation",
+      "weight": 0.15,
+      "description": "Quality of the written report and oral presentation. Structure, clarity, visual design, persuasiveness. MVP readiness.",
+      "assessmentFocus": "Can the student explain complex ideas to stakeholders? Is an MVP in place?"
+    },
+    {
+      "n": 6,
+      "key": "reflection",
+      "name": "Reflection on Tools, Learning Process and Personal Growth",
+      "weight": 0.15,
+      "description": "Quality of self-reflection on the learning process, challenges faced and the personal leadership journey.",
+      "assessmentFocus": "Can the student reflect on the use of MBA tools and models, and on their own growth and mistakes?"
+    }
+  ],
+  "deliverables": {
+    "presentation": "25-35 слайдів + додатки",
+    "report": "50-80 сторінок MS Word",
+    "calculations": "MS Excel, з таблицями й графіками, вбудованими у Word"
+  },
+  "plagiarismThreshold": {
+    "similarityPercent": 20,
+    "consequence": "Понад 20% — робота не допускається до захисту. Після повторної перевірки з результатом ≤20% допускається, але із застосуванням знижувального коефіцієнта 10%."
+  }
+}
