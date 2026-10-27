@@ -25,6 +25,7 @@
   - `library` — `optionKey: null`, доки викладач не обрав. **Дефолту немає.**
   - Блок зараховано, якщо `optionKey` заповнений або `source ∈ {instructor_directed, fixture_edited}` (`slots.policyDecided`).
 - **`courseKind`.** `core`, якщо `header.courseCode` або назва курсу є серед `ProgramCourse` свого `programCode`, інакше `elective`. Збіг за назвою допустимий лише як підказка для автоматичної підстановки `courseCode`, і викладач її підтверджує.
+- **`header.declared`** (необов'язкове). Значення таблиці At a Glance, розпізнані у вхідному файлі: `{ assessmentTotal, contactHours, selfStudyHours, deliveryMode, term, instructor }` (`term` — текст як у файлі або `{ start, end }` ISO). Для треку 1 — `null` або відсутнє. Тіло з ним не синхронізується; перевірки `glance.*` порівнюють `declared` з тілом.
 
 ### Syllabus (нові поля)
 
@@ -69,6 +70,7 @@ Check = { id, severity, section, path, message, details, passed }
 
 - Порядок: `severity` (critical → info), далі `TemplateSection.order`.
 - М'які LLM-перевірки (`checks/llm.js`) мають ту саму форму, але `source: 'llm'`; кешуються за hash стану.
+- `id` унікальний у межах результату: `rule` або `rule:entityId` (базове правило — `details.rule`). Перелік правил — `backend/services/checks/README.md`.
 
 ## 4. Readiness
 
