@@ -187,7 +187,8 @@ describe('кабінет', () => {
     expect(item.programCode).toBe('MBA28');
     expect(item.readiness.score).toBe(0);
     expect(Object.keys(item.readiness.sections).length).toBeGreaterThan(5);
-    expect(item.issueCounts).toEqual({ pending: 0, accepted: 1, rejected: 0, total: 1 });
+    // Картка підтвердження профілю викладача створюється разом зі силабусом (pending)
+    expect(item.issueCounts).toEqual({ pending: 1, accepted: 1, rejected: 0, total: 2 });
     const bare = res.body.syllabi.find((x) => x._id === String(noState._id));
     expect(bare.readiness.score).toBe(0);
     expect(bare.issueCounts).toEqual({ pending: 0, accepted: 0, rejected: 0, total: 0 });

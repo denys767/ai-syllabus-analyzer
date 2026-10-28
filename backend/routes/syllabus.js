@@ -176,8 +176,8 @@ router.post('/', auth, [
       const refs = await getRefs(programCode);
       const state = createEmptyState({ programCode, track: 'scratch', refs, course: { title, code } });
       const instructorCard = prepareInstructor(state, await resolveProfile(req.user.userId));
-      await initState(syllabus._id, state, { setBaseline: true, refs });
-      await createDraftSuggestions([instructorCard], { syllabusId: syllabus._id, state, refs });
+      const saved = await initState(syllabus._id, state, { setBaseline: true, refs });
+      await createDraftSuggestions([instructorCard], { syllabusId: syllabus._id, state: saved.state, refs });
     } catch (err) {
       await Suggestion.deleteMany({ syllabusId: syllabus._id });
       await Syllabus.deleteOne({ _id: syllabus._id });

@@ -7,6 +7,8 @@ const { deepEqual } = require('../syllabusState/paths');
 const TEXT_FIELDS = ['name', 'position', 'email', 'officeHours', 'assistants'];
 const LIST_FIELDS = ['expertise', 'education', 'experience'];
 const PROFILE_FIELDS = [...TEXT_FIELDS, ...LIST_FIELDS];
+const MAX_TEXT = 1000;
+const MAX_ITEMS = 50;
 
 function profileValues(profile = {}) {
   return Object.fromEntries(PROFILE_FIELDS.map((key) => [key, profile[key] ?? (LIST_FIELDS.includes(key) ? [] : '')]));
@@ -24,9 +26,11 @@ function validateInput(input) {
     if (!PROFILE_FIELDS.includes(key)) throw httpError(400, `Unknown or read-only profile field: ${key}`, { code: 'VALIDATION_ERROR' });
     if (LIST_FIELDS.includes(key)) {
       if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) throw httpError(400, `${key} must be an array of strings`, { code: 'VALIDATION_ERROR' });
+      if (value.length > MAX_ITEMS || value.some((item) => item.length > MAX_TEXT)) throw httpError(400, `${key} is too long`, { code: 'VALIDATION_ERROR' });
       patch[key] = value.map((item) => item.trim()).filter(Boolean);
     } else {
       if (typeof value !== 'string') throw httpError(400, `${key} must be a string`, { code: 'VALIDATION_ERROR' });
+      if (value.length > MAX_TEXT) throw httpError(400, `${key} is too long`, { code: 'VALIDATION_ERROR' });
       patch[key] = value.trim();
     }
   }
@@ -51,7 +55,8 @@ async function saveProfile(userId, values, { crmId = null } = {}) {
   const profile = { ...profileValues(values), crmId, updatedAt: new Date() };
   const user = await User.findByIdAndUpdate(userId, { $set: { lecturerProfile: profile } }, { new: true, runValidators: true });
   if (!user) throw httpError(404, 'User not found', { code: 'NOT_FOUND' });
-  const crmWriteBack = await crm.writeBack(profile);
+  // Збій CRM не скасовує локальний запис: дані не повинні губитися.
+  const crmWriteBack = await crm.writeBack(profile).catch(() => ({ ok: false, reason: 'CRM_ERROR' }));
   return { profile: user.lecturerProfile.toObject(), source: 'instructor_directed', warnings: warningsFor(profile), crmWriteBack };
 }
 

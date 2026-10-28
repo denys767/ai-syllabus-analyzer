@@ -162,7 +162,11 @@ async function acceptSuggestion(syllabusId, suggestionId, { optionId = null, exp
   }
   // Стан уже записаний: помилка зовнішньої системи не має повертати картку у pending.
   if (acceptedState && plan.writeBack) {
-    await writeBackAccepted(ctx.syllabus.instructor, ctx.state.instructors[0], acceptedState.instructors[0]);
+    try {
+      await writeBackAccepted(ctx.syllabus.instructor, ctx.state.instructors?.[0], acceptedState.instructors?.[0]);
+    } catch (err) {
+      console.warn(`lecturer profile write-back failed for ${String(syllabusId)}: ${err.message}`);
+    }
   }
   await Suggestion.updateOne({ _id: s._id }, { $push: { decisionHistory: { action: 'accepted', by: userId, optionId: optionId || undefined } } });
   await postUserMessage(conversation, `Confirmed: ${s.title}`, s._id);

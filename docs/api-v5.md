@@ -173,6 +173,8 @@ readiness = {
 | GET | `/api/policies?type=syllabus-policy` | Довідник політик (сторінка Documents) |
 | GET/PUT | `/api/users/profile/lecturer` | Профіль викладача до інтеграції Lecturers CRM |
 
+**Профіль викладача (`GET/PUT /api/users/profile/lecturer`, лише власний).** Відповідь `{ profile, source, warnings }` (PUT додає `message` і `crmWriteBack`). `profile`: `{ name, position, email, officeHours, assistants, expertise[], education[], experience[], updatedAt, crmId }`; `source`: `crm` (адаптер `services/lecturers/crm.js`, поки не налаштований) або `instructor_directed` (локальна копія в `User.lecturerProfile`; без неї — ім'я й email акаунта). PUT — часткове оновлення; списки — масиви рядків; `expertise` поза 3–6 дає `warnings`, не помилку; невідоме поле, не рядок/масив, поганий email → 400 `VALIDATION_ERROR`. Профіль префілить `instructors[0]` (трек 1 — перед `initState`; трек 2 — лише якщо у файлі інструктора немає) і створює картку `choice` (`origin: interviewer`, `target.path: instructors[]`): «Yes, it's up to date» / «Update» (або, якщо файл відрізняється від профілю, «Use my profile» / «Keep the details from my file» / «Update»). Варіант з `writeBack: false` не пише в профіль; «Update» (`value: null`) лише ставить `Conversation.currentSlotKey = 'instructor.profile'`. Будь-який Confirm, що змінює `instructors[0]`, оновлює `User.lecturerProfile` і викликає `crm.writeBack` (збій CRM Confirm не скасовує).
+
 **Прибрано:** `POST /chat/:id/submit`, `GET …/slides`, `GET …/document/preview` (v3), `GET …/outputs/{tracked.docx,clean.docx,*.pdf,edited.pptx}`, `POST /cabinet/syllabi/:id/resend-submission`.
 
 ## 7. Повідомлення чату

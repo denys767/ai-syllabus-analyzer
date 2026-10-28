@@ -16,7 +16,7 @@ function prepareInstructor(state, resolved) {
     // Чернетка містить basisHash, але довірені дані профілю не скануємо як вигадки моделі.
     choiceBasis: true,
     options: differs ? [
-      { id: 'use_profile', label: 'Use my profile', value: [profileInstructor, ...current.slice(1)] },
+      { id: 'use_profile', label: 'Use my profile', value: [profileInstructor, ...current.slice(1)], writeBack: false },
       { id: 'keep', label: 'Keep the details from my file', value: current, writeBack: false },
       { id: 'update', label: 'Update', value: null, writeBack: false },
     ] : [
