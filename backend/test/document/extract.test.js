@@ -1,5 +1,5 @@
 const { extractDocx } = require('../../services/document/extractors/docx');
-const { computeDocVersion, renderForPrompt, toPlainText } = require('../../services/document/model');
+const { computeDocVersion, toPlainText } = require('../../services/document/model');
 const { fixture, byText, texts } = require('./helpers');
 
 describe('extractDocx: syllabus.docx', () => {
@@ -53,10 +53,7 @@ describe('extractDocx: syllabus.docx', () => {
     expect(texts(doc).some((t) => t.includes('Сторінка'))).toBe(false);
   });
 
-  test('renderForPrompt і toPlainText', () => {
-    const prompt = renderForPrompt(doc);
-    expect(prompt).toContain('[b0001] title Силабус');
-    expect(prompt).toMatch(/\[b\d{4}\] • Командна робота/);
+  test('toPlainText', () => {
     expect(toPlainText(doc.blocks).split('\n')).toHaveLength(doc.blocks.length);
   });
 });

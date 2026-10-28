@@ -107,7 +107,9 @@ test('пошкоджений docx і pptx навіть з кешованим doc
     const s = await analyzing({ originalFile: { path: file, originalName: 'invalid.docx' } });
     await runner.runAnalysis(s._id);
     expect((await Syllabus.findById(s._id)).analysisError).toMatch(/valid DOCX/);
-    const pptx = await analyzing({ sourceFormat: 'pptx', document: { docVersion: 'v1', blocks: [{ id: 'b1', text: 'cached', kind: 'paragraph' }] }, workingFile: { path: file } });
+    // pptx вже не входить в enum моделі: старий документ з БД обходить валідацію
+    const pptx = await analyzing({ document: { docVersion: 'v1', blocks: [{ id: 'b1', text: 'cached', kind: 'paragraph' }] } });
+    await Syllabus.collection.updateOne({ _id: pptx._id }, { $set: { sourceFormat: 'pptx' } });
     await runner.runAnalysis(pptx._id);
     expect((await Syllabus.findById(pptx._id)).analysisError).toMatch(/not supported/);
   } finally { fs.rmSync(dir, { recursive: true }); }

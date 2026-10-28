@@ -11,7 +11,11 @@
  *   - Message.kind `submission-cta` → `text`.
  *   - Syllabus з `document`, але без `state` (не в аналізі) → `needsRebuild: true`
  *     («Rebuild in the new format» = `POST /api/syllabus/:id/analyze`).
- *   - Pre-v4 legacy (`legacy: true`) лишаються як є, окрім `programCode`.
+ *   - Pre-v4 legacy (`legacy: true`) лишаються read-only; їм теж проставляється `programCode`, знімається статус
+ *     `submitted` і поля submit (resend-submission видалено), але `needsRebuild` не ставиться (немає `document`).
+ *   - Suggestion з полями v4 (`group`, `docVersion`, `finding`) також видаляються (модель їх більше не має).
+ *   - Прибирається решта v4 у Syllabus: `workingFile` (файл видаляється, якщо це не сам оригінал), `rubricSummary`,
+ *     `document.{pdfBlockMap,sourceBlocks,sourceDocVersion}`; етапи аналізу v4 (structure…rewrite) → `analysisStage: null`.
  *
  * Idempotent: повторний запуск дає 0 змін. `--dry-run` лише рахує.
  *
@@ -28,6 +32,8 @@ const fromBackend = (name) => require(require.resolve(name, { paths: [BACKEND] }
 const OLD_OUTPUT_KEYS = ['clean', 'tracked', 'trackedPdf', 'annotated', 'edited', 'previewPdf'];
 const SUBMIT_FIELDS = ['submitting', 'submissionEmailStatus', 'submittedPdfPath', 'submittedAt'];
 const NOT_LEGACY = { legacy: { $ne: true } };
+const V4_SYLLABUS_FIELDS = ['workingFile', 'rubricSummary', 'document.pdfBlockMap', 'document.sourceBlocks', 'document.sourceDocVersion'];
+const V4_STAGES = ['structure', 'diagnose', 'verify', 'rewrite'];
 
 const oldFilePaths = (doc) => [
   ...OLD_OUTPUT_KEYS.map((k) => doc.outputs?.[k]?.path),
@@ -56,22 +62,17 @@ async function migrate(db, { dryRun = false, defaultEdition = 'MBA28' } = {}) {
     if (!dryRun) await syllabi.updateMany(filter, { $set: { programCode: edition } });
   }
 
-  // 2. submitted → in_progress, поля submit, outputs старих форматів (legacy не чіпаємо)
+  // 2. submitted → in_progress, поля submit, outputs старих форматів (разом із pre-v4 legacy: статус submitted більше не існує)
   const submitFilter = {
-    ...NOT_LEGACY,
     $or: [
       { status: 'submitted' },
       ...SUBMIT_FIELDS.map((f) => ({ [f]: { $exists: true } })),
       ...OLD_OUTPUT_KEYS.map((k) => ({ [`outputs.${k}`]: { $exists: true } })),
     ],
   };
-  stats.statusReset = await syllabi.countDocuments({ ...NOT_LEGACY, status: 'submitted' });
-  stats.submitFieldsUnset = await syllabi.countDocuments({
-    ...NOT_LEGACY, $or: SUBMIT_FIELDS.map((f) => ({ [f]: { $exists: true } })),
-  });
-  stats.outputsUnset = await syllabi.countDocuments({
-    ...NOT_LEGACY, $or: OLD_OUTPUT_KEYS.map((k) => ({ [`outputs.${k}`]: { $exists: true } })),
-  });
+  stats.statusReset = await syllabi.countDocuments({ status: 'submitted' });
+  stats.submitFieldsUnset = await syllabi.countDocuments({ $or: SUBMIT_FIELDS.map((f) => ({ [f]: { $exists: true } })) });
+  stats.outputsUnset = await syllabi.countDocuments({ $or: OLD_OUTPUT_KEYS.map((k) => ({ [`outputs.${k}`]: { $exists: true } })) });
 
   stats.outputFilesDeleted = 0;
   const docs = await syllabi.find(submitFilter).project({ outputs: 1, submittedPdfPath: 1 }).toArray();
@@ -96,7 +97,12 @@ async function migrate(db, { dryRun = false, defaultEdition = 'MBA28' } = {}) {
   }
 
   // 3. Suggestion v4 (з ops)
-  const v4Suggestions = { $or: [{ 'ops.0': { $exists: true } }, { 'options.ops.0': { $exists: true } }] };
+  const v4Suggestions = {
+    $or: [
+      { 'ops.0': { $exists: true } }, { 'options.ops.0': { $exists: true } },
+      { group: { $exists: true } }, { docVersion: { $exists: true } }, { finding: { $exists: true } },
+    ],
+  };
   stats.suggestionsDeleted = await suggestions.countDocuments(v4Suggestions);
   if (!dryRun && stats.suggestionsDeleted) await suggestions.deleteMany(v4Suggestions);
 
@@ -115,6 +121,22 @@ async function migrate(db, { dryRun = false, defaultEdition = 'MBA28' } = {}) {
   };
   stats.needsRebuildSet = await syllabi.countDocuments(rebuildFilter);
   if (!dryRun && stats.needsRebuildSet) await syllabi.updateMany(rebuildFilter, { $set: { needsRebuild: true } });
+
+  // 6. Решта v4 у Syllabus: робочі файли, підсумок рубрики, поля PDF-мапінгу, етапи аналізу v4
+  const v4FieldsFilter = { $or: V4_SYLLABUS_FIELDS.map((f) => ({ [f]: { $exists: true } })) };
+  stats.workingFilesDeleted = 0;
+  const withWorking = await syllabi.find({ 'workingFile.path': { $type: 'string' } }).project({ workingFile: 1, originalFile: 1 }).toArray();
+  for (const doc of withWorking) {
+    const file = doc.workingFile.path;
+    if (file === doc.originalFile?.path || !fs.existsSync(file)) continue;
+    stats.workingFilesDeleted += 1;
+    if (!dryRun) await fs.promises.unlink(file).catch(() => {});
+  }
+  stats.v4FieldsUnset = await syllabi.countDocuments(v4FieldsFilter);
+  if (!dryRun && stats.v4FieldsUnset) await syllabi.updateMany(v4FieldsFilter, { $unset: Object.fromEntries(V4_SYLLABUS_FIELDS.map((f) => [f, ''])) });
+  const stageFilter = { analysisStage: { $in: V4_STAGES } };
+  stats.analysisStageReset = await syllabi.countDocuments(stageFilter);
+  if (!dryRun && stats.analysisStageReset) await syllabi.updateMany(stageFilter, { $set: { analysisStage: null } });
 
   return stats;
 }

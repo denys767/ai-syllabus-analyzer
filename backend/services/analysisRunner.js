@@ -16,7 +16,6 @@ const PARSE_ERRORS = {
   INVALID_PDF: 'The PDF could not be read. Check the file or upload a DOCX version.',
   PDF_NO_TEXT: 'The PDF has no text layer (it looks like a scan). Upload a DOCX or a text PDF.',
   PDF_TIMEOUT: 'Reading the PDF took too long. Try a DOCX version of the file.',
-  PDF_BLOCK_MISMATCH: 'The PDF could not be read reliably. Try a DOCX version of the file.',
   SOFFICE_MISSING: 'Converting .doc files is not available on the server right now. Upload a DOCX or PDF.',
   SOFFICE_FAILED: 'The document could not be converted. Upload a DOCX or PDF.',
   CONVERSION_TIMEOUT: 'Converting the document took too long. Please try again or upload a DOCX.',
@@ -38,19 +37,15 @@ function formatOf(syllabus) {
   return ext.replace(/^\./, '') || null;
 }
 
-/** Чи вже є повний document для формату (тоді re-analyze не розбирає файл заново). */
+/** Чи вже є повний document (тоді re-analyze не розбирає файл заново). */
 function hasDocument(syllabus) {
   const d = syllabus.document;
-  if (!d?.docVersion || !d?.blocks?.length || !syllabus.workingFile?.path) return false;
-  // PDF, розібраний до хвилі 5, не має блоків оригіналу для annotated.pdf — розбираємо заново
-  if (formatOf(syllabus) === 'pdf' && !d.sourceDocVersion) return false;
-  return true;
+  return Boolean(d?.docVersion && d?.blocks?.length);
 }
 
 /**
- * Етап extract: оригінал → робочий файл (docx — сам оригінал; doc — сконвертований .docx;
- * pdf — синтезований .docx з блоками PDF 1:1) → blocks.
- * Пропускається, якщо document уже є (re-analyze).
+ * Етап extract: оригінал → blocks (docx; doc через LibreOffice; pdf через pdf.js). Робочого файлу немає:
+ * далі потрібні лише блоки. Пропускається, якщо document уже є (re-analyze).
  */
 async function extractDocument(syllabusId, { leaseToken } = {}) {
   await assertLease(syllabusId, leaseToken);
@@ -70,21 +65,14 @@ async function extractDocument(syllabusId, { leaseToken } = {}) {
     throw httpError(404, 'The syllabus file was not found on the server. Upload it again.', { code: 'FILE_NOT_FOUND' });
   }
 
-  const { buffer, doc, convertedFrom } = await loadDocument(original, format, { title: syllabus.title });
+  const { doc, convertedFrom } = await loadDocument(original, format);
   if (!doc.blocks.some((b) => b.text.trim())) {
     throw httpError(422, 'No text was found in the file. Check it and upload it again.', { code: 'NO_TEXT' });
-  }
-
-  let workingPath = originalPath;
-  if (convertedFrom) {
-    workingPath = `${originalPath}.working.docx`;
-    await fs.writeFile(workingPath, buffer);
   }
 
   await Syllabus.updateOne(ownedAnalysis(syllabusId, leaseToken), {
     $set: {
       sourceFormat: format,
-      workingFile: { path: workingPath, size: buffer.length },
       document: { ...doc, convertedFrom },
       extractedText: toPlainText(doc.blocks),
       legacy: false,

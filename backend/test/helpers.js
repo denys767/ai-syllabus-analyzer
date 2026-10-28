@@ -72,7 +72,7 @@ async function fixtureDoc() {
   return cachedDoc;
 }
 
-/** Силабус після аналізу: копія fixtures/docx/syllabus.docx у tmp як оригінал і робочий файл. */
+/** Силабус після аналізу: копія fixtures/docx/syllabus.docx у tmp як оригінал, блоки у document. */
 async function createDocSyllabus(owner, extra = {}) {
   const Syllabus = require('../models/Syllabus');
   const doc = await fixtureDoc();
@@ -85,7 +85,6 @@ async function createDocSyllabus(owner, extra = {}) {
     instructor: owner._id,
     sourceFormat: 'docx',
     originalFile: { filename: 'syllabus.docx', originalName: 'syllabus.docx', path: filePath, size: 1 },
-    workingFile: { path: filePath },
     document: { docVersion: doc.docVersion, convertedFrom: null, blocks: doc.blocks },
     status: 'in_progress',
     analysisStage: 'done',
@@ -99,15 +98,12 @@ async function createSuggestion(syllabus, fields = {}) {
   return Suggestion.create({
     syllabusId: syllabus._id,
     criterionId: 'T-1',
-    group: 'template',
     severity: 'medium',
     kind: 'edit',
     title: `Пропозиція ${order + 1}`,
     description: 'Опис',
     rationale: 'Пояснення',
     order: order++,
-    docVersion: syllabus.document?.docVersion,
-    finding: { id: `f${order}`, criterionId: 'T-1', group: 'template', severity: 'medium', claim: 'claim' },
     ...fields,
   });
 }

@@ -393,6 +393,33 @@ describe('suggest_plo / suggest_readings', () => {
   });
 });
 
+describe('suggest_ai_tools', () => {
+  test('порожній каталог → нічого не створює, LLM не викликається', async () => {
+    const { seed, tctx } = await turn('any AI ideas for assignments?');
+    const out = await runTool(tctx, 'suggest_ai_tools', {});
+    expect(out).toMatchObject({ ok: true, created: 0 });
+    expect(await Suggestion.countDocuments({ syllabusId: seed.syllabus._id })).toBe(0);
+    expect(createResponse).not.toHaveBeenCalled();
+  });
+
+  test('картка-питання origin orchestrator (не issue), слот schedule.additional', async () => {
+    const aiTools = require('../../../services/ai/prompts/aiTools');
+    const spy = jest.spyOn(aiTools, 'suggestAiTools').mockResolvedValue([{
+      kind: 'question', severity: 'info', title: 'AI-based assignment ideas for this course', description: '- Idea (School)',
+      rationale: 'From the catalog.', question: 'Which one?', target: { path: 'sessions[].additional', entityId: null },
+    }]);
+    try {
+      const { seed, tctx } = await turn('any AI ideas for assignments?');
+      const out = await runTool(tctx, 'suggest_ai_tools', {});
+      expect(out).toMatchObject({ ok: true, created: 1 });
+      const card = await Suggestion.findById(out.draft_ids[0]).lean();
+      expect(card).toMatchObject({ origin: 'orchestrator', kind: 'question', status: 'pending', section: 'schedule', severity: 'info', checkId: null });
+      expect(card.syllabusId).toEqual(seed.syllabus._id);
+      expect(tctx.currentSlotKey).toBe('schedule.additional');
+    } finally { spy.mockRestore(); }
+  });
+});
+
 describe('розпізнавання', () => {
   test.each([
     ['confirm', true], ['Yes', true], ['yes, apply', true], ['ok go ahead', true], ['Go ahead!', true], ['Apply it please', true],

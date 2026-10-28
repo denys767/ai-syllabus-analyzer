@@ -119,10 +119,10 @@ describe('GET /:id і analyze', () => {
     expect(res.body.originalFile.path).toBeUndefined();
   });
 
-  test('v4-силабус зі submitted + needsRebuild: analyze дозволений, скидає картки, розмову, повідомлення', async () => {
+  test('v4-силабус з needsRebuild: analyze дозволений, скидає картки, розмову, повідомлення', async () => {
     const runner = require('../services/analysisRunner');
     const spy = jest.spyOn(runner, 'runAnalysisInBackground').mockImplementation(() => {});
-    const s = await helpers.createDocSyllabus(owner, { status: 'submitted', needsRebuild: true });
+    const s = await helpers.createDocSyllabus(owner, { needsRebuild: true });
     await helpers.createSuggestion(s);
     const conv = await Conversation.create({ syllabusId: s._id, instructorId: owner._id });
     await Message.create({ conversationId: conv._id, role: 'ai', content: 'hi' });
