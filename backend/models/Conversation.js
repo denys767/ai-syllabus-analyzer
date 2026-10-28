@@ -25,6 +25,9 @@ const conversationSchema = new mongoose.Schema({
   currentSlotKey: { type: String, default: null },
   // v5: слоти, які викладач пропустив (POST /skip) — інтерв'юер їх більше не питає
   skippedSlots: { type: [String], default: [] },
+  // Уже обговорені слоти: Cancel не запускає те саме інтерв'ю знову; стрибок у розділ дозволяє повернутися.
+  answeredSlots: { type: [String], default: [] },
+  preferredSection: { type: String, default: null },
   lastDecisionAt: Date,
   consecutiveAiFailures: { type: Number, default: 0 },
 }, { timestamps: true });
