@@ -90,3 +90,16 @@ describe('findCaseSources', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+test('m2: програма в промпті пошуку — з refs силабусу (meta.programCode), «MBA» не зашито', async () => {
+  createResponse.mockResolvedValue({ output_text: '', output: [] });
+  await findCaseSources({ finding: { claim: 'risk' }, meta: { courseName: 'Risk', programCode: 'EMBA1' } }, { verify: async () => false });
+  const [system, user] = createResponse.mock.calls[0][0].input;
+  expect(system.content).toContain('suitable for a KSE EMBA1 course');
+  expect(user.content).toContain('Programme: EMBA1');
+  createResponse.mockClear();
+  await findCaseSources({ finding: { claim: 'risk' }, meta: {} }, { verify: async () => false });
+  const input = createResponse.mock.calls[0][0].input.map((m) => m.content).join('\n');
+  expect(input).not.toMatch(/MBA/);
+  expect(input).toContain('a KSE course');
+});

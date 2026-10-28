@@ -1,6 +1,7 @@
 // Затвердження розділів: окремо, гуртово і зняття. Пише лише syllabusState/store (approveSection/unapproveSection/approveAll).
 
 const store = require('../syllabusState/store');
+const { httpError } = require('../../utils/httpError');
 const { invalidateOutputs } = require('../outputs');
 const { sectionGaps } = require('../syllabusState/slots');
 const { runChecks } = require('../checks');
@@ -44,11 +45,20 @@ async function unapproveSection(syllabusId, key, { userId, expectedRevision } = 
   await refreshConversationReadiness(syllabusId);
 }
 
-/** @returns {Promise<{ approved: string[], skipped: { key, reason }[] }>} */
-async function approveAll(syllabusId, { userId, expectedRevision } = {}) {
+/**
+ * keys — розділи з картки approve-all (без них — усі). Блокери рахуються з того самого стану, який затверджується:
+ * без expectedRevision від клієнта — ревізія, прочитана тут (інакше зміна між читанням і записом → 409 STATE_CONFLICT).
+ * @returns {Promise<{ approved: string[], skipped: { key, reason }[] }>}
+ */
+async function approveAll(syllabusId, { userId, expectedRevision, keys } = {}) {
   const ctx = await loadContext(syllabusId);
   const blockersFor = await blockersBuilder(ctx);
-  const { approved, skipped } = await store.approveAll(syllabusId, { blockersFor, by: userId, expectedRevision });
+  if (expectedRevision !== undefined && expectedRevision !== ctx.revision) {
+    throw httpError(409, 'The syllabus was changed in the meantime. Reload and try again.', { code: 'STATE_CONFLICT', details: { revision: ctx.revision } });
+  }
+  const { approved, skipped } = await store.approveAll(syllabusId, {
+    blockersFor, by: userId, expectedRevision: ctx.revision, keys: keys && keys.length ? keys : undefined,
+  });
   invalidateOutputs(syllabusId);
   await refreshConversationReadiness(syllabusId);
   return { approved, skipped };

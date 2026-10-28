@@ -28,8 +28,17 @@ async function say(conversation, fields) {
 
 const postAiMessage = (conversation, content, suggestionId = null) => say(conversation, { content, relatedSuggestionId: suggestionId });
 
+/** Репліка самого викладача (вільне повідомлення, відгук Reword, відповідь). */
 const postUserMessage = (conversation, content, suggestionId = null) => Message.create({
-  conversationId: conversation._id, role: 'user', kind: 'text', content, relatedSuggestionId: suggestionId,
+  conversationId: conversation._id, role: 'user', origin: 'instructor', kind: 'text', content, relatedSuggestionId: suggestionId,
+});
+
+/**
+ * Репліка, яку сервер пише від імені викладача після натискання кнопки («Confirmed: …», «Cancelled: …», «Back to: …», «Skip: …»).
+ * origin: 'server' — її не бачать транскрипти для LLM: заголовок картки написала модель, це не слова викладача.
+ */
+const postServerMessage = (conversation, content, suggestionId = null) => Message.create({
+  conversationId: conversation._id, role: 'user', origin: 'server', kind: 'text', content, relatedSuggestionId: suggestionId,
 });
 
 /** Повідомлення-картка для пропозиції (вміст будується на льоту з Suggestion). */
@@ -41,9 +50,12 @@ async function postSuggestionCard(conversation, suggestion) {
 const lastMessage = (conversation, kinds) => Message.findOne({ conversationId: conversation._id, ...(kinds ? { kind: { $in: kinds } } : {}) })
   .sort({ createdAt: -1, _id: -1 });
 
-/** Репліки розмови для промптів: transcript (останні) і лише слова викладача (для сканера фактів). */
+/**
+ * Репліки розмови для промптів: transcript (останні) і лише слова викладача (для сканера фактів).
+ * Серверні репліки від імені викладача (origin: 'server') виключено: вони не є ні фактами, ні вказівками.
+ */
 async function transcriptOf(conversation, limit = TRANSCRIPT_LIMIT) {
-  const rows = (await Message.find({ conversationId: conversation._id, kind: { $in: ['text', 'question'] } })
+  const rows = (await Message.find({ conversationId: conversation._id, kind: { $in: ['text', 'question'] }, origin: { $ne: 'server' } })
     .sort({ createdAt: -1, _id: -1 }).limit(limit).lean()).reverse();
   return {
     transcript: rows.map((m) => `${m.role === 'user' ? 'Instructor' : 'Assistant'}: ${m.content}`),
@@ -202,6 +214,12 @@ async function postNextStep(conversation, { preferQuestion = false } = {}) {
     await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: null } });
     return null;
   }
+  // Двох питань поспіль не буває (код, а не лише промпт): попереднє питання без дії викладача лишається поточним
+  const open = unansweredQuestion(last, fresh);
+  if (open && open.payload.slotKey !== q.slotKey) {
+    await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: open.payload.slotKey, preferredSection: null, writeOwnPolicyKey: null } });
+    return { question: open.payload };
+  }
   const policyKey = q.policyKey || (q.slotKey.startsWith('policy.') ? q.slotKey : null);
   const kind = policyKey ? 'policy-choice' : 'question';
   const repeated = last && last.kind === kind && last.payload?.slotKey === q.slotKey;
@@ -210,8 +228,23 @@ async function postNextStep(conversation, { preferQuestion = false } = {}) {
       kind, content: q.question, payload: { slotKey: q.slotKey, ...(policyKey ? { policyKey } : {}), question: q.question, why: q.why || '' },
     });
   }
-  await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: q.slotKey, preferredSection: null } });
+  // Питання-вибір політики не дозволяє моделі писати текст політики: це робить лише «Write my own» (writeOwnPolicyKey)
+  await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: q.slotKey, preferredSection: null, writeOwnPolicyKey: null } });
   return { question: q };
+}
+
+/**
+ * Останнє повідомлення — питання AI, на яке викладач ще нічого не зробив: ні репліки, ні рішення (lastDecisionAt),
+ * ні Skip цього слота, ні відповіді (answeredSlots). Тоді нове питання не ставиться.
+ * @returns {object|null} повідомлення-питання
+ */
+function unansweredQuestion(last, conversation) {
+  if (!last || last.role !== 'ai' || !['question', 'policy-choice'].includes(last.kind)) return null;
+  const slotKey = last.payload?.slotKey;
+  if (!slotKey) return null;
+  if ((conversation.skippedSlots || []).includes(slotKey) || (conversation.answeredSlots || []).includes(slotKey)) return null;
+  if (conversation.lastDecisionAt && new Date(conversation.lastDecisionAt) > new Date(last.createdAt)) return null;
+  return last;
 }
 
 // ---------- Розмова ----------
@@ -278,7 +311,7 @@ async function skipSlot(syllabusId, slotKey, userId) {
   const conversation = await getOrCreateConversation(syllabusId, userId);
   await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { skippedSlots: slotKey } });
   if (ctx.syllabus.track === 'scratch') {
-    await postUserMessage(conversation, `Skip: ${slotTitle(ctx.refs, slotKey)}.`);
+    await postServerMessage(conversation, `Skip: ${slotTitle(ctx.refs, slotKey)}.`);
     if (NARRATIVE_SLOTS.includes(slotKey)) {
       await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { answeredSlots: { $each: NARRATIVE_SLOTS } } });
     }
@@ -318,6 +351,7 @@ module.exports = {
   postSuggestionCard,
   postNextStep,
   postUserMessage,
+  postServerMessage,
   postAiMessage,
   transcriptOf,
   withAiFailureTracking,

@@ -270,8 +270,14 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
     reopen: (sid) => mutate((id) => client.chat.reopen(id, sid)),
     approveSection: (key) => mutate((id) => client.chat.approveSection(id, key)),
     unapproveSection: (key) => mutate((id) => client.chat.unapproveSection(id, key)),
-    // { ok, data: { approved, skipped, ...View } }
-    approveAll: () => mutate((id) => client.chat.approveAll(id)),
+    // { ok, data: { approved, skipped, ...View } }. keys — розділи з картки (без них — усі); ревізія — на момент натискання.
+    approveAll: (keys) => {
+      const expectedRevision = viewRef.current?.revision;
+      const body = {};
+      if (Array.isArray(keys) && keys.length) body.sections = keys;
+      if (expectedRevision != null) body.expectedRevision = expectedRevision;
+      return mutate((id) => client.chat.approveAll(id, body));
+    },
     choosePolicy: (key, optionKey) => mutate((id) => client.chat.choosePolicy(id, key, { optionKey })),
     keepPolicyText: (key) => mutate((id) => client.chat.choosePolicy(id, key, { keepText: true })),
     writeOwnPolicy: (key) => mutate((id) => client.chat.choosePolicy(id, key, { writeOwn: true })),

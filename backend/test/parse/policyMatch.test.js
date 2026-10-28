@@ -100,6 +100,8 @@ test('LLM-виклик: strict enum з довідника, коригуваль�
   expect(props.optionKey.enum).toContain('attendance_std');
   expect(props.match.enum).toEqual(['exact', 'equivalent', 'partial', 'none']);
   expect(req.input[0].content).toMatch(/Never write, rewrite or merge policy text/);
+  // m13: уривки файлу — недовірені дані в маркерах
+  expect(req.input[1].content).toMatch(/^<untrusted_document_text>[\s\S]*<\/untrusted_document_text>$/);
   expect(createResponse.mock.calls[1][0].input[1].content).toMatch(/option attendance_std does not belong to block policy.late/);
 });
 

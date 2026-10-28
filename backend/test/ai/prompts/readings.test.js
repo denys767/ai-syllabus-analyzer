@@ -34,7 +34,7 @@ test('пропонується лише знайдене з перевірени
   caseSources.findCaseSources.mockResolvedValue(found);
   const [input, ...rest] = await suggestReadings({ state, refs, query: 'risk cases in Ukraine' });
   expect(rest).toEqual([]);
-  expect(caseSources.findCaseSources.mock.calls[0][0]).toMatchObject({ finding: { claim: 'risk cases in Ukraine' } });
+  expect(caseSources.findCaseSources.mock.calls[0][0]).toMatchObject({ finding: { claim: 'risk cases in Ukraine' }, meta: { programCode: refs.programCode } });
   expect(input).toMatchObject({ kind: 'edit', target: { path: 'materials.recommended[]' } });
   expect(input.proposedValues).toEqual([{ label: 'Reading title', value: 'Pepsico Ukraine: Managing Risk in War' }]);
   expect(input.sources).toEqual([expect.objectContaining({ url: 'https://example.org/a', verified: true })]);

@@ -24,11 +24,15 @@ const PATTERNS = [
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[“”"«»]/g, '"').replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
 
+// Число — окреме слово: «clo3», «b0012», «obj2» чисел не дають, «2nd» дає 2; слова-числа — теж лише цілі («often» ≠ ten)
+const DIGITS_RE = /(?<![\p{L}\p{N}_])\d+(?:[.,]\d+)?(?=(?:st|nd|rd|th)?(?![\p{L}\p{N}_]))/gu;
+const WORDNUM_RE = new RegExp(`(?<![\\p{L}])(?:${WORDNUM})(?![\\p{L}])`, 'giu');
+
 /** Числа, які містить фрагмент (для порівняння «48 hours» з «48-hour» у репліці викладача). */
 function numbersOf(text) {
   const t = norm(text);
-  const digits = t.match(/\d+(?:[.,]\d+)?/g) || [];
-  const words = (t.match(new RegExp(WORDNUM, 'gi')) || []).map((w) => w.split(/[- ]/).reduce((sum, part) => sum + (NUMBER_WORDS[part] || 0), 0));
+  const digits = t.match(DIGITS_RE) || [];
+  const words = (t.match(WORDNUM_RE) || []).map((w) => w.split(/[- ]/).reduce((sum, part) => sum + (NUMBER_WORDS[part] || 0), 0));
   return [...digits.map((d) => d.replace(',', '.')), ...words.map(String)];
 }
 

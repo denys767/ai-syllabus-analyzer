@@ -65,7 +65,8 @@ async function freeChatMessage(syllabusId, text, userId) {
     conversation.currentSlotKey = keys[0] || section;
   }
 
-  const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: -1, _id: -1 }).limit(12).lean();
+  // Серверні репліки від імені викладача («Confirmed: …») — не його слова: не потрапляють в історію ходу
+  const messages = await Message.find({ conversationId: conversation._id, origin: { $ne: 'server' } }).sort({ createdAt: -1, _id: -1 }).limit(12).lean();
   const deps = buildDeps(ctx, userId);
 
   const result = await withAiFailureTracking(conversation, async () => {

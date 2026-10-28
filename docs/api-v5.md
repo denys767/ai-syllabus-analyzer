@@ -3,7 +3,7 @@
 Контракт між бекендом і фронтендом для v5 (ТЗ v2.1 «Силабус через діалог»; план — `docs/V5_PLAN.md`). Замінює `docs/api-v3.md`, коли v5 злито.
 
 - **Мова.** Тексти UI, повідомлення AI в чаті, `message` помилок і зміст силабуса — англійською. Коментарі в коді — українською.
-- **Помилки.** Форма `{ message, code?, retryable?, ...details }`, статус береться з `err.statusCode` (`utils/httpError.js`).
+- **Помилки.** Форма `{ message, code?, retryable?, ...details }`, статус береться з `err.statusCode` (`utils/httpError.js`). Кожна помилка `/api/syllabus` і глобальних обробників `server.js` має англійський `message` і `code`: `INVALID_ID`, `NOT_FOUND`, `FORBIDDEN`, `VALIDATION_ERROR`, `ROUTE_NOT_FOUND`, `INVALID_JSON`, `FILE_TOO_LARGE`, `INVALID_UPLOAD`, `BODY_TOO_LARGE`, `RATE_LIMITED`, `REQUEST_TIMEOUT`, `DB_UNAVAILABLE`, `INTERNAL_ERROR` (5xx без внутрішніх деталей).
 - **Доступ.** Читання — власник або admin. Мутації — тільки власник (`gateMutate`).
 - **Чого більше немає.** Submit, email АД, PDF-виходи, PPTX.
 
@@ -124,9 +124,10 @@ readiness = {
 | Метод | Шлях | Опис |
 |---|---|---|
 | POST | `/` | Трек 1. body `{ title, programId, programCode, courseCode? }`. Створює порожній стан і повертає `{ syllabus }` |
-| POST | `/upload` | Трек 2. multipart `syllabus` (docx/doc/pdf; pptx → 400 `UNSUPPORTED_FORMAT`) + `programId`, `programCode` (має бути в `Program.editions`, інакше 400 `INVALID_PROGRAM_CODE`) |
+| POST | `/upload` | Трек 2. multipart `syllabus` (docx/doc/pdf; pptx → 400 `UNSUPPORTED_FORMAT`) + `courseName` (обов'язкова назва курсу: стає `title` силабусу й початковою `header.courseTitle`; порожня → 400 `VALIDATION_ERROR`), `programId`, `programCode` (має бути в `Program.editions`, інакше 400 `INVALID_PROGRAM_CODE`); необов'язкові `courseCode`, `credits` (1–10), `semester`, `year` (2020–2030). Відповідь 201 `{ message, syllabusId, status: 'analyzing' }` |
 | GET | `/:id/status` | `{ status, stage, error }` |
 | POST | `/:id/analyze` | Повторний парсинг або перебудова v4 → v5 (`needsRebuild`) |
+| PUT | `/:id` | Метадані (лише власник): `title`, `courseName`, `courseCode`, `credits`, `semester`, `year`. Назва (`courseName`, інакше `title`) і `courseCode` пишуться в `state.header` через `store.mutate` (журнал `SlotChange`, зняття `approved`). Зміна `programId`/`programCode` → 400 `PROGRAM_CHANGE_NOT_ALLOWED`; під час аналізу → 409 `ANALYSIS_IN_PROGRESS` |
 | DELETE | `/:id` | Видалення силабусу |
 
 ### Чат і стан (`/api/chat/:syllabusId`)
@@ -138,7 +139,7 @@ readiness = {
 | GET | `/document?diff=0\|1` | Права панель: `{ sections: [{ key, docNumber, title, blocks: [{ kind, text, parts?: [{ type: 'eq'\|'del'\|'ins', text }] }] }] }`. `diff=1` порівнює з `baselineState` |
 | POST | `/sections/:key/approve` | Затвердити розділ. 409 `SECTION_INCOMPLETE { gaps }`, якщо пороги не пройдені |
 | DELETE | `/sections/:key/approve` | Зняти затвердження |
-| POST | `/sections/approve-all` | Гуртове затвердження: лише розділи без відкритих Check/Suggestion і з пройденими порогами. Повертає `{ approved: [key], skipped: [{ key, reason }] }` + View |
+| POST | `/sections/approve-all` | Гуртове затвердження: лише розділи без відкритих Check/Suggestion і з пройденими порогами. body `{ sections?: [key], expectedRevision? }`: `sections` — лише розділи з картки `approve-all` (без нього — усі; невідомий ключ → 400 `UNKNOWN_SECTION`); блокери рахуються з того самого стану, що затверджується (застаріла ревізія → 409 `STATE_CONFLICT { revision }`). Повертає `{ approved: [key], skipped: [{ key, reason }] }` + View. Відкриті картки м'яких LLM-перевірок (`origin: 'check'`) теж блокують Approve all свого розділу (як і будь-яка pending-картка), хоча на score Readiness не впливають |
 | POST | `/policies/:key/choose` | body `{ optionKey }` або `{ writeOwn: true }`. `writeOwn` не відкриває поле, а переводить розмову на слот («Tell me how it should be») |
 | POST | `/suggestions/:sid/accept` | Confirm. body `{ optionId?, expectedRevision }`. Непідтверджені `proposedValues` → 409 `UNCONFIRMED_VALUES` |
 | POST | `/suggestions/:sid/values` | «Change the value»: body `{ values: [{ id, value, confirmed }] }`; перерендер шаблону без LLM |
@@ -148,13 +149,13 @@ readiness = {
 | POST | `/suggestions/:sid/reopen` | Відкат через `SlotChange`; поточне значення ≠ `after` → 409 `REOPEN_CONFLICT` |
 | POST | `/message` | body `{ text }` — хід оркестратора з інструментами. Повертає View |
 | POST | `/skip` | body `{ slotKey }` — пропустити слот (лишається порожнім і видно ліворуч) |
-| GET | `/outputs/syllabus.docx` | Завантажити `.docx` на будь-якому етапі; збільшує `downloads`. Кеш за `stateRevision` |
+| GET | `/outputs/syllabus.docx` | Завантажити `.docx` на будь-якому етапі, щойно є стан; збільшує `downloads`. Кеш за `stateRevision`. Стану ще немає: аналіз триває → 409 `ANALYSIS_IN_PROGRESS` (`retryable`), аналіз упав → 409 `ANALYSIS_FAILED`. Фронтенд вмикає кнопку лише за наявності `state` |
 
 Кожна мутація повертає View.
 
 - Чат v4 (`legacy`, `needsRebuild` або немає `state`) доступний лише для читання: `canMutate: false`, `needsRebuild: true`, без v5-карток. Мутація → 409 `NEEDS_REBUILD`; незавершений аналіз → 409 `ANALYSIS_IN_PROGRESS`.
 - `expectedRevision`, якщо переданий у Confirm, не замінюється поточною ревізією: конфлікт → 409 `STATE_CONFLICT { revision }`. Для клієнтів без цього поля використовується ревізія, прочитана на початку операції; перевірка `basisHash` залишається обов'язковою.
-- `writeOwn: true` зберігає `Conversation.currentSlotKey` і надсилає “Tell me in your own words how this policy should work.” Альтернатива `{ keepText: true }` явно залишає текст з файлу (`instructor_directed`, `modified: true`). Потрібна рівно одна дія з `optionKey`, `writeOwn`, `keepText`; locked-політика → 409 `LOCKED`.
+- `writeOwn: true` зберігає `Conversation.currentSlotKey` і `Conversation.writeOwnPolicyKey` (той самий ключ) і надсилає “Tell me in your own words how this policy should work.” Питання інтерв'юера чи картка `policy-choice` знімають `writeOwnPolicyKey`. Альтернатива `{ keepText: true }` явно залишає текст з файлу (`instructor_directed`, `modified: true`). Потрібна рівно одна дія з `optionKey`, `writeOwn`, `keepText`; locked-політика → 409 `LOCKED`.
 - `start` треку scratch: привітання → картка курсу (`kind: text`, `payload.courseCard: true` — показана, не запитана) → питання інтерв'юера (`kind: question`, `payload { slotKey, question, why }`) → перша pending-картка за `order`, якщо є; поки є pending-картка, нового питання немає. `skip` додає ключ у `Conversation.skippedSlots` і (трек 1) лишає в чаті репліку «Skip: …».
 - **Інтерв'ю (трек 1).** `nextQuestion({ state, refs, transcript, skipped, preferredSection })` → `{ slotKey, question, why } | null`. Код відбирає лише порожні не пропущені C/D-слоти з `editability: free` у порядку потоку (`services/ai/interviewPlan.js`); модель обирає серед них (enum у strict `json_schema`); збій LLM → шаблонне питання `TemplateSection.question`. Відповідь на питання про курс (`course.description|objectives|outcomes|capstone`) → `formulator.draftFromNarrative` → чотири pending-картки (`origin: interviewer`), у чаті — по одній; решта слотів → `runner.runOrchestratorTurn` з `currentSlotKey`. Після відповіді `Conversation.answeredSlots` закриває слоти (відхилення чернетки не повторює питання). Після підтвердження LO — картки мапінгу PLO (`loMapping.suggestPlo`); політики — картки `policy-choice`, не питання. Реплика «Let's work on <section>» (або «ask me about …») ставить `preferredSection`: наступне питання — про цей розділ. Трек 2 інтерв'юера не використовує.
 - Confirm картки `outcomes[id].plo` встановлює `confirmed: true` для всіх зв'язків. `kind: question` → 409 `ANSWER_REQUIRED`; `applicable: false` приймається без зміни стану. Reject critical/high без причини → 400 `REASON_REQUIRED`; відхилена порада Readiness не знижує.
@@ -189,14 +190,18 @@ readiness = {
 
 `submission-cta` прибрано.
 
+`Message.origin` (лише для `role: 'user'`): `instructor` (за замовчуванням) — репліка самого викладача (вільне повідомлення, відгук Reword, відповідь на питання); `server` — репліка, яку сервер пише від його імені після кнопки (`Confirmed: …`, `Cancelled: …`, `Back to: …`, `Skip: …`). Серверні репліки показуються в чаті, але не потрапляють у жоден транскрипт для LLM (інтерв'юер, оркестратор, formulator) і в корпус «відомого» сканера фактів: заголовки карток пише модель.
+
+Двох питань поспіль не буває (код, `flow.postNextStep`): якщо останнє повідомлення — питання AI (`question`/`policy-choice`), на яке викладач нічого не зробив (ні репліки, ні рішення після нього — `Conversation.lastDecisionAt`, ні Skip, ні відповіді), нове питання не ставиться, а попереднє лишається поточним.
+
 ## 8. Інструменти оркестратора (`services/ai/tools`)
 
 | Інструмент | Дія | Обмеження в коді |
 |---|---|---|
 | `get_slot(key)` | Читає поточне значення | Текст документа повертається як недовірені дані |
-| `set_slot(key, value)` | Записує відповідь | Лише `free`-слоти типу A/C, скаляр, значення має бути в останній репліці викладача |
-| `propose_draft(key, text, instruction?)` | Створює pending Suggestion | Для політик `instruction` обов'язкова й має цитувати викладача |
-| `apply_edit(draftId)` | Застосовує чернетку | Лише підтверджена чернетка без непідтверджених `proposedValues` |
+| `set_slot(key, value)` | Записує відповідь | Лише `free`-слоти типу A/C, скаляр, значення має бути в останній репліці викладача. Число для `header.ects`/`header.totalHours` має стояти поруч (≤ 3 слова) з назвою поля («6 ECTS», «120 hours») або бути короткою відповіддю на питання саме про це поле, інакше `AMBIGUOUS_VALUE` (модель уточнює) |
+| `propose_draft(key, text, instruction?)` | Створює pending Suggestion | Для політик `instruction` — дослівна цитата з **останньої** репліки викладача; без цитати — лише якщо розмову переведено на цю політику кнопкою «Write my own» (`currentSlotKey === writeOwnPolicyKey === key`), інакше `POLICY_NEEDS_INSTRUCTION` |
+| `apply_edit(draftId)` | Застосовує чернетку | Лише підтверджена чернетка без непідтверджених `proposedValues`, і лише картка, яку зараз показано: `draftId === Conversation.currentSuggestionId` і саме вона — останнє повідомлення AI перед реплікою-підтвердженням. Інакше `NEEDS_CONFIRM` (`reason: not_current_card`): «yes» на «Shall I look for readings?» не застосовує іншу pending-картку |
 | `run_checks()` | Повертає Check[] і Readiness | — |
 
 Для `locked`-слотів усі мутуючі інструменти повертають `{ error: 'LOCKED' }`.
@@ -209,14 +214,15 @@ readiness = {
 | `suggest_plo(outcome_ids)` | Картки `outcomes[<id>].plo` через `prompts/loMapping.js` (`confirmed: false`) |
 | `suggest_readings(query)` | Картка `materials.recommended[]` через `prompts/readings.js`; лише з перевіреним URL, інакше нічого |
 
-Коди помилок інструментів: `LOCKED`, `UNKNOWN_SLOT`, `SLOT_NOT_WRITABLE`, `NOT_SCALAR`, `USE_PROPOSE_DRAFT`, `POLICY_NEEDS_INSTRUCTION`, `SLOT_NOT_DRAFTABLE`, `UNKNOWN_ENTITY`, `UNVERIFIED_URL`, `NEEDS_CONFIRM`, `ONE_WRITE_PER_TURN` та коди `accept` (`STALE_DRAFT` тощо).
+Коди помилок інструментів: `LOCKED`, `UNKNOWN_SLOT`, `SLOT_NOT_WRITABLE`, `NOT_SCALAR`, `USE_PROPOSE_DRAFT`, `AMBIGUOUS_VALUE`, `POLICY_NEEDS_INSTRUCTION`, `SLOT_NOT_DRAFTABLE`, `UNKNOWN_ENTITY`, `UNVERIFIED_URL`, `NEEDS_CONFIRM`, `ONE_WRITE_PER_TURN` та коди `accept` (`STALE_DRAFT` тощо).
 
 `runOrchestratorTurn(ctx)`: `ctx.deps = { mutate(syllabusId, expectedRevision, fn, ctx), getState(syllabusId), createDraftSuggestions(inputs, ctx), runChecks(state, refs), findSuggestion(id), acceptSuggestion(id, { expectedRevision, userId }) }`. Перші п'ять мають дефолти (`store.mutate`, `store.getState`, `draftSuggestions.createDraftSuggestions`, `checks.runChecks`, `Suggestion.findById`); `acceptSuggestion` реалізує сервіс рішень чату, без нього `apply_edit` повертає `NOT_CONFIGURED`.
 
 ## 9. Спільні модулі та інтерфейси (W2)
 
-- **`services/ai/facts.js` — серверний сканер фактів.** `scanFacts(text, { known })`, `mergeProposedValues(modelValues, scanned)`, `toTemplate`, `renderTemplate`. Застосовується до **кожної** чернетки моделі; `known` = репліки викладача + тексти довідників + поточне значення слота.
+- **`services/ai/facts.js` — серверний сканер фактів.** `scanFacts(text, { known })`, `mergeProposedValues(modelValues, scanned)`, `toTemplate`, `renderTemplate`. Застосовується до **кожної** чернетки моделі; `known` = репліки викладача (лише `origin: instructor`) + тексти довідників + людський текст поточного значення слота (`chat/known.readableText`, без id, `blockIds` і провенансу). Числа рахуються лише як окремі слова: `clo3`, `b0012`, `obj2` чисел не дають.
 - **`services/chat/draftSuggestions.js` — створення v5-карток.** `buildDraftSuggestion(input, { syllabusId, state, refs, known })` і `createDraftSuggestions(inputs, ctx)`; `hashValue(value)` дає `basisHash`. Порядок: severity (`SEVERITY_ORDER`) × 100 + `TemplateSection.order`.
+  - **URL.** Будь-який URL у `text`/`value` чернетки (Reword, answer, Ревізор, formulator, оркестратор), якого немає в `known` чи в поточному значенні слота і який не перевірений (`sources[]` з `verified: true` — їх заздалегідь перевіряє `readings.js` через `caseSources.verifyUrl`), вирізається синхронно (`caseSources.stripUrls`); поле `url`, що спорожніло, стає `null` (`verified: false`), а до опису картки додається «Source not confirmed: an unverified link was removed from this draft.»
 - **`target.path` — конкретний шлях стану.** Приклади: `summary.shortDescription`, `outcomes[]` (увесь масив), `assessments[as1].criteria`, `policies{policy.late}`.
   - Для політик `draft.value` — текст. Accept записує в блок `text`, `source` (`fixture_edited`, якщо був обраний варіант, інакше `instructor_directed`) і `modified: true` (якщо змінено текст довідника).
   - Вибір варіанта — картка `choice` з `options[{ id, label, optionKey }]`.

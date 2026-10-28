@@ -28,6 +28,9 @@ const conversationSchema = new mongoose.Schema({
   // Уже обговорені слоти: Cancel не запускає те саме інтерв'ю знову; стрибок у розділ дозволяє повернутися.
   answeredSlots: { type: [String], default: [] },
   preferredSection: { type: String, default: null },
+  // Політика, для якої викладач натиснув «Write my own». Лише поки currentSlotKey дорівнює цьому ключу, propose_draft
+  // може писати текст політики без дослівної цитати з останньої репліки (docs/api-v5.md §8). Питання інтерв'юера знімає його.
+  writeOwnPolicyKey: { type: String, default: null },
   lastDecisionAt: Date,
   consecutiveAiFailures: { type: Number, default: 0 },
 }, { timestamps: true });

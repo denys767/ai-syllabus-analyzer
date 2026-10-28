@@ -31,9 +31,9 @@ async function seeded() {
 }
 
 /** Контекст ходу з реальним store і createDraftSuggestions; userText — остання репліка викладача. */
-async function turn(userText, { messages = [], deps = {} } = {}) {
+async function turn(userText, { messages = [], deps = {}, conversation } = {}) {
   const seed = await seeded();
-  return { seed, tctx: createToolContext({ ...seed, refs, userText, userId: owner._id, messages, deps }) };
+  return { seed, tctx: createToolContext({ ...seed, refs, userText, userId: owner._id, messages, deps, conversation }) };
 }
 
 describe('locked', () => {
@@ -96,6 +96,29 @@ describe('set_slot', () => {
     expect(await SlotChange.findOne({ syllabusId: seed.syllabus._id, path: 'header.ects' }).lean()).toMatchObject({ before: 2, after: 6, source: 'chat' });
   });
 
+  test.each([
+    ['число не біля назви поля', 'I run 6 sessions', undefined],
+    ['число біля іншого поля', 'I run 6 sessions, and the course has 3 ECTS', undefined],
+    ['коротка відповідь, але питали про інший слот', 'It is 6', 'glance.department'],
+  ])('m1: %s → AMBIGUOUS_VALUE, стан не змінено', async (_, text, currentSlotKey) => {
+    const { seed, tctx } = await turn(text, { conversation: { currentSlotKey } });
+    const out = await runTool(tctx, 'set_slot', { key: 'glance.ects', value: 6 });
+    expect(out.error).toBe('AMBIGUOUS_VALUE');
+    expect((await store.getState(seed.syllabus._id)).revision).toBe(seed.revision);
+  });
+
+  test.each([
+    ['ECTS will be 6', undefined, 6],
+    ['6 credits', undefined, 6],
+    ['I run 6 sessions, and the course has 3 ECTS', undefined, 3],
+    ['It is 6', 'glance.ects', 6],
+    ['6', 'glance.ects', 6],
+  ])('m1: «%s» → число зараховано полю ECTS', async (text, currentSlotKey, value) => {
+    const { seed, tctx } = await turn(text, { conversation: { currentSlotKey } });
+    expect(await runTool(tctx, 'set_slot', { key: 'glance.ects', value })).toMatchObject({ ok: true, value });
+    expect((await store.getState(seed.syllabus._id)).state.header.ects).toBe(value);
+  });
+
   test('режим доставки: значення з переліку, регістр не важить', async () => {
     const { seed, tctx } = await turn('We teach Online only');
     expect(await runTool(tctx, 'set_slot', { key: 'glance.delivery_mode', value: 'Online' })).toMatchObject({ ok: true, value: 'online' });
@@ -150,9 +173,44 @@ describe('propose_draft', () => {
     expect((await runTool(tctx, 'propose_draft', policyArgs('at'))).error).toBe('POLICY_NEEDS_INSTRUCTION');
   });
 
-  test('цитата з будь-якої репліки викладача (нормалізовано) → картка політики', async () => {
-    const messages = [{ role: 'user', kind: 'text', content: 'Attendance should be MANDATORY, at 60%.' }, { role: 'ai', kind: 'text', content: 'ok' }];
+  test('M1: цитата лише з ОСТАННЬОЇ репліки викладача; з попередніх — POLICY_NEEDS_INSTRUCTION', async () => {
+    const messages = [{ role: 'user', origin: 'instructor', kind: 'text', content: 'Attendance should be MANDATORY, at 60%.' }, { role: 'ai', kind: 'text', content: 'ok' }];
     const { seed, tctx } = await turn('Thanks', { messages });
+    expect((await runTool(tctx, 'propose_draft', policyArgs('attendance should be mandatory'))).error).toBe('POLICY_NEEDS_INSTRUCTION');
+    expect(await Suggestion.countDocuments({ syllabusId: seed.syllabus._id })).toBe(0);
+  });
+
+  test('M1: серверна репліка «Confirmed: Draft: Policies» не є вказівкою викладача', async () => {
+    const messages = [
+      { role: 'user', origin: 'server', kind: 'text', content: 'Confirmed: Draft: Policies' },
+      { role: 'ai', kind: 'text', content: 'Done.' },
+    ];
+    const { tctx } = await turn('ok', { messages });
+    expect(tctx.utterances).toEqual(['ok']);
+    expect((await runTool(tctx, 'propose_draft', policyArgs('draft: policies'))).error).toBe('POLICY_NEEDS_INSTRUCTION');
+  });
+
+  test('M1: «Write my own» (writeOwnPolicyKey = currentSlotKey = ключ) дозволяє чернетку без цитати', async () => {
+    const conversation = { currentSlotKey: LIBRARY_POLICY, writeOwnPolicyKey: LIBRARY_POLICY };
+    const { seed, tctx } = await turn('Students must come to most classes', { conversation });
+    const out = await runTool(tctx, 'propose_draft', policyArgs(null));
+    expect(out).toMatchObject({ ok: true, status: 'pending' });
+    const card = await Suggestion.findById(out.draft_id).lean();
+    expect(card.description).toBe('Policy text drafted from your own description in chat.');
+    expect(card.syllabusId).toEqual(seed.syllabus._id);
+  });
+
+  test('M1: вибір політики з картки (currentSlotKey без writeOwnPolicyKey) або get_slot не відкривають запис політики', async () => {
+    const { tctx } = await turn('What is the difference?', { conversation: { currentSlotKey: LIBRARY_POLICY } });
+    expect((await runTool(tctx, 'propose_draft', policyArgs(null))).error).toBe('POLICY_NEEDS_INSTRUCTION');
+    const { tctx: other } = await turn('What is the difference?', { conversation: { currentSlotKey: 'course.description', writeOwnPolicyKey: LIBRARY_POLICY } });
+    await runTool(other, 'get_slot', { key: LIBRARY_POLICY });
+    expect(other.currentSlotKey).toBe(LIBRARY_POLICY);
+    expect((await runTool(other, 'propose_draft', policyArgs(null))).error).toBe('POLICY_NEEDS_INSTRUCTION');
+  });
+
+  test('цитата з останньої репліки викладача (нормалізовано) → картка політики', async () => {
+    const { seed, tctx } = await turn('Attendance should be MANDATORY, at 60%.');
     const out = await runTool(tctx, 'propose_draft', policyArgs('attendance should be mandatory'));
     expect(out).toMatchObject({ ok: true, status: 'pending' });
     const card = await Suggestion.findById(out.draft_id).lean();
@@ -255,13 +313,49 @@ describe('apply_edit', () => {
     await new Promise((r) => setTimeout(r, 5));
     return card;
   }
+  /** Картку показано (поточна й останнє повідомлення AI), далі — репліка викладача. */
+  const shown = (card) => ({
+    conversation: { currentSuggestionId: card._id },
+    messages: [{ role: 'ai', kind: 'suggestion', content: card.title, relatedSuggestionId: card._id }],
+  });
   async function applyTurn(userText, proposedValues, extraDeps = {}) {
     const seed = await seeded();
     const card = await pendingDraft(seed, proposedValues);
     const acceptSuggestion = jest.fn().mockResolvedValue({ revision: seed.revision + 1 });
-    const tctx = createToolContext({ ...seed, refs, userText, userId: owner._id, deps: { acceptSuggestion, ...extraDeps } });
+    const tctx = createToolContext({ ...seed, ...shown(card), refs, userText, userId: owner._id, deps: { acceptSuggestion, ...extraDeps } });
     return { seed, card, tctx, acceptSuggestion };
   }
+
+  test('M3: «Shall I look for readings?» → «yes» не застосовує pending-картку ревізора', async () => {
+    const seed = await seeded();
+    const card = await pendingDraft(seed);
+    const acceptSuggestion = jest.fn();
+    const messages = [
+      { role: 'ai', kind: 'suggestion', content: card.title, relatedSuggestionId: card._id },
+      { role: 'user', origin: 'instructor', kind: 'text', content: 'Can we add some readings?' },
+      { role: 'ai', kind: 'text', content: 'Shall I look for readings?' },
+      { role: 'user', origin: 'instructor', kind: 'text', content: 'yes' },
+    ];
+    const tctx = createToolContext({ ...seed, refs, userText: 'yes', userId: owner._id, messages, conversation: { currentSuggestionId: card._id }, deps: { acceptSuggestion } });
+    const out = await runTool(tctx, 'apply_edit', { draft_id: String(card._id) });
+    expect(out).toMatchObject({ error: 'NEEDS_CONFIRM', reason: 'not_current_card' });
+    expect(acceptSuggestion).not.toHaveBeenCalled();
+    expect(tctx.stateChanged).toBe(false);
+  });
+
+  test('M3: картка, яку зараз не показано (currentSuggestionId інший), → NEEDS_CONFIRM', async () => {
+    const seed = await seeded();
+    const card = await pendingDraft(seed);
+    const other = await pendingDraft(seed);
+    const acceptSuggestion = jest.fn();
+    const tctx = createToolContext({ ...seed, ...shown(other), refs, userText: 'yes', userId: owner._id, deps: { acceptSuggestion } });
+    expect(await runTool(tctx, 'apply_edit', { draft_id: String(card._id) })).toMatchObject({ error: 'NEEDS_CONFIRM', reason: 'not_current_card' });
+    // Поточна картка, але останнім AI показав не її
+    const stale = createToolContext({ ...seed, refs, userText: 'yes', userId: owner._id, deps: { acceptSuggestion },
+      conversation: { currentSuggestionId: card._id }, messages: shown(other).messages });
+    expect(await runTool(stale, 'apply_edit', { draft_id: String(card._id) })).toMatchObject({ error: 'NEEDS_CONFIRM', reason: 'not_current_card' });
+    expect(acceptSuggestion).not.toHaveBeenCalled();
+  });
 
   test('без явного підтвердження → NEEDS_CONFIRM, запису немає', async () => {
     const { card, tctx, acceptSuggestion } = await applyTurn('Please make it shorter', []);
@@ -311,14 +405,14 @@ describe('apply_edit', () => {
     const stale = Object.assign(new Error('stale'), { statusCode: 409, code: 'STALE_DRAFT' });
     const seed = await seeded();
     const card = await pendingDraft(seed);
-    const tctx = createToolContext({ ...seed, refs, userText: 'confirm', userId: owner._id, deps: { acceptSuggestion: jest.fn().mockRejectedValue(stale) } });
+    const tctx = createToolContext({ ...seed, ...shown(card), refs, userText: 'confirm', userId: owner._id, deps: { acceptSuggestion: jest.fn().mockRejectedValue(stale) } });
     expect((await runTool(tctx, 'apply_edit', { draft_id: String(card._id) })).error).toBe('STALE_DRAFT');
   });
 
   test('без deps.acceptSuggestion → NOT_CONFIGURED', async () => {
     const seed = await seeded();
     const card = await pendingDraft(seed);
-    const tctx = createToolContext({ ...seed, refs, userText: 'yes', userId: owner._id, deps: {} });
+    const tctx = createToolContext({ ...seed, ...shown(card), refs, userText: 'yes', userId: owner._id, deps: {} });
     expect((await runTool(tctx, 'apply_edit', { draft_id: String(card._id) })).error).toBe('NOT_CONFIGURED');
   });
 });

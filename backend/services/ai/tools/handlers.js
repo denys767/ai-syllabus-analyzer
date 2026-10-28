@@ -1,8 +1,12 @@
 // Обробники інструментів оркестратора. Правила безпеки (docs/api-v5.md §8) виконуються тут, у коді, а не в промпті:
 //  · locked → усі мутуючі інструменти повертають { error: 'LOCKED' };
-//  · set_slot — лише free-слоти типу A/C, скаляр, значення буквально є в останній репліці викладача;
-//  · propose_draft — лише pending-картка; для політик потрібна instruction-цитата викладача; факти додає серверний сканер;
-//  · apply_edit — лише раніше створена pending-картка, усі proposedValues підтверджені, остання репліка — явне підтвердження;
+//  · set_slot — лише free-слоти типу A/C, скаляр, значення буквально є в останній репліці викладача
+//    (число — поруч із назвою поля, інакше AMBIGUOUS_VALUE);
+//  · propose_draft — лише pending-картка; для політик потрібна instruction-цитата з ОСТАННЬОЇ репліки викладача
+//    або розмова, переведена на цю політику кнопкою «Write my own»; факти додає серверний сканер;
+//  · apply_edit — лише поточна картка (currentSuggestionId), яку AI показав останньою перед реплікою викладача,
+//    усі proposedValues підтверджені, остання репліка — явне підтвердження;
+//  · серверні репліки від імені викладача (Message.origin: 'server') не є ні його словами, ні підтвердженням;
 //  · будь-який запис стану — через deps.mutate(expectedRevision), на STATE_CONFLICT один повтор із перечитаним станом;
 //  · текст документа в результатах — у маркерах <untrusted_document_text>.
 const { getSlot } = require('../../syllabusState/slots');
@@ -35,6 +39,28 @@ function containsLiteral(utterance, value) {
     ? new RegExp(`(?<![\\d]|\\d[.,])${escapeRe(v)}(?![.,]?\\d)`)
     : new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(v)}(?![\\p{L}\\p{N}])`, 'u');
   return re.test(norm(utterance));
+}
+
+// Назви числових полів: число в репліці зараховується полю, лише якщо стоїть поруч із ними
+const NUMBER_FIELD_WORDS = {
+  'header.ects': /^(?:ects|credits?|кредит\p{L}*)$/u,
+  'header.totalHours': /^(?:hours?|hrs?|h|годин\p{L}*)$/u,
+};
+const NUMBER_FIELD_DISTANCE = 3;
+const MAX_BARE_ANSWER_TOKENS = 3;
+
+/**
+ * Число value стосується поля path: поруч (≤ 3 слова) є назва поля («6 ECTS», «ECTS will be 6», «120 hours»),
+ * або коротка відповідь на питання саме про це поле («6», «It's 6») з єдиним числом.
+ */
+function numberIsAbout(utterance, value, path, askedAboutThisSlot) {
+  const words = NUMBER_FIELD_WORDS[path];
+  const tokens = norm(utterance).match(/\d+(?:[.,]\d+)?|\p{L}+/gu) || [];
+  const v = norm(value).replace(',', '.');
+  const isNumber = (t) => /^\d/.test(t);
+  const hits = tokens.map((t, i) => (isNumber(t) && t.replace(',', '.') === v ? i : -1)).filter((i) => i >= 0);
+  if (words && hits.some((i) => tokens.some((t, j) => Math.abs(i - j) <= NUMBER_FIELD_DISTANCE && words.test(t)))) return true;
+  return askedAboutThisSlot && tokens.length <= MAX_BARE_ANSWER_TOKENS && tokens.filter(isNumber).length === 1 && hits.length === 1;
 }
 
 // Явне підтвердження: коротка репліка, що цілком складається з дозволених фраз (детермінований список)
@@ -78,15 +104,22 @@ function withDefaultDeps(deps = {}) {
   return out;
 }
 
+/** Репліка самого викладача: серверні «Confirmed: …», «Skip: …» (origin: 'server') — ні. */
+const isInstructorMessage = (m) => m?.role === 'user' && m.origin !== 'server';
+
 /**
  * Змінний контекст одного ходу оркестратора.
- * @param {{ syllabus, state, revision, refs, userText, userId, messages?, deps }} ctx
+ * @param {{ syllabus, state, revision, refs, userText, userId, messages?, conversation?, currentSlotKey?, deps }} ctx
+ *   messages — у хронологічному порядку; conversation — { currentSuggestionId, currentSlotKey, writeOwnPolicyKey }
  */
 function createToolContext(ctx) {
-  const fromHistory = (ctx.messages || []).filter((m) => m.role === 'user' && (m.kind || 'text') === 'text' && filled(m.content)).map((m) => m.content);
+  const history = ctx.messages || [];
+  const fromHistory = history.filter((m) => isInstructorMessage(m) && (m.kind || 'text') === 'text' && filled(m.content)).map((m) => m.content);
   const last = String(ctx.userText || '');
   // Поточну репліку можуть уже зберегти в messages: не дублюємо
   const utterances = norm(fromHistory[fromHistory.length - 1]) === norm(last) ? fromHistory : [...fromHistory, last];
+  const conversation = ctx.conversation || {};
+  const slotKey = ctx.currentSlotKey ?? conversation.currentSlotKey ?? null;
   return {
     syllabusId: ctx.syllabus._id || ctx.syllabus.id,
     state: ctx.state,
@@ -100,7 +133,13 @@ function createToolContext(ctx) {
     createdIds: [],
     wrote: false,
     stateChanged: false,
-    currentSlotKey: ctx.currentSlotKey ?? ctx.conversation?.currentSlotKey ?? null,
+    currentSlotKey: slotKey,
+    // Слот розмови на початку ходу (get_slot/propose_draft змінюють лише currentSlotKey)
+    conversationSlotKey: slotKey,
+    writeOwnPolicyKey: conversation.writeOwnPolicyKey ?? null,
+    // Картка, яку зараз показано, і останнє повідомлення AI перед реплікою викладача (для apply_edit)
+    currentSuggestionId: conversation.currentSuggestionId ? String(conversation.currentSuggestionId) : null,
+    lastAiMessage: [...history].reverse().find((m) => m.role === 'ai') || null,
   };
 }
 
@@ -173,6 +212,10 @@ async function set_slot(tctx, { key, value }) {
   if (!containsLiteral(tctx.lastUtterance, raw)) {
     return fail('USE_PROPOSE_DRAFT', 'The value is not literally in the instructor\'s last message; propose it as a draft for confirmation');
   }
+  // «I run 6 sessions» — це не 6 ECTS: число має стояти поруч із назвою поля (або бути всією відповіддю на питання про це поле)
+  if (NUMERIC_PATHS.has(slot.path) && !numberIsAbout(tctx.lastUtterance, raw, slot.path, tctx.conversationSlotKey === key)) {
+    return fail('AMBIGUOUS_VALUE', 'The number is not clearly about this field; ask the instructor which value they mean before writing it');
+  }
   let next = raw;
   if (NUMERIC_PATHS.has(slot.path)) {
     next = Number(String(raw).replace(',', '.'));
@@ -196,11 +239,14 @@ async function propose_draft(tctx, { key, text, instruction, entity_id: entityId
   if (!body || body.length > MAX_DRAFT_CHARS) return fail('INVALID_VALUE', 'The draft text is empty or too long');
 
   const isPolicy = key.startsWith('policy.');
+  let quoted = false;
   if (isPolicy) {
-    // AI не пише політику з власної ініціативи: потрібна цитата вказівки викладача
+    // AI не пише політику з власної ініціативи: цитата з ОСТАННЬОЇ репліки викладача (не з історії і не з серверних
+    // «Confirmed: …») або розмова, яку викладач сам перевів на цю політику кнопкою «Write my own»
     const quote = norm(instruction);
-    const cited = quote.length >= MIN_INSTRUCTION_CHARS && quote.includes(' ') && tctx.utterances.some((u) => norm(u).includes(quote));
-    if (!cited) return fail('POLICY_NEEDS_INSTRUCTION', 'Policy text can only be drafted on the instructor\'s instruction; quote it verbatim in instruction, or let them choose a library option');
+    quoted = quote.length >= MIN_INSTRUCTION_CHARS && quote.includes(' ') && norm(tctx.lastUtterance).includes(quote);
+    const writingOwn = tctx.writeOwnPolicyKey === key && tctx.conversationSlotKey === key;
+    if (!quoted && !writingOwn) return fail('POLICY_NEEDS_INSTRUCTION', 'Policy text can only be drafted on the instructor\'s instruction; quote their last message verbatim in instruction, or let them choose a library option');
   }
   // Посилання лише ті, що назвав викладач (перевірені URL додає suggest_readings)
   const urls = body.match(/https?:\/\/\S+/gi) || [];
@@ -250,7 +296,9 @@ async function propose_draft(tctx, { key, text, instruction, entity_id: entityId
     kind: 'edit',
     severity: 'medium',
     title: `Draft: ${sectionTitle(tctx, slot)}`,
-    description: isPolicy ? `Policy text drafted per your instruction: “${String(instruction).trim()}”` : 'Drafted from your answers in chat.',
+    description: isPolicy
+      ? (quoted ? `Policy text drafted per your instruction: “${String(instruction).trim()}”` : 'Policy text drafted from your own description in chat.')
+      : 'Drafted from your answers in chat.',
     rationale: isPolicy ? 'Written only as the instructor asked; no rules were added.' : 'Based on what you told me in this conversation.',
     ...part,
     proposedValues,
@@ -279,9 +327,14 @@ async function apply_edit(tctx, { draft_id: draftId }) {
   const createdNow = tctx.createdIds.includes(String(suggestion._id))
     || (suggestion.createdAt && new Date(suggestion.createdAt).getTime() >= tctx.startedAt);
   const unconfirmed = (suggestion.draft.proposedValues || []).filter((v) => !v.confirmed);
-  if (createdNow || unconfirmed.length || !isExplicitConfirm(tctx.lastUtterance)) {
+  // «yes» підтверджує лише картку, яку зараз показано й яку AI показав останньою перед цією реплікою:
+  // відповідь на «Shall I look for readings?» не застосовує іншу pending-картку
+  const last = tctx.lastAiMessage;
+  const shownCard = tctx.currentSuggestionId === String(suggestion._id)
+    && last?.kind === 'suggestion' && String(last.relatedSuggestionId) === String(suggestion._id);
+  if (createdNow || unconfirmed.length || !shownCard || !isExplicitConfirm(tctx.lastUtterance)) {
     return fail('NEEDS_CONFIRM', 'The instructor must press Confirm on the card', {
-      reason: createdNow ? 'created_this_turn' : unconfirmed.length ? 'unconfirmed_values' : 'no_explicit_confirmation',
+      reason: createdNow ? 'created_this_turn' : unconfirmed.length ? 'unconfirmed_values' : !shownCard ? 'not_current_card' : 'no_explicit_confirmation',
       unconfirmed: unconfirmed.map((v) => ({ id: v.id, label: v.label, value: v.value })),
     });
   }
@@ -370,4 +423,4 @@ async function runTool(tctx, name, args) {
   }
 }
 
-module.exports = { createToolContext, runTool, HANDLERS, isExplicitConfirm, containsLiteral, norm };
+module.exports = { createToolContext, runTool, HANDLERS, isExplicitConfirm, containsLiteral, numberIsAbout, isInstructorMessage, norm };

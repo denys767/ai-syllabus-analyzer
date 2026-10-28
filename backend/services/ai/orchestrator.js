@@ -100,12 +100,25 @@ async function analyzeSyllabus(syllabusId, { leaseToken } = {}) {
   const created = await createDraftSuggestions([...cards, ...reviewed], {
     syllabusId, state, refs, known: knownTexts(state, refs),
   });
+  const createdIds = created.map((c) => c._id);
 
-  const completed = await Syllabus.updateOne(ownedAnalysis(syllabusId, leaseToken), {
-    $set: { status: 'in_progress', analysisStage: 'done', needsRebuild: false, track: 'upload' },
-    $unset: { analysisError: '' },
-  });
-  if (!completed.matchedCount) await assertLease(syllabusId, leaseToken);
+  // deleteMany → insertMany не атомарні з lease: якщо lease перехопили між перевіркою і вставкою,
+  // новий власник уже видалив старі картки, тож прибираємо лише свої (інакше — дублікати після перезапуску)
+  let completed;
+  try {
+    completed = await Syllabus.updateOne(ownedAnalysis(syllabusId, leaseToken), {
+      $set: { status: 'in_progress', analysisStage: 'done', needsRebuild: false, track: 'upload' },
+      $unset: { analysisError: '' },
+    });
+  } catch (error) {
+    await Suggestion.deleteMany({ _id: { $in: createdIds } });
+    throw error;
+  }
+  if (!completed.matchedCount && leaseToken) {
+    await Suggestion.deleteMany({ _id: { $in: createdIds } });
+    await assertLease(syllabusId, leaseToken);
+    throw Object.assign(new Error('The analysis is being continued by another process.'), { code: 'ANALYSIS_LEASE_LOST' });
+  }
   return { suggestions: created.length, revision: saved.revision };
 }
 

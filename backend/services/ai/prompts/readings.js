@@ -26,7 +26,7 @@ async function suggestReadings({ state, refs, query } = {}) {
   if (!q || !caseSources.caseSearchEnabled()) return [];
   const found = await caseSources.findCaseSources({
     finding: { claim: q, suggestedAction: 'Recommend suitable readings or published cases for this topic' },
-    meta: { courseName: state?.header?.courseTitle || '' },
+    meta: { courseName: state?.header?.courseTitle || '', programCode: refs?.programCode || state?.programCode || '' },
   });
   const verified = (found || []).filter((c) => c.verified && c.url && c.title).slice(0, MAX_READINGS);
   if (!verified.length) return [];

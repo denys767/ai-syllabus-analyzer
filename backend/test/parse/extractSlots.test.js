@@ -39,6 +39,9 @@ test('успішний витяг: запит strict json_schema, блоки з 
   expect(req.input[0].content).toMatch(/ПРН1:/); // перелік ПРН програми
   expect(req.input[1].content).toContain('[b0003] Course Title: Negotiation and Influence');
   expect(req.input[1].content).toContain('[b0044] (T1 R1 C1) 20');
+  // m13: текст документа — недовірені дані в маркерах
+  expect(req.input[1].content.startsWith('<untrusted_document_text>')).toBe(true);
+  expect(req.input[1].content.endsWith('</untrusted_document_text>')).toBe(true);
 });
 
 test('неіснуючі blockIds → коригувальний повтор з текстом помилки, далі успіх', async () => {
