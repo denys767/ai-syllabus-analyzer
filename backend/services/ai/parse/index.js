@@ -1,11 +1,36 @@
-// Трек 2: розбір вхідного файлу по слотах (blocks → Syllabus.state). Заготовка W2 — реалізує агент G.
-const { httpError } = require('../../../utils/httpError');
+// Трек 2: розбір вхідного файлу по слотах (blocks → Syllabus.state), docs/V5_PLAN.md «Трек 2 — парсинг».
+// extractSlots (LLM) → policyMatch (LLM-класифікація + детермінована схожість) → toState (детерміновано).
+const { extractSlots } = require('./extractSlots');
+const { matchPolicies } = require('./policyMatch');
+const { toState } = require('./toState');
+const references = require('../../references');
 
 /**
  * @param {{ blocks: Block[], meta?, programCode, refs, course?: { title, code } }} input
- * @returns {Promise<{ state, policyMatches: Array<{ key, candidateOptionKey, match }>, warnings: string[] }>}
+ *   course — що відомо про курс поза файлом (лише для підказки courseKind, у стан не потрапляє)
+ * @param {{ extractSlots?, matchPolicies?, courseKind?, stats? }} deps  підміна залежностей (тести)
+ * @returns {Promise<{ state, policyMatches: Array<{ key, candidateOptionKey, match, similarity }>, lockedNotes: Array<{ key, fileText, similarity, match, evidenceBlockIds }>,
+ *   courseHint: { code, title, matchedBy: 'title' } | null, warnings: string[] }>}
  *   state валідний за syllabusState/schema.validateState, source 'parsed', evidenceBlockIds заповнені
  */
-async function parseToState() { throw httpError(501, 'Parser is not implemented yet', { code: 'NOT_IMPLEMENTED' }); }
+async function parseToState({ blocks, meta = {}, programCode, refs, course = {} }, deps = {}) {
+  const warnings = [];
+  const extracted = await (deps.extractSlots || extractSlots)({ blocks, meta, refs }, { stats: deps.stats });
+  warnings.push(...extracted.warnings);
+  const { slots } = extracted;
+
+  const policyResult = await (deps.matchPolicies || matchPolicies)({ segments: slots.policySegments, refs }, { stats: deps.stats });
+  const match = await (deps.courseKind || references.courseKind)(programCode, {
+    courseCode: slots.header.code, courseTitle: slots.header.title || course.title,
+  });
+  const state = toState({ slots, policies: policyResult.policies, programCode, refs,
+    courseMatch: match });
+  // Збіг назви — лише підказка; E-поле лишається elective до підтвердження коду.
+  const courseHint = match.matchedBy === 'title' && !state.header.courseCode
+    ? { code: match.course.code, title: match.course.en || match.course.uk, matchedBy: 'title' }
+    : null;
+
+  return { state, policyMatches: policyResult.matches, lockedNotes: policyResult.lockedNotes, courseHint, warnings };
+}
 
 module.exports = { parseToState };

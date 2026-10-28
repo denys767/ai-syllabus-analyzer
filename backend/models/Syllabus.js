@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 
-const ANALYSIS_STAGES = ['extract', 'structure', 'diagnose', 'verify', 'rewrite', 'done'];
+// v5: extract → parse → checks → review → done. Етапи конвеєра v4 лишаються в enum, щоб старі документи проходили валідацію (W3 прибере)
+const ANALYSIS_STAGES = ['extract', 'parse', 'checks', 'review', 'done'];
+const LEGACY_ANALYSIS_STAGES = ['structure', 'diagnose', 'verify', 'rewrite'];
 
 // Кешований фінальний файл: валідний, поки docVersion і acceptedHash збігаються з поточними
 const outputSchema = new mongoose.Schema({
@@ -85,7 +87,7 @@ const syllabusSchema = new mongoose.Schema({
     enum: ['analyzing', 'in_progress', 'submitted', 'error'],
     default: 'analyzing'
   },
-  analysisStage: { type: String, enum: [...ANALYSIS_STAGES, null], default: null },
+  analysisStage: { type: String, enum: [...ANALYSIS_STAGES, ...LEGACY_ANALYSIS_STAGES, null], default: null },
   // Коли розпочато поточний аналіз (для відновлення завислих) і текст останньої помилки
   analysisStartedAt: Date,
   analysisLeaseUntil: Date,

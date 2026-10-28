@@ -6,7 +6,7 @@ const Syllabus = require('../models/Syllabus');
 
 const LEASE_MS = Math.max(3000, Number(process.env.ANALYSIS_LEASE_MS) || 60000);
 const MAX_ATTEMPTS = 2;
-const RECOVERY_ERROR = 'Аналіз двічі переривався (перезапуск сервера або збій). Запустіть аналіз повторно.';
+const RECOVERY_ERROR = 'The analysis was interrupted twice (server restart or failure). Please run it again.';
 
 /** Фільтр: lease немає або він прострочений. */
 function expiredLease(now = new Date()) {
@@ -23,7 +23,7 @@ function ownedAnalysis(syllabusId, token) {
 /** Кидає ANALYSIS_LEASE_LOST, якщо job перехопив інший запуск або аналіз скасовано. */
 async function assertLease(syllabusId, token) {
   if (token && !await Syllabus.exists(ownedAnalysis(syllabusId, token))) {
-    throw Object.assign(new Error('Аналіз продовжує інший процес.'), { code: 'ANALYSIS_LEASE_LOST' });
+    throw Object.assign(new Error('The analysis is being continued by another process.'), { code: 'ANALYSIS_LEASE_LOST' });
   }
 }
 

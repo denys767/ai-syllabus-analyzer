@@ -35,7 +35,6 @@ test('clo4–clo6 без компонентів → warning', () => {
 test('повний перелік і порядок: severity, далі TemplateSection.order', () => {
   expect(ids(mba27())).toEqual([
     'plo.coverage',                    // high · learning_outcomes
-    'regulations.bonus_penalty',       // medium · policies («may be subject to a penalty» без розміру)
     'outcomes.clo_unassessed:clo4',    // warning · learning_outcomes (5)
     'outcomes.clo_unassessed:clo5',
     'outcomes.clo_unassessed:clo6',
