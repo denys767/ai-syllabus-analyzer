@@ -17,6 +17,9 @@ const { httpError, sendError } = require('../utils/httpError');
 const { getRefs } = require('../services/references');
 const { createEmptyState } = require('../services/syllabusState/empty');
 const { initState } = require('../services/syllabusState/store');
+const { resolveProfile } = require('../services/lecturers/profile');
+const { prepareInstructor } = require('../services/lecturers/cards');
+const { createDraftSuggestions } = require('../services/chat/draftSuggestions');
 
 const CLEANUP_GRACE_MS = 10 * 60 * 1000;
 
@@ -172,8 +175,11 @@ router.post('/', auth, [
     try {
       const refs = await getRefs(programCode);
       const state = createEmptyState({ programCode, track: 'scratch', refs, course: { title, code } });
+      const instructorCard = prepareInstructor(state, await resolveProfile(req.user.userId));
       await initState(syllabus._id, state, { setBaseline: true, refs });
+      await createDraftSuggestions([instructorCard], { syllabusId: syllabus._id, state, refs });
     } catch (err) {
+      await Suggestion.deleteMany({ syllabusId: syllabus._id });
       await Syllabus.deleteOne({ _id: syllabus._id });
       throw err;
     }

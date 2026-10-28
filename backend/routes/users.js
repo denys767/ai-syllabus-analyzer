@@ -10,6 +10,25 @@ const { deleteSyllabiCascade } = require('../services/syllabusCleanup');
 const { sendAccountDeletionEmail, sendEmailChangeConfirmation } = require('../services/emailService');
 
 const router = express.Router();
+const lecturerProfiles = require('../services/lecturers/profile');
+const { sendError } = require('../utils/httpError');
+
+// Профіль лише поточного користувача; id власника не приймаємо з клієнта.
+router.get('/profile/lecturer', auth, async (req, res) => {
+  try {
+    res.json(await lecturerProfiles.resolveProfile(req.user.userId));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+router.put('/profile/lecturer', auth, async (req, res) => {
+  try {
+    res.json({ message: 'Lecturer profile updated.', ...await lecturerProfiles.updateProfile(req.user.userId, req.body) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
 
 // Update user settings
 router.put('/settings', auth, async (req, res) => {

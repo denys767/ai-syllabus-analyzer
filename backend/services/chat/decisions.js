@@ -17,6 +17,7 @@ const {
   loadContext, requiresReason, REJECT_TAGS, refreshConversationReadiness, refreshStale, markStale,
 } = require('./state');
 const { knownFor } = require('./known');
+const { writeBackAccepted } = require('../lecturers/profile');
 const { policyKeyOf, assertWritable, writeSlot, policyPatch, setPolicy, filled } = require('./slotWrite');
 const {
   getOrCreateConversation, postNextStep, postUserMessage, postAiMessage, postSuggestionCard, transcriptOf, withAiFailureTracking,
@@ -86,6 +87,11 @@ function buildPlan(s, optionId, ctx) {
     });
   }
 
+  // Update не є порожнім профілем: лише відкриваємо розмову про поточні дані.
+  if (path === 'instructors[]' && option?.value === null && option.writeBack === false) {
+    return { source: 'instructor_directed', fn: (st) => st, focusInstructor: true, writeBack: false };
+  }
+
   let source;
   let fn;
   if (policyKey) {
@@ -108,6 +114,7 @@ function buildPlan(s, optionId, ctx) {
   }
   return {
     source,
+    writeBack: option?.writeBack !== false,
     fn: (st) => {
       // Перевіряємо також копію, яку прочитав mutate: ревізія з іншої вкладки не обходить basisHash.
       assertWritable(st, path);
@@ -135,11 +142,13 @@ async function acceptSuggestion(syllabusId, suggestionId, { optionId = null, exp
   );
   if (!claimed) throw notPending();
 
+  let acceptedState;
   try {
     if (plan) {
       const result = await store.mutate(syllabusId, expectedRevision ?? ctx.revision, plan.fn, {
         by: userId, source: plan.source, suggestionId: s._id, refs: ctx.refs,
       });
+      acceptedState = result.state;
       await Suggestion.updateOne({ _id: s._id, status: 'accepted', __v: claimed.__v }, {
         $set: { acceptedRevision: result.changes.length ? result.revision : null },
       });
@@ -151,9 +160,19 @@ async function acceptSuggestion(syllabusId, suggestionId, { optionId = null, exp
     });
     throw err;
   }
+  // Стан уже записаний: помилка зовнішньої системи не має повертати картку у pending.
+  if (acceptedState && plan.writeBack) {
+    await writeBackAccepted(ctx.syllabus.instructor, ctx.state.instructors[0], acceptedState.instructors[0]);
+  }
   await Suggestion.updateOne({ _id: s._id }, { $push: { decisionHistory: { action: 'accepted', by: userId, optionId: optionId || undefined } } });
   await postUserMessage(conversation, `Confirmed: ${s.title}`, s._id);
-  await afterDecision(conversation);
+  if (plan?.focusInstructor) {
+    await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: 'instructor.profile', currentSuggestionId: null } });
+    await postAiMessage(conversation, 'What would you like to update in your instructor profile? Share your changes and I will prepare them for confirmation.');
+    await afterDecision(conversation, { nextStep: false });
+  } else {
+    await afterDecision(conversation);
+  }
   return claimed;
 }
 
