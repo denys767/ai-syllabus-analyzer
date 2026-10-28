@@ -1,32 +1,34 @@
 // Відновлюваний аналіз: lease, продовження, захоплення без подвійного запуску, sweeper після рестарту.
 process.env.ANALYSIS_LEASE_MS = '3000';
-jest.mock('../services/ai/review', () => ({ runReview: jest.fn(), generateSuggestion: jest.fn() }));
+jest.mock('../services/ai/parse', () => ({ parseToState: jest.fn() }));
+jest.mock('../services/ai/prompts/reviewer', () => ({ reviewState: jest.fn(async () => []) }));
+jest.mock('../services/checks', () => ({ ...jest.requireActual('../services/checks'), runLlmChecks: jest.fn(async () => []) }));
 const helpers = require('./helpers');
 const Syllabus = require('../models/Syllabus');
 const Suggestion = require('../models/Suggestion');
-const review = require('../services/ai/review');
+const { parseToState } = require('../services/ai/parse');
+const references = require('../services/references');
+const { loadFixtureRefs } = require('../services/references/fixtureRefs');
+const { createEmptyState } = require('../services/syllabusState/empty');
+const refs = loadFixtureRefs('MBA28');
+const parsed = () => ({ state: createEmptyState({ refs, programCode: 'MBA28', track: 'upload' }), warnings: [], lockedNotes: [], courseHint: null });
 const runner = require('../services/analysisRunner');
 const { sweepStuckAnalyses } = require('../services/syllabusCleanup');
 const { MAX_ATTEMPTS, RECOVERY_ERROR } = require('../services/analysisLease');
 
 let owner;
-const finding = {
-  id: 'f_1', criterionId: 'PR-4', group: 'practice', severity: 'medium', confidence: 0.9,
-  claim: 'Немає інтерактивних методів', rationale: 'r', evidenceBlockIds: [], fixType: 'insertAfter',
-};
 
 beforeAll(async () => {
   await helpers.connectDb();
   owner = await helpers.createUser();
+  jest.spyOn(references, 'getRefs').mockResolvedValue(refs);
 });
 afterAll(helpers.disconnectDb);
 beforeEach(() => {
-  review.runReview.mockReset();
-  review.generateSuggestion.mockReset();
-  review.generateSuggestion.mockResolvedValue({ kind: 'edit', title: 't', description: 'd', rationale: 'r', ops: [], applicable: false });
+  parseToState.mockReset().mockImplementation(async () => parsed());
 });
 
-const analyzing = (extra = {}) => helpers.createDocSyllabus(owner, { status: 'analyzing', analysisStage: 'extract', ...extra });
+const analyzing = (extra = {}) => helpers.createDocSyllabus(owner, { status: 'analyzing', analysisStage: 'extract', programCode: 'MBA28', ...extra });
 const withLease = (id) => Syllabus.findById(id).select('+analysisLeaseToken').lean();
 const deferred = () => {
   let resolve;
@@ -37,7 +39,7 @@ const deferred = () => {
 test('claim: другий паралельний запуск не стартує, після завершення lease знято', async () => {
   const s = await analyzing();
   const gate = deferred();
-  review.runReview.mockImplementation(async () => { await gate.promise; return { findings: [finding], rubricSummary: {}, stats: {} }; });
+  parseToState.mockImplementation(async () => { await gate.promise; return parsed(); });
 
   const first = runner.runAnalysis(s._id);
   await new Promise((r) => setTimeout(r, 100));
@@ -54,14 +56,14 @@ test('claim: другий паралельний запуск не старту�
   expect(after.status).toBe('in_progress');
   expect(after.analysisLeaseToken).toBeUndefined();
   expect(after.analysisLeaseUntil).toBeUndefined();
-  expect(review.runReview).toHaveBeenCalledTimes(1);
-  expect(await Suggestion.countDocuments({ syllabusId: s._id })).toBe(1);
+  expect(parseToState).toHaveBeenCalledTimes(1);
+  expect(await Suggestion.countDocuments({ syllabusId: s._id })).toBeGreaterThan(0);
 });
 
 test('lease продовжується, поки аналіз триває', async () => {
   const s = await analyzing();
   const gate = deferred();
-  review.runReview.mockImplementation(async () => { await gate.promise; return { findings: [], rubricSummary: {}, stats: {} }; });
+  parseToState.mockImplementation(async () => { await gate.promise; return parsed(); });
   const run = runner.runAnalysis(s._id);
   await new Promise((r) => setTimeout(r, 100));
   const initial = (await withLease(s._id)).analysisLeaseUntil.getTime();
@@ -75,10 +77,10 @@ test('lease продовжується, поки аналіз триває', asy
 
 test('втрачений lease: запуск зупиняється без запису результатів і без error', async () => {
   const s = await analyzing();
-  review.runReview.mockImplementation(async () => {
+  parseToState.mockImplementation(async () => {
     // Інший процес перехопив job
     await Syllabus.updateOne({ _id: s._id }, { $set: { analysisLeaseToken: 'other', analysisLeaseUntil: new Date(Date.now() + 60000) } });
-    return { findings: [finding], rubricSummary: {}, stats: {} };
+    return parsed();
   });
   await runner.runAnalysis(s._id);
   const after = await withLease(s._id);
@@ -88,13 +90,13 @@ test('втрачений lease: запуск зупиняється без за�
   expect(await Suggestion.countDocuments({ syllabusId: s._id })).toBe(0);
 });
 
-test('помилка аналізу → error з українським повідомленням, lease знято', async () => {
+test('помилка аналізу → error з англійським повідомленням, lease знято', async () => {
   const s = await analyzing();
-  review.runReview.mockRejectedValue(new Error('boom'));
+  parseToState.mockRejectedValue(new Error('boom'));
   await runner.runAnalysis(s._id);
   const after = await withLease(s._id);
   expect(after.status).toBe('error');
-  expect(after.analysisError).toMatch(/Не вдалося проаналізувати/);
+  expect(after.analysisError).toMatch(/The syllabus could not be analysed/);
   expect(after.analysisLeaseToken).toBeUndefined();
 });
 
@@ -102,7 +104,7 @@ describe('sweepStuckAnalyses', () => {
   test('прострочений lease з першою спробою → перезапуск і завершення', async () => {
     const s = await analyzing({ analysisAttempts: 1, analysisLeaseUntil: new Date(Date.now() - 1000) });
     await Syllabus.updateOne({ _id: s._id }, { $set: { analysisLeaseToken: 'dead-process' } });
-    review.runReview.mockResolvedValue({ findings: [], rubricSummary: {}, stats: {} });
+    parseToState.mockResolvedValue(parsed());
     const spy = jest.spyOn(runner, 'runAnalysisInBackground').mockImplementation(() => {});
     try {
       const result = await sweepStuckAnalyses();

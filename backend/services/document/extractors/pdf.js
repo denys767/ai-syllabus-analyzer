@@ -90,7 +90,4 @@ async function extractPdf(buffer) {
   if (!blocks.length) throw docError('PDF не містить тексту. Розпізнавання сканованих документів (OCR) поки не підтримується.', 422, 'PDF_NO_TEXT');
   return { format: 'pdf', docVersion: computeDocVersion(buffer), blocks, meta: { pageCount: pages.length } };
 }
-function pdfBlocksToParagraphs(doc) {
-  return doc.blocks.map((b) => ({ kind: ['heading', 'list-item'].includes(b.kind) ? b.kind : 'paragraph', level: b.level, listFormat: b.listFormat, text: b.text }));
-}
-module.exports = { extractPdf, pdfBlocksToParagraphs };
+module.exports = { extractPdf };

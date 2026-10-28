@@ -1,64 +1,96 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import api from '../services/api';
+import defaultClient from '../services/workspaceClient';
 import { describeError } from '../utils/apiError';
-import { downloadOutput as saveOutput, syllabusOutputs } from '../utils/download';
+import { docxFallbackName, filenameFromDisposition, saveBlob } from '../utils/files';
+import { S } from '../strings';
 
 export const ANALYSIS_POLL_INTERVAL_MS = 5000;
 export const ANALYSIS_POLL_LIMIT_MS = 10 * 60 * 1000;
 
+// Коди, після яких локальний View застарів: підтягуємо свіжий з сервера
+const RELOAD_CODES = new Set(['STATE_CONFLICT', 'STALE_DRAFT', 'REOPEN_CONFLICT', 'NOT_PENDING']);
+
+// View за docs/api-v5.md §6 (GET /chat/:id)
 const normalizeView = (data) => ({
+  syllabus: data?.syllabus || null,
+  state: data?.state || null,
+  revision: data?.revision ?? null,
+  sections: [...(data?.sections || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+  readiness: data?.readiness || null,
+  checks: data?.checks || [],
+  suggestions: (data?.suggestions || []).map((s) => ({ ...s, id: s.id || s._id })),
   conversation: data?.conversation || null,
   messages: data?.messages || [],
-  suggestions: data?.suggestions || [],
-  readiness: data?.readiness || null,
-  syllabus: data?.syllabus || null,
 });
+
+const findSuggestion = (view, sid) => view?.suggestions?.find((s) => s.id === sid) || null;
 
 const needsStart = (view) => view.syllabus?.status === 'in_progress'
   && !view.conversation
+  && !view.syllabus?.needsRebuild
   && !view.syllabus?.legacy;
 
-// Уся логіка чату: завантаження, опитування аналізу, мутації пропозицій, файли.
-// Кожна мутація повертає повний view — його одразу застосовуємо, без окремого refetch.
-export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) {
-  const [view, setView] = useState(null);
+// Уся логіка робочого місця: View, опитування аналізу, мутації (кожна повертає View), документ, файл.
+// client — services/api або мок-клієнт (mocks/chatV5.js) з тими самими методами.
+export default function useWorkspace(syllabusId, { client = defaultClient, onNotFound, onLoaded } = {}) {
+  const [view, setViewState] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [analysis, setAnalysis] = useState({ stage: null, error: null, timedOut: false });
   const [pollEpoch, setPollEpoch] = useState(0);
   const [pendingText, setPendingText] = useState(null);
-  const [downloading, setDownloading] = useState('');
-  const [docPreview, setDocPreview] = useState({ open: false, loading: false, blocks: null, error: '' });
+  const [downloading, setDownloading] = useState(false);
+  const [diff, setDiff] = useState(false);
+  const [doc, setDoc] = useState({ sections: null, loading: false, error: '' });
+  const [policyLibrary, setPolicyLibrary] = useState({});
 
   const idRef = useRef(syllabusId);
   idRef.current = syllabusId;
+  const viewRef = useRef(null);
+  const mutationRef = useRef(false);
   const onNotFoundRef = useRef(onNotFound);
   onNotFoundRef.current = onNotFound;
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
 
-  const status = view?.syllabus?.status;
+  const setView = useCallback((next) => {
+    const value = typeof next === 'function' ? next(viewRef.current) : next;
+    viewRef.current = value;
+    setViewState(value);
+  }, []);
 
-  // Завантаження при зміні силабуса; автостарт чату, коли аналіз завершено, а розмови ще немає.
+  const status = view?.syllabus?.status;
+  const revision = view?.revision;
+  const ready = !!view && status === 'in_progress' && !view.syllabus?.needsRebuild;
+  const documentReady = !!view?.state && !view.syllabus?.needsRebuild;
+
+  const loadView = useCallback(async (id, { start = true } = {}) => {
+    const { data } = await client.chat.get(id);
+    let next = normalizeView(data);
+    if (start && next.syllabus?.canMutate !== false && needsStart(next)) {
+      const started = await client.chat.start(id);
+      next = normalizeView(started.data);
+    }
+    return next;
+  }, [client]);
+
+  // Завантаження при зміні силабуса; автостарт розмови, коли аналіз завершено, а розмови ще немає.
   useEffect(() => {
     setView(null);
+    setBusy(false);
+    mutationRef.current = false;
     setError('');
     setAnalysis({ stage: null, error: null, timedOut: false });
     setPendingText(null);
+    setDoc({ sections: null, loading: false, error: '' });
     if (!syllabusId) return undefined;
     let cancelled = false;
     setLoading(true);
     (async () => {
       try {
-        const { data } = await api.chat.get(syllabusId);
+        const next = await loadView(syllabusId);
         if (cancelled) return;
-        let next = normalizeView(data);
-        if (needsStart(next)) {
-          const started = await api.chat.start(syllabusId);
-          if (cancelled) return;
-          next = normalizeView(started.data);
-        }
         setView(next);
         onLoadedRef.current?.(next.syllabus);
       } catch (err) {
@@ -67,13 +99,13 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
           onNotFoundRef.current?.(syllabusId);
           return;
         }
-        setError((await describeError(err, 'Не вдалося завантажити силабус')).message);
+        setError((await describeError(err, S.errLoad)).message);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [syllabusId]);
+  }, [syllabusId, loadView, setView]);
 
   // Опитування етапу аналізу; після ANALYSIS_POLL_LIMIT_MS зупиняємось і пропонуємо повторити.
   useEffect(() => {
@@ -93,7 +125,7 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
       }
       inFlight = true;
       try {
-        const { data } = await api.syllabus.getStatus(syllabusId);
+        const { data } = await client.syllabus.getStatus(syllabusId);
         if (cancelled) return;
         if (data.status === 'analyzing') {
           setAnalysis((a) => ({ ...a, stage: data.stage || null }));
@@ -105,9 +137,8 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
           setView((v) => (v ? { ...v, syllabus: { ...v.syllabus, status: 'error' } } : v));
           return;
         }
-        const started = await api.chat.start(syllabusId);
+        const next = await loadView(syllabusId);
         if (cancelled) return;
-        const next = normalizeView(started.data);
         setView(next);
         onLoadedRef.current?.(next.syllabus);
       } catch (err) {
@@ -128,162 +159,217 @@ export default function useWorkspace(syllabusId, { onNotFound, onLoaded } = {}) 
       cancelled = true;
       clearInterval(timer);
     };
-  }, [syllabusId, status, pollEpoch]);
+  }, [syllabusId, status, pollEpoch, client, loadView, setView]);
 
   // Якщо силабус уже в статусі error при відкритті — підтягуємо текст помилки.
   useEffect(() => {
     if (!syllabusId || status !== 'error') return undefined;
     let cancelled = false;
-    api.syllabus.getStatus(syllabusId)
+    client.syllabus.getStatus(syllabusId)
       .then(({ data }) => {
         if (!cancelled) setAnalysis((a) => ({ ...a, error: data.error || a.error }));
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [syllabusId, status]);
+  }, [syllabusId, status, client]);
 
-  // Мутація: застосовує повернутий view. Повертає { ok } або { ok:false, error, code, conflicts }.
-  const mutate = useCallback(async (call) => {
+  // Живий документ: перечитуємо на кожну нову ревізію стану і при перемиканні Diff.
+  useEffect(() => {
+    if (!syllabusId || !documentReady) return undefined;
+    let cancelled = false;
+    setDoc((d) => ({ ...d, loading: true, error: '' }));
+    client.chat.document(syllabusId, { diff })
+      .then(({ data }) => {
+        if (!cancelled) setDoc({ sections: data?.sections || [], loading: false, error: '' });
+      })
+      .catch(async (err) => {
+        if (cancelled) return;
+        const info = await describeError(err, S.documentLoadError);
+        setDoc((d) => ({ ...d, loading: false, error: info.message }));
+      });
+    return () => { cancelled = true; };
+  }, [syllabusId, documentReady, revision, diff, client]);
+
+  // Довідник політик для карток вибору (один раз на клієнт)
+  useEffect(() => {
+    if (!ready) return undefined;
+    let cancelled = false;
+    client.policies.syllabusLibrary()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : data?.policies || [];
+        setPolicyLibrary(Object.fromEntries(list.filter((p) => p.key).map((p) => [p.key, p])));
+      })
+      .catch(async (err) => {
+        const info = await describeError(err, 'Could not load policy options.');
+        if (!cancelled) setError(info.message);
+      });
+    return () => { cancelled = true; };
+  }, [ready, client]);
+
+  const reload = useCallback(async () => {
     const id = idRef.current;
+    try {
+      const next = await loadView(id, { start: false });
+      if (idRef.current === id) setView(next);
+    } catch {
+      // Помилку першої дії вже показано; повторне завантаження — best-effort
+    }
+  }, [loadView, setView]);
+
+  // Мутація: застосовує повернутий View. Повертає { ok, data } або { ok:false, error, code, status, details }.
+  const mutate = useCallback(async (call) => {
+    if (mutationRef.current) return { ok: false, error: 'Please wait for the current action to finish.' };
+    const id = idRef.current;
+    mutationRef.current = true;
     setBusy(true);
     try {
       const { data } = await call(id);
       if (idRef.current === id) setView(normalizeView(data));
-      return { ok: true };
+      return { ok: true, data };
     } catch (err) {
       const info = await describeError(err);
-      return {
-        ok: false,
-        error: info.message,
-        code: info.code,
-        status: info.status,
-        conflicts: info.data.conflicts || [],
-      };
+      if (idRef.current === id && RELOAD_CODES.has(info.code)) reload();
+      return { ok: false, error: info.message, code: info.code, status: info.status, details: info.data };
     } finally {
-      setBusy(false);
+      if (idRef.current === id) { mutationRef.current = false; setBusy(false); }
     }
-  }, []);
-
-  const actions = useMemo(() => ({
-    accept: (sid, body = {}) => mutate((id) => api.chat.accept(id, sid, body)),
-    reject: (sid, body = {}) => mutate((id) => api.chat.reject(id, sid, body)),
-    refine: (sid, body = {}) => mutate((id) => api.chat.refine(id, sid, body)),
-    answer: (sid, answer) => mutate((id) => api.chat.answer(id, sid, answer)),
-    reopen: (sid) => mutate((id) => api.chat.reopen(id, sid)),
-  }), [mutate]);
-
-  // Слайди для pptx: не змінюють view, тому без mutate. Повертає { ok, slides } або { ok:false, error }.
-  const loadSlides = useCallback(async (sid, optionId) => {
-    try {
-      const { data } = await api.chat.suggestionSlides(idRef.current, sid, optionId);
-      return { ok: true, slides: data?.slides || [] };
-    } catch (err) {
-      return { ok: false, error: (await describeError(err, 'Не вдалося завантажити слайди')).message };
-    }
-  }, []);
+  }, [reload, setView]);
 
   const reportFailure = useCallback((result) => {
     if (!result.ok) setError(result.error);
-    return result.ok;
+    return result;
   }, []);
 
-  // Вільне повідомлення: показуємо його одразу, відповідь (або refine поточної картки) приходить у view.
+  const actions = useMemo(() => ({
+    // Confirm: кнопка називає непідтверджені proposedValues, тож натискання підтверджує їх (POST values), потім accept.
+    confirm: (sid, { optionId } = {}) => {
+      const suggestion = findSuggestion(viewRef.current, sid);
+      const unconfirmed = (suggestion?.draft?.proposedValues || []).filter((v) => !v.confirmed);
+      const revisionAtClick = viewRef.current?.revision;
+      return mutate(async (id) => {
+        let expectedRevision = revisionAtClick;
+        if (unconfirmed.length) {
+          const response = await client.chat.setValues(id, sid,
+            unconfirmed.map((v) => ({ id: v.id, value: v.value, confirmed: true })));
+          if (idRef.current !== id) return response;
+          const next = normalizeView(response.data);
+          setView(next);
+          expectedRevision = next.revision;
+        }
+        const body = {};
+        if (expectedRevision != null) body.expectedRevision = expectedRevision;
+        if (optionId) body.optionId = optionId;
+        return client.chat.accept(id, sid, body);
+      });
+    },
+    setValue: (sid, valueId, value) => mutate((id) => client.chat.setValues(id, sid, [{ id: valueId, value, confirmed: true }])),
+    reject: (sid, body = {}) => mutate((id) => client.chat.reject(id, sid, body)),
+    refine: (sid, body = {}) => mutate((id) => client.chat.refine(id, sid, body)),
+    answer: (sid, answer) => mutate((id) => client.chat.answer(id, sid, answer)),
+    reopen: (sid) => mutate((id) => client.chat.reopen(id, sid)),
+    approveSection: (key) => mutate((id) => client.chat.approveSection(id, key)),
+    unapproveSection: (key) => mutate((id) => client.chat.unapproveSection(id, key)),
+    // { ok, data: { approved, skipped, ...View } }. keys — розділи з картки (без них — усі); ревізія — на момент натискання.
+    approveAll: (keys) => {
+      const expectedRevision = viewRef.current?.revision;
+      const body = {};
+      if (Array.isArray(keys) && keys.length) body.sections = keys;
+      if (expectedRevision != null) body.expectedRevision = expectedRevision;
+      return mutate((id) => client.chat.approveAll(id, body));
+    },
+    choosePolicy: (key, optionKey) => mutate((id) => client.chat.choosePolicy(id, key, { optionKey })),
+    keepPolicyText: (key) => mutate((id) => client.chat.choosePolicy(id, key, { keepText: true })),
+    writeOwnPolicy: (key) => mutate((id) => client.chat.choosePolicy(id, key, { writeOwn: true })),
+    skip: (slotKey) => mutate((id) => client.chat.skip(id, slotKey)),
+  }), [mutate, client, setView]);
+
+  // Вільне повідомлення: показуємо його одразу, відповідь (хід оркестратора) приходить у View.
   const sendMessage = useCallback(async (text) => {
+    const id = idRef.current;
     setError('');
     setPendingText(text);
-    const result = await mutate((id) => api.chat.sendMessage(id, text));
+    const result = await mutate((id) => client.chat.sendMessage(id, text));
+    if (idRef.current !== id) return result.ok;
     setPendingText(null);
-    return reportFailure(result);
-  }, [mutate, reportFailure]);
+    return reportFailure(result).ok;
+  }, [mutate, reportFailure, client]);
 
-  const submit = useCallback(async () => {
-    setError('');
-    return reportFailure(await mutate((id) => api.chat.submit(id)));
-  }, [mutate, reportFailure]);
-
+  // Повторний аналіз або перебудова v4 → v5 (needsRebuild)
   const reanalyze = useCallback(async () => {
     const id = idRef.current;
     setBusy(true);
     setError('');
     try {
-      await api.syllabus.reanalyze(id);
+      await client.syllabus.reanalyze(id);
+      if (idRef.current !== id) return;
       setView((v) => (v ? {
         ...v,
         conversation: null,
         messages: [],
         suggestions: [],
         readiness: null,
-        syllabus: { ...v.syllabus, status: 'analyzing' },
+        syllabus: { ...v.syllabus, canMutate: true, status: 'analyzing', needsRebuild: false },
       } : v));
       setAnalysis({ stage: null, error: null, timedOut: false });
       setPollEpoch((n) => n + 1);
     } catch (err) {
-      setError((await describeError(err, 'Не вдалося повторити аналіз')).message);
+      setError((await describeError(err, S.errRebuild)).message);
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [client, setView]);
 
-  const downloadOutput = useCallback(async (name) => {
-    setDownloading(name);
+  const downloadDocx = useCallback(async () => {
+    setDownloading(true);
     setError('');
-    const title = view?.syllabus?.title || 'syllabus';
-    const failure = await saveOutput(idRef.current, name, title);
-    if (failure) setError(failure);
-    setDownloading('');
-  }, [view?.syllabus?.title]);
-
-  const openDocumentPreview = useCallback(async () => {
-    setDocPreview({ open: true, loading: true, blocks: null, error: '' });
     try {
-      const { data } = await api.chat.documentPreview(idRef.current);
-      setDocPreview({ open: true, loading: false, blocks: data?.blocks || [], error: '' });
+      const response = await client.chat.downloadDocx(idRef.current);
+      const filename = filenameFromDisposition(response.headers?.['content-disposition'])
+        || docxFallbackName(viewRef.current?.syllabus?.title);
+      saveBlob(response.data, filename);
     } catch (err) {
-      const info = await describeError(err, 'Не вдалося сформувати перегляд документа');
-      setDocPreview({ open: true, loading: false, blocks: null, error: info.message });
+      setError((await describeError(err, S.errDownload)).message);
+    } finally {
+      setDownloading(false);
     }
-  }, []);
-
-  const closeDocumentPreview = useCallback(() => {
-    setDocPreview((p) => ({ ...p, open: false }));
-  }, []);
+  }, [client]);
 
   const syllabus = view?.syllabus || null;
-  const readiness = view?.readiness || null;
-  const pendingCount = readiness?.counts?.pending ?? 0;
-  const submitted = status === 'submitted';
+  const needsRebuild = !!syllabus?.needsRebuild;
   const legacy = !!syllabus?.legacy;
-  // canMutate: власник, не submitted, не legacy (адмін — лише читання)
-  const readOnly = syllabus?.canMutate === false || legacy || submitted;
+  // canMutate: власник (адмін — лише читання); v4 до перебудови і legacy теж лише читаються
+  const readOnly = syllabus?.canMutate === false || legacy || needsRebuild;
 
   return {
     syllabus,
-    outputs: syllabusOutputs(syllabus),
+    state: view?.state || null,
+    revision: view?.revision ?? null,
+    sections: view?.sections || [],
+    readiness: view?.readiness || null,
+    checks: view?.checks || [],
+    suggestions: view?.suggestions || [],
     conversation: view?.conversation || null,
     messages: view?.messages || [],
-    suggestions: view?.suggestions || [],
-    readiness,
+    policyLibrary,
+    document: doc,
+    diff,
+    setDiff,
     loaded: !!view,
     loading,
     error,
+    setError,
     clearError: () => setError(''),
     busy,
     analysis,
     pendingText,
     downloading,
-    docPreview,
+    needsRebuild,
     legacy,
-    submitted,
     readOnly,
-    pendingCount,
-    canSubmit: status === 'in_progress' && !readOnly && !!view?.conversation && pendingCount === 0,
     actions,
-    loadSlides,
     sendMessage,
-    submit,
     reanalyze,
-    downloadOutput,
-    openDocumentPreview,
-    closeDocumentPreview,
+    downloadDocx,
   };
 }

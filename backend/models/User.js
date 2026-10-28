@@ -2,7 +2,22 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const validator = require('validator');
 
+// Локальна копія профілю до інтеграції Lecturers CRM; облікові дані залишаються окремими.
+const lecturerProfileSchema = new mongoose.Schema({
+  name: { type: String, default: '' },
+  position: { type: String, default: '' },
+  email: { type: String, default: '' },
+  officeHours: { type: String, default: '' },
+  assistants: { type: String, default: '' },
+  expertise: { type: [String], default: [] },
+  education: { type: [String], default: [] },
+  experience: { type: [String], default: [] },
+  updatedAt: { type: Date, default: null },
+  crmId: { type: String, default: null },
+}, { _id: false });
+
 const userSchema = new mongoose.Schema({
+  lecturerProfile: { type: lecturerProfileSchema, default: undefined },
   email: {
     type: String,
     required: true,

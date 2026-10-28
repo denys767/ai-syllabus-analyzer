@@ -1,27 +1,27 @@
 import React, { useState } from 'react';
-import {
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  Paper,
-  Snackbar,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Tooltip,
-} from '@mui/material';
-import { Add, Delete, Edit } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import IconButton from '@mui/material/IconButton';
+import Paper from '@mui/material/Paper';
+import Snackbar from '@mui/material/Snackbar';
+import Stack from '@mui/material/Stack';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
+import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
+import Add from '@mui/icons-material/Add';
+import Delete from '@mui/icons-material/Delete';
+import Edit from '@mui/icons-material/Edit';
 import api from '../../services/api';
 
 const ProgramsTab = ({ programs, reload }) => {
@@ -44,23 +44,23 @@ const ProgramsTab = ({ programs, reload }) => {
       }
       setEditing(null);
       setCreating(false);
-      setSnack(editing ? 'Програму оновлено' : 'Програму створено');
+      setSnack(editing ? "Programme updated" : "Programme created");
       reload();
     } catch (err) {
-      setSnack(err.response?.data?.message || 'Не вдалося зберегти');
+      setSnack(err.response?.data?.message || "Could not save changes");
     } finally {
       setSaving(false);
     }
   };
 
   const del = async (id) => {
-    if (!window.confirm('Видалити цю програму?')) return;
+    if (!window.confirm("Delete this programme?")) return;
     try {
       await api.cabinet.deleteProgram(id);
-      setSnack('Видалено');
+      setSnack("Deleted");
       reload();
     } catch (err) {
-      setSnack(err.response?.data?.message || 'Не вдалося видалити');
+      setSnack(err.response?.data?.message || "Could not delete");
     }
   };
 
@@ -69,16 +69,16 @@ const ProgramsTab = ({ programs, reload }) => {
   return (
     <Box>
       <Stack direction="row" sx={{ mb: 2 }}>
-        <Button startIcon={<Add />} variant="contained" size="small" onClick={openCreate}>Додати програму</Button>
+        <Button startIcon={<Add />} variant="contained" size="small" onClick={openCreate}>Add programme</Button>
       </Stack>
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Код</TableCell>
-              <TableCell>Назва</TableCell>
-              <TableCell>Email академічного директора</TableCell>
-              <TableCell align="right">Дії</TableCell>
+              <TableCell>Code</TableCell>
+              <TableCell>Title</TableCell>
+              <TableCell>Academic director email</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -88,36 +88,36 @@ const ProgramsTab = ({ programs, reload }) => {
                 <TableCell>{p.name}</TableCell>
                 <TableCell>{p.academicDirectorEmail || '—'}</TableCell>
                 <TableCell align="right">
-                  <Tooltip title="Редагувати"><IconButton size="small" onClick={() => openEdit(p)}><Edit fontSize="small" /></IconButton></Tooltip>
-                  <Tooltip title="Видалити"><IconButton size="small" color="error" onClick={() => del(p._id)}><Delete fontSize="small" /></IconButton></Tooltip>
+                  <Tooltip title="Edit"><IconButton size="small" onClick={() => openEdit(p)}><Edit fontSize="small" /></IconButton></Tooltip>
+                  <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => del(p._id)}><Delete fontSize="small" /></IconButton></Tooltip>
                 </TableCell>
               </TableRow>
             ))}
             {programs.length === 0 && (
-              <TableRow><TableCell colSpan={4} align="center" sx={{ py: 3, color: 'text.secondary' }}>Програм немає</TableCell></TableRow>
+              <TableRow><TableCell colSpan={4} align="center" sx={{ py: 3, color: 'text.secondary' }}>No programmes yet</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
       </TableContainer>
 
       <Dialog open={isOpen} onClose={() => { setCreating(false); setEditing(null); }} maxWidth="xs" fullWidth>
-        <DialogTitle>{editing ? 'Редагувати програму' : 'Додати програму'}</DialogTitle>
+        <DialogTitle>{editing ? "Edit programme" : "Add programme"}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {!editing && (
-              <TextField label="Код (напр., MBA)" size="small" fullWidth value={form.code}
+              <TextField label="Code (e.g. MBA)" size="small" fullWidth value={form.code}
                 onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))} />
             )}
-            <TextField label="Назва" size="small" fullWidth value={form.name}
+            <TextField label="Title" size="small" fullWidth value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <TextField label="Email академічного директора" size="small" fullWidth value={form.academicDirectorEmail}
+            <TextField label="Academic director email" size="small" fullWidth value={form.academicDirectorEmail}
               onChange={(e) => setForm((f) => ({ ...f, academicDirectorEmail: e.target.value }))} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setCreating(false); setEditing(null); }}>Скасувати</Button>
+          <Button onClick={() => { setCreating(false); setEditing(null); }}>Cancel</Button>
           <Button variant="contained" onClick={save} disabled={saving || !form.name || (!editing && !form.code)}>
-            {saving ? <CircularProgress size={18} /> : 'Зберегти'}
+            {saving ? <CircularProgress size={18} /> : "Save"}
           </Button>
         </DialogActions>
       </Dialog>

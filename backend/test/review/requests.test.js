@@ -1,9 +1,10 @@
 jest.mock('../../services/ai/client', () => ({ createResponse: jest.fn(), llmModel: 'gpt-test' }));
 const { createResponse } = require('../../services/ai/client');
 const { requestJSON } = require('../../services/ai/review/common');
-const schemas = require('../../services/ai/review/schemas');
-const { emptyStructure, response } = require('./fixtures');
-const request = (options = {}) => requestJSON('review_structure', schemas.structure, 'Static rules', 'Original document', options);
+const schema = { type: 'object', properties: { outcomes: { type: 'array', items: { type: 'string' } } }, required: ['outcomes'], additionalProperties: false };
+const emptyStructure = () => ({ outcomes: [] });
+const response = (value) => ({ output_text: JSON.stringify(value) });
+const request = (options = {}) => requestJSON('review_structure', schema, 'Static rules', 'Original document', options);
 
 beforeEach(() => { createResponse.mockReset(); jest.useFakeTimers(); });
 afterEach(() => jest.useRealTimers());

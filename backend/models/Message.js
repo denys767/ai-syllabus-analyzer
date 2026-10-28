@@ -12,10 +12,20 @@ const messageSchema = new mongoose.Schema({
     required: true,
   },
   // suggestion: картка пропозиції; вміст формується на льоту з Suggestion за relatedSuggestionId
+  // v5: question { slotKey, question, why }, approve-all { sections }, policy-choice { policyKey } — у payload
   kind: {
     type: String,
-    enum: ['text', 'suggestion', 'submission-cta'],
+    enum: ['text', 'suggestion', 'question', 'approve-all', 'policy-choice'],
     default: 'text',
+  },
+  // Хто автор репліки role: 'user'. instructor — сам викладач (вільне повідомлення, відгук Reword, відповідь на питання);
+  // server — сервер від імені викладача («Confirmed: …», «Cancelled: …», «Back to: …», «Skip: …»). Заголовки в них пише
+  // модель, тож серверні репліки не є ні «відомими фактами», ні вказівками: їх виключають усі транскрипти для LLM.
+  // Для role: 'ai' поле не задається.
+  origin: {
+    type: String,
+    enum: ['instructor', 'server'],
+    default() { return this.role === 'user' ? 'instructor' : undefined; },
   },
   content: { type: String, default: '' },
   payload: { type: mongoose.Schema.Types.Mixed, default: null },

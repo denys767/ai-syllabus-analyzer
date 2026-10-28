@@ -59,7 +59,7 @@ describe('upload', () => {
 });
 
 describe('analyze guard', () => {
-  test.each(['analyzing', 'submitted'])('статус %s → 409', async (status) => {
+  test.each(['analyzing'])('статус %s → 409', async (status) => {
     const s = await helpers.createSyllabus(owner, { status });
     const res = await request(app).post(`/api/syllabus/${s._id}/analyze`).set(auth);
     expect(res.status).toBe(409);
@@ -73,12 +73,9 @@ describe('analyze guard', () => {
     expect(res.status).toBe(403);
   });
 
-  test('re-analyze скидає розмову, пропозиції і кеш outputs', async () => {
+  test('re-analyze скидає розмову і пропозиції, зберігає document', async () => {
     const spy = jest.spyOn(analysisRunner, 'runAnalysisInBackground').mockImplementation(() => {});
-    const s = await helpers.createDocSyllabus(owner, {
-      outputs: { clean: { path: '/tmp/none.docx', acceptedHash: 'x' } },
-      rubricSummary: { counts: { ok: 1 } },
-    });
+    const s = await helpers.createDocSyllabus(owner);
     await helpers.createSuggestion(s);
     const conv = await Conversation.create({ syllabusId: s._id, instructorId: owner._id });
     await Message.create({ conversationId: conv._id, role: 'ai', content: 'hi' });
@@ -87,8 +84,6 @@ describe('analyze guard', () => {
     expect(res.status).toBe(200);
     const fresh = await Syllabus.findById(s._id).lean();
     expect(fresh.status).toBe('analyzing');
-    expect(fresh.outputs).toBeUndefined();
-    expect(fresh.rubricSummary).toBeUndefined();
     expect(fresh.document.docVersion).toBeDefined();
     expect(await Suggestion.countDocuments({ syllabusId: s._id })).toBe(0);
     expect(await Conversation.countDocuments({ syllabusId: s._id })).toBe(0);
@@ -122,7 +117,7 @@ describe('чат', () => {
 describe('кабінет', () => {
   test('/syllabi: проєкція без текстів, limit обмежений, поганий id → 400', async () => {
     const s = await helpers.createDocSyllabus(owner);
-    await helpers.createSuggestion(s, { group: 'policy', severity: 'high' });
+    await helpers.createSuggestion(s, { severity: 'high' });
     await helpers.createSuggestion(s, { status: 'accepted' });
     const res = await request(app).get('/api/cabinet/syllabi?limit=100000').set(auth);
     expect(res.status).toBe(200);
@@ -130,8 +125,8 @@ describe('кабінет', () => {
     expect(item.extractedText).toBeUndefined();
     expect(item.document).toBeUndefined();
     expect(item.issueCounts).toEqual({ pending: 1, accepted: 1, rejected: 0, total: 2 });
-    expect(item.readiness.breakdown).toMatchObject({ template: 100, policy: 0 });
-    expect(item.readiness.score).toBe(85);
+    expect(item.readiness.score).toBe(0); // readiness рахується зі state; його в цього силабусу немає
+    expect(item.outputs).toEqual(['syllabus.docx']);
 
     const bad = await request(app).get('/api/cabinet/syllabi?program=zzz').set(auth);
     expect(bad.status).toBe(400);

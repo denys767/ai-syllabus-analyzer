@@ -1,0 +1,308 @@
+{
+  "version": "1.1",
+  "approved": "2026-10-22",
+  "approvedBy": "Alina Samoilenko",
+  "note": "Довідник політик розділу Course Policies. mode=locked — текст однаковий у кожному силабусі. mode=library — обовʼязковий вибір без дефолту. Блоки 8 і 9 спираються на університетську Політику використання ШІ (Сенат, 21.03.2025): дозволені випадки — п.2.2, заборонені — розділ 3, форма декларації — п.4.2, доступ до промптів лише за згодою здобувача — п.1.3.2.",
+  "blocks": [
+    {
+      "key": "policy.attendance",
+      "order": 1,
+      "title": "Attendance",
+      "titleUk": "Відвідування",
+      "mode": "library",
+      "required": true,
+      "rationale": "Формулювання однакове в усіх силабусах GBS. Відрізняється лише поріг і вимога ввімкненої камери.",
+      "options": [
+        {
+          "key": "attendance_std",
+          "label": "Mandatory, 40% rule",
+          "text": "Attendance is mandatory. Participation in an online class with the camera turned off is considered equivalent to absence. A student who misses more than 40% of classes must retake the course, unless explicitly agreed otherwise with the instructor."
+        },
+        {
+          "key": "attendance_strict",
+          "label": "Mandatory, 25% rule",
+          "text": "Attendance is mandatory. Participation in an online class with the camera turned off is considered equivalent to absence. A student who misses more than 25% of classes must retake the course, unless explicitly agreed otherwise with the instructor."
+        },
+        {
+          "key": "attendance_recorded",
+          "label": "Recorded, not graded",
+          "text": "Attendance is recorded but does not affect the grade. Students remain responsible for all material covered in class."
+        }
+      ]
+    },
+    {
+      "key": "policy.participation",
+      "order": 2,
+      "title": "Participation Credit",
+      "titleUk": "Як зараховується активність",
+      "mode": "library",
+      "required": true,
+      "rationale": "Pompeo зараховує за зданими в класі артефактами, Schultz — за «активним внеском». Перше перевіряється, друге ні.",
+      "options": [
+        {
+          "key": "participation_active",
+          "label": "Active contribution expected",
+          "text": "Attendance alone does not constitute participation. Active contribution is expected in discussions, group work, role plays, presentations and other learning activities."
+        },
+        {
+          "key": "participation_evidence",
+          "label": "Credit for documented activity",
+          "text": "Participation credit is based on documented in-class submissions, not on attendance. The submissions that count are announced in class and the total is capped at the weight stated in Assessment and Grading."
+        },
+        {
+          "key": "participation_none",
+          "label": "No participation component",
+          "text": "This course has no separate participation component. All credit comes from the assessed work listed in Assessment and Grading."
+        }
+      ]
+    },
+    {
+      "key": "policy.late",
+      "order": 3,
+      "title": "Late Submission",
+      "titleUk": "Запізнені здачі",
+      "mode": "library",
+      "required": true,
+      "rationale": "Чинне правило «мінус бали, після семи днів нуль» не каже, скільки саме мінус. Через це викладачі рахують по-різному.",
+      "options": [
+        {
+          "key": "late_gbs",
+          "label": "Reduced score, zero after 7 days",
+          "text": "The deadlines in Assessment and Grading are final. Late submissions reduce the maximum possible score. Unless stated otherwise, work submitted seven or more days after the deadline will not be accepted and will receive zero."
+        },
+        {
+          "key": "late_daily",
+          "label": "10% per day, five days maximum",
+          "text": "Late submissions lose 10% of the maximum score for each calendar day after the deadline, up to five days. Work submitted more than five days late receives zero."
+        },
+        {
+          "key": "late_grace",
+          "label": "One 48-hour grace period",
+          "text": "Each student may submit one assignment up to 48 hours late without penalty and without explanation. All other late work receives zero."
+        },
+        {
+          "key": "late_never",
+          "label": "No late work accepted",
+          "text": "The deadlines in Assessment and Grading are final. Work submitted after the deadline receives zero."
+        }
+      ]
+    },
+    {
+      "key": "policy.absence",
+      "order": 4,
+      "title": "Excused Absence",
+      "titleUk": "Поважні причини відсутності",
+      "mode": "locked",
+      "required": true,
+      "rationale": "Однаково в кожному силабусі. Повний перелік причин живе в Положенні, дублювати його в силабусі немає потреби.",
+      "text": "A student who cannot attend for a valid reason notifies the programme coordinator as soon as possible. Valid reasons are limited to exceptional circumstances beyond the student's control, as set out in the Regulations on the Organization of the Educational Process at KSE. The student remains responsible for missed material and any alternative task."
+    },
+    {
+      "key": "policy.passing",
+      "order": 5,
+      "title": "Passing Threshold",
+      "titleUk": "Поріг складання",
+      "mode": "locked",
+      "required": true,
+      "rationale": "Шістдесят зі ста за шкалою ECTS. Так стоїть у всіх чотирьох силабусах, іншого варіанта в школі немає.",
+      "text": "To pass the course a student must earn at least 60 out of 100 points, in accordance with the ECTS assessment scale. A score below 60 is unsatisfactory."
+    },
+    {
+      "key": "policy.grading",
+      "order": 6,
+      "title": "Grading Detail",
+      "titleUk": "Наскільки детально описане оцінювання",
+      "mode": "library",
+      "required": true,
+      "rationale": "Найбільша різниця між сильним і слабким силабусом. У Pompeo рубрика з підвагами всередині кожного компонента, у Schultz — «Completeness, focus and clarity».",
+      "options": [
+        {
+          "key": "grading_weights",
+          "label": "Component weights only",
+          "text": "Assessment and Grading lists each assessed component with its weight and deadline."
+        },
+        {
+          "key": "grading_scheme",
+          "label": "Weights plus a marking scheme",
+          "text": "Assessment and Grading lists each component with its weight and deadline. Individual tasks are marked on a common scheme: full marks for a correct answer with reasoning shown; partial marks where the approach is right but the result or the reasoning is incomplete; zero where the answer is missing or incorrect."
+        },
+        {
+          "key": "grading_rubric",
+          "label": "Weights plus a rubric per component",
+          "text": "Assessment and Grading lists each component with its weight and deadline, and states a rubric for that component with sub-weights, so that a student can see how marks are distributed within it."
+        }
+      ]
+    },
+    {
+      "key": "policy.integrity",
+      "order": 7,
+      "title": "Academic Integrity",
+      "titleUk": "Академічна доброчесність",
+      "mode": "library",
+      "required": true,
+      "rationale": "Базовий абзац однаковий усюди. Відрізняються додаткові клаузули — про командну роботу і про запозичення чужих матеріалів.",
+      "options": [
+        {
+          "key": "integrity_std",
+          "label": "Zero tolerance and the Code",
+          "text": "KSE has a zero-tolerance policy towards plagiarism, self-plagiarism, fabrication, falsification, cheating, deception and bribery. Penalties range from zero points for the assignment to expulsion. All rules are set out in the KSE Code of Academic Integrity, which students must read before enrolling in this course."
+        },
+        {
+          "key": "integrity_team",
+          "label": "Zero tolerance, plus team contribution",
+          "text": "KSE has a zero-tolerance policy towards plagiarism, self-plagiarism, fabrication, falsification, cheating, deception and bribery. Penalties range from zero points for the assignment to expulsion. In team projects every member must contribute meaningfully and be able to explain the submitted work. All rules are set out in the KSE Code of Academic Integrity."
+        },
+        {
+          "key": "integrity_source",
+          "label": "Zero tolerance, plus sources and licensing",
+          "text": "KSE has a zero-tolerance policy towards plagiarism, self-plagiarism, fabrication, falsification, cheating, deception and bribery. Penalties range from zero points for the assignment to expulsion. Students may draw on existing projects and open resources, but all submitted work must be original or clearly derivative from a referenced source, and any material used publicly must comply with licensing and copyright. All rules are set out in the KSE Code of Academic Integrity."
+        }
+      ]
+    },
+    {
+      "key": "policy.ai_mode",
+      "order": 8,
+      "title": "Use of AI — Mode",
+      "titleUk": "Режим використання ШІ",
+      "mode": "library",
+      "required": true,
+      "rationale": "П'ять режимів покривають усе, що зараз реально стоїть у силабусах школи — від порожнього посилання на політику до курсу, побудованого навколо ШІ.",
+      "options": [
+        {
+          "key": "ai_mode_refer",
+          "label": "Review the KSE AI policy",
+          "text": "This course follows the KSE Artificial Intelligence Usage Policy. Students are expected to read it before submitting any assessed work."
+        },
+        {
+          "key": "ai_mode_prohibited",
+          "label": "Not permitted",
+          "text": "AI tools may not be used for assessed work in this course. Work produced with AI will not be evaluated and may be treated as a breach of academic integrity."
+        },
+        {
+          "key": "ai_mode_disclosure",
+          "label": "Permitted with disclosure",
+          "text": "AI tools may be used in preparing assignments only with a disclosure identifying the tool and what it was used for, in the form set out in the KSE AI Policy: \"This task was completed with the use of [AI model], specifically for [brief description, for example structuring the text or checking grammar].\" Students remain responsible for verifying accuracy and producing original analysis. The instructor may ask to see the prompts; access is arranged with the student’s agreement."
+        },
+        {
+          "key": "ai_mode_scoped",
+          "label": "Permitted for specified uses",
+          "text": "Allowed (KSE AI Policy, 2.2): any activity that is not graded; graded work the student later defends and explains; selecting literature, provided the student reads it; large projects involving modelling or extended analysis; generating hypotheses the student then justifies; finding errors in AI output or better solutions than it proposed.\nProhibited (KSE AI Policy, 3): essays, research papers, term papers and literature reviews; answers to exams, quizzes and tests; calculation and analytical work where the reasoning must be the student’s own; debates and oral presentations; analysis of primary sources.\nConditions: the student states the tool and what it was used for. The instructor may ask to see the prompts; access is arranged with the student’s agreement.\nPenalties: undisclosed use is treated as a breach of academic integrity under the KSE Code."
+        },
+        {
+          "key": "ai_mode_required",
+          "label": "Required",
+          "text": "AI use is part of the assessed work in this course. Students document the prompts they used and their own judgement about the output; the quality of that judgement is assessed, not the output alone. Disclosure under the KSE AI Policy still applies, and the prohibited uses in its section 3 still apply to any graded component they cover."
+        }
+      ]
+    },
+    {
+      "key": "policy.ai_place",
+      "order": 9,
+      "title": "Use of AI — Where it is stated",
+      "titleUk": "Де саме прописані правила ШІ",
+      "mode": "library",
+      "required": true,
+      "rationale": "Політика KSE дозволяє і те, і те. Вибір впливає на перевірку: якщо правила в завданнях, порожній розділ у силабусі не є порушенням.",
+      "options": [
+        {
+          "key": "ai_place_syllabus",
+          "label": "In the syllabus",
+          "text": "The rules for AI use are stated in this syllabus and apply to every assignment unless an assignment brief says otherwise."
+        },
+        {
+          "key": "ai_place_assignments",
+          "label": "In the assignment briefs",
+          "text": "The rules for AI use are stated in each assignment brief, because they differ from task to task."
+        },
+        {
+          "key": "ai_place_both",
+          "label": "In both",
+          "text": "This syllabus states the default rules for AI use. Individual assignment briefs may narrow or widen them, and the brief takes precedence for that assignment."
+        }
+      ]
+    },
+    {
+      "key": "policy.appeal",
+      "order": 10,
+      "title": "Grade Appeal",
+      "titleUk": "Оскарження оцінки",
+      "mode": "library",
+      "required": true,
+      "rationale": "Немає в жодному з чотирьох силабусів. Поки правило не записане, кожен спір вирішується вручну.",
+      "options": [
+        {
+          "key": "appeal_none",
+          "label": "Not stated",
+          "text": "Grade appeals follow the general KSE procedure; this syllabus adds nothing."
+        },
+        {
+          "key": "appeal_window",
+          "label": "Written request within five working days",
+          "text": "A student who wishes to question a mark submits a written request to the instructor within five working days of the mark being published, with the programme coordinator copied. The instructor responds within five working days."
+        }
+      ]
+    },
+    {
+      "key": "policy.contact",
+      "order": 11,
+      "title": "Communication",
+      "titleUk": "Звʼязок і консультації",
+      "mode": "library",
+      "required": true,
+      "rationale": "Є лише в силабусах університету, і там це рядок «on demand». Час відповіді не обіцяє ніхто.",
+      "options": [
+        {
+          "key": "contact_demand",
+          "label": "Office hours on demand",
+          "text": "Office hours are available on demand. Students contact the instructor by email to arrange a time."
+        },
+        {
+          "key": "contact_fixed",
+          "label": "A fixed weekly slot",
+          "text": "Office hours are held at a fixed time each week, stated in Course Faculty. No appointment is needed."
+        },
+        {
+          "key": "contact_sla",
+          "label": "On demand, with a response time",
+          "text": "Office hours are available on demand by email. The instructor replies to course-related email within two working days, excluding weekends and holidays."
+        }
+      ]
+    },
+    {
+      "key": "policy.groupwork",
+      "order": 12,
+      "title": "Group Work",
+      "titleUk": "Групова робота",
+      "mode": "library",
+      "required": true,
+      "rationale": "У Pompeo найсильніше формулювання школи: спільна тема дозволена, але індивідуальний текст має суттєво розширювати командний.",
+      "options": [
+        {
+          "key": "groupwork_na",
+          "label": "Not applicable",
+          "text": "This course has no assessed group work."
+        },
+        {
+          "key": "groupwork_std",
+          "label": "Every member contributes and can explain",
+          "text": "In team projects every member must contribute meaningfully and be able to explain the submitted work."
+        },
+        {
+          "key": "groupwork_extend",
+          "label": "Shared topic allowed, individual work must extend it",
+          "text": "In team projects every member must contribute meaningfully and be able to explain the submitted work. A team and an individual submission may share a topic, but the individual submission must materially extend the team's work and may not reuse its text."
+        }
+      ]
+    },
+    {
+      "key": "policy.fallback",
+      "order": 13,
+      "title": "Fallback Clause",
+      "titleUk": "Що не покрито цими політиками",
+      "mode": "locked",
+      "required": true,
+      "rationale": "Один рядок, який уже стоїть в обох силабусах MBA. Без нього кожна незвична ситуація стає питанням до академічного директора.",
+      "text": "Situations not covered by these policies are resolved at the instructor's discretion and are governed by the Regulations on the Organization of the Educational Process at the Kyiv School of Economics."
+    }
+  ]
+}

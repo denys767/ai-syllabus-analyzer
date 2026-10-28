@@ -28,9 +28,26 @@ const PolicySchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['ai-policy', 'academic-integrity', 'teaching-tips'],
+    enum: ['ai-policy', 'academic-integrity', 'teaching-tips', 'syllabus-policy'],
     required: true
   },
+  // Довідник політик силабуса (type: 'syllabus-policy'), див. services/references/policies.js
+  key: { type: String, trim: true },
+  order: Number,
+  mode: { type: String, enum: ['locked', 'library'] },
+  blockRequired: Boolean,
+  rationale: String,
+  titleUk: String,
+  text: String,
+  options: [{
+    _id: false,
+    key: { type: String, required: true },
+    label: { type: String, required: true },
+    text: { type: String, required: true }
+  }],
+  libraryVersion: String,
+  // Адмін правив блок довідника через API: сід нових версій фікстури його не перезаписує (stats.conflicts)
+  adminModified: { type: Boolean, default: false },
   isRequired: {
     type: Boolean,
     default: true
@@ -61,7 +78,8 @@ const PolicySchema = new mongoose.Schema({
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    // Записи довідника політик сідяться без користувача
+    required: function() { return this.type !== 'syllabus-policy'; }
   }
 }, {
   timestamps: true
@@ -70,6 +88,7 @@ const PolicySchema = new mongoose.Schema({
 // Indexes
 PolicySchema.index({ type: 1, isActive: 1 });
 PolicySchema.index({ 'acknowledgments.user': 1 });
+PolicySchema.index({ key: 1 }, { unique: true, sparse: true });
 
 // Virtual for acknowledgment count
 PolicySchema.virtual('acknowledgmentCount').get(function() {

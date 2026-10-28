@@ -1,20 +1,29 @@
 import React from 'react';
-import { Box, Chip, Typography } from '@mui/material';
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Typography from '@mui/material/Typography';
 import TextMessage from './TextMessage';
-import SubmissionCta from './SubmissionCta';
-import SuggestionCard from '../suggestions/SuggestionCard';
+import QuestionMessage from './QuestionMessage';
+import DraftCard from '../suggestions/DraftCard';
 import ChoiceCard from '../suggestions/ChoiceCard';
 import QuestionCard from '../suggestions/QuestionCard';
-import { STATUS_LABELS } from '../constants';
+import PolicyChoiceCard from '../suggestions/PolicyChoiceCard';
+import ApproveAllCard from '../suggestions/ApproveAllCard';
+import { S } from '../../../strings';
 
 // Одна картка на kind пропозиції; повідомлення містить лише id пропозиції.
 const SUGGESTION_CARDS = {
-  edit: SuggestionCard,
+  edit: DraftCard,
   choice: ChoiceCard,
   question: QuestionCard,
 };
 
-// Якщо пропозиція вже показана нижче в стрічці (наприклад, після Reopen), старе місце — компактне посилання.
+const STATUS_LABELS = { pending: 'Open', accepted: S.confirmed, rejected: S.cancelled };
+
+// Дані повідомлення v5 лежать у payload (Message.payload); на випадок пласкої форми — саме повідомлення
+export const payloadOf = (message) => message.payload || message;
+
+// Якщо пропозиція вже показана нижче в стрічці (після Reword чи Undo), старе місце — компактне посилання.
 const SuggestionReference = ({ suggestion, onSelect }) => (
   <Box
     onClick={() => onSelect?.(suggestion.id)}
@@ -29,20 +38,42 @@ const MessageItem = ({
   message,
   suggestion,
   isLatestForSuggestion = true,
-  actions,
-  loadSlides = null,
-  busy,
-  readOnly,
-  highlightedId,
-  pendingCount,
-  submitted,
-  onPreviewDocument,
-  onSubmit,
-  onSelectSuggestion,
+  isLast = false,
+  ctx,
 }) => {
+  const { actions, busy, readOnly, highlightedId, sectionsByKey, policyLibrary, statePolicies, readiness, sections, documentSections, onSelectSuggestion } = ctx;
+  const payload = payloadOf(message);
   switch (message.kind) {
     case 'text':
       return <TextMessage message={message} />;
+    case 'question':
+      return <QuestionMessage payload={payload} active={isLast} busy={busy} readOnly={readOnly} onSkip={actions.skip} />;
+    case 'approve-all':
+      return (
+        <ApproveAllCard
+          sectionKeys={payload.sections || []}
+          sections={sections}
+          readiness={readiness}
+          documentSections={documentSections}
+          actions={actions}
+          busy={busy}
+          readOnly={readOnly}
+        />
+      );
+    case 'policy-choice': {
+      const key = payload.policyKey;
+      return (
+        <PolicyChoiceCard
+          policyKey={key}
+          policy={policyLibrary[key] || (payload.options ? { key, title: payload.title, options: payload.options } : null)}
+          statePolicy={statePolicies.find((p) => p.key === key)}
+          actions={actions}
+          busy={busy}
+          readOnly={readOnly}
+          highlighted={highlightedId === `policy:${key}`}
+        />
+      );
+    }
     case 'suggestion': {
       if (!suggestion) return null;
       if (!isLatestForSuggestion) {
@@ -50,29 +81,19 @@ const MessageItem = ({
       }
       const Card = SUGGESTION_CARDS[suggestion.kind];
       if (!Card) return null;
+      const sec = sectionsByKey.get(suggestion.section || suggestion.target?.section);
       return (
         <Card
           suggestion={suggestion}
+          sectionTitle={sec ? (sec.docNumber ? `${sec.docNumber} · ${sec.title}` : sec.title) : null}
           actions={actions}
-          loadSlides={loadSlides}
+          policyLibrary={policyLibrary}
           busy={busy}
           readOnly={readOnly}
           highlighted={highlightedId === suggestion.id}
         />
       );
     }
-    case 'submission-cta':
-      return (
-        <SubmissionCta
-          message={message}
-          pendingCount={pendingCount}
-          submitted={submitted}
-          readOnly={readOnly}
-          busy={busy}
-          onPreview={onPreviewDocument}
-          onSubmit={onSubmit}
-        />
-      );
     default:
       return null;
   }

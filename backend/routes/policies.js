@@ -6,7 +6,39 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
 
+const { policyMarkdown } = require('../services/references/policies');
+
 const router = express.Router();
+const POLICY_TYPES = ['ai-policy', 'academic-integrity', 'teaching-tips', 'syllabus-policy'];
+const SYLLABUS_POLICY = 'syllabus-policy';
+
+// options приходять масивом (JSON) або рядком JSON (multipart)
+function parseOptions(raw) {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string') return raw;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+// Валідація правки довідника: ключі варіантів незмінні, змінюються лише label/text
+function validateLibraryEdit(policy, body) {
+  if (body.key !== undefined && body.key !== policy.key) return 'Ключ блока змінювати не можна';
+  if (body.mode !== undefined && body.mode !== policy.mode) return 'Режим блока змінювати не можна';
+  if (body.type !== undefined && body.type !== SYLLABUS_POLICY) return 'Тип блока довідника змінювати не можна';
+  if (body.text !== undefined) {
+    if (policy.mode !== 'locked') return 'Поле text доступне лише для locked-блоків';
+    if (typeof body.text !== 'string' || !body.text.trim()) return 'Текст не може бути порожнім';
+  }
+  const options = parseOptions(body.options);
+  if (options !== undefined) {
+    if (policy.mode !== 'library') return 'Поле options доступне лише для library-блоків';
+    const keys = (policy.options || []).map((o) => o.key).sort().join('|');
+    const ok = Array.isArray(options)
+      && options.every((o) => o && typeof o.key === 'string' && typeof o.label === 'string' && o.label.trim() && typeof o.text === 'string' && o.text.trim())
+      && options.map((o) => o.key).sort().join('|') === keys;
+    if (!ok) return 'Варіанти мають зберігати ті самі ключі, з непорожніми label і text';
+  }
+  return null;
+}
 
 router.param('id', (req, res, next, id) => {
   if (!mongoose.isValidObjectId(id)) {
@@ -60,7 +92,7 @@ router.get('/', auth, async (req, res) => {
 
     const policies = await Policy.find(query)
       .populate('createdBy', 'firstName lastName')
-      .sort({ createdAt: -1 });
+      .sort(type === SYLLABUS_POLICY ? { order: 1 } : { createdAt: -1 });
 
     // Add acknowledgment status for current user
     const policiesWithStatus = policies.map(policy => ({
@@ -117,7 +149,11 @@ router.post('/',
       if (req.file) await fs.unlink(req.file.path).catch(() => {});
       return res.status(400).json({ message: 'Невірний тип контенту' });
     }
-    if (!req.body.type || !['ai-policy', 'academic-integrity', 'teaching-tips'].includes(req.body.type)) {
+    if (req.body.type === SYLLABUS_POLICY) {
+      if (req.file) await fs.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ message: 'Блоки довідника політик створюються сідом, а не через API' });
+    }
+    if (!req.body.type || !POLICY_TYPES.includes(req.body.type)) {
       if (req.file) await fs.unlink(req.file.path).catch(() => {});
       return res.status(400).json({ message: 'Невірний тип документа' });
     }
@@ -182,7 +218,7 @@ router.put('/:id',
       if (req.file) await fs.unlink(req.file.path).catch(() => {});
       return res.status(400).json({ message: 'Невірний тип контенту' });
     }
-    if (req.body.type && !['ai-policy', 'academic-integrity', 'teaching-tips'].includes(req.body.type)) {
+    if (req.body.type && !POLICY_TYPES.includes(req.body.type)) {
       if (req.file) await fs.unlink(req.file.path).catch(() => {});
       return res.status(400).json({ message: 'Невірний тип документа' });
     }
@@ -197,6 +233,32 @@ router.put('/:id',
     }
 
     const { title, content, contentType, type, isRequired, isActive } = req.body;
+
+    if (policy.type === SYLLABUS_POLICY) {
+      const problem = validateLibraryEdit(policy, req.body);
+      if (problem || req.file) {
+        if (req.file) await fs.unlink(req.file.path).catch(() => {});
+        return res.status(400).json({ message: problem || 'До блоків довідника файли не прикріплюються' });
+      }
+      const options = parseOptions(req.body.options);
+      const before = policyMarkdown(policy);
+      if (title !== undefined) policy.title = title;
+      if (req.body.titleUk !== undefined) policy.titleUk = req.body.titleUk;
+      if (req.body.rationale !== undefined) policy.rationale = req.body.rationale;
+      if (isActive !== undefined) policy.isActive = isActive;
+      if (req.body.text !== undefined) policy.text = req.body.text;
+      if (options !== undefined) policy.options = options.map(({ key, label, text }) => ({ key, label, text }));
+      // content — похідне від варіантів/тексту; libraryVersion лишається, тож сід не перезапише правку
+      policy.content = policyMarkdown(policy);
+      if (policy.content !== before) policy.version += 1;
+      policy.adminModified = true;
+      await policy.save();
+      return res.json({ message: 'Документ оновлено успішно', policy });
+    }
+    if (type === SYLLABUS_POLICY) {
+      if (req.file) await fs.unlink(req.file.path).catch(() => {});
+      return res.status(400).json({ message: 'Невірний тип документа' });
+    }
 
     // Версію піднімаємо, порівнюючи з поточним значенням ДО присвоєння
     let contentChanged = content !== undefined && content !== policy.content;
@@ -252,6 +314,10 @@ router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
 
     if (!policy) {
       return res.status(404).json({ message: 'Документ не знайдено' });
+    }
+
+    if (policy.type === SYLLABUS_POLICY) {
+      return res.status(409).json({ message: 'Блоки довідника політик не видаляються; вимкніть блок через isActive' });
     }
 
     // Delete associated file if exists

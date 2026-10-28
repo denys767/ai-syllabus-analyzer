@@ -1,43 +1,34 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  IconButton,
-  LinearProgress,
-  MenuItem,
-  Paper,
-  Select,
-  Snackbar,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Tooltip,
-  Typography,
-} from '@mui/material';
-import { Chat, Delete, Description, Email, PictureAsPdf, Refresh, Slideshow } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import LinearProgress from '@mui/material/LinearProgress';
+import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
+import Select from '@mui/material/Select';
+import Snackbar from '@mui/material/Snackbar';
+import Stack from '@mui/material/Stack';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
+import Chat from '@mui/icons-material/Chat';
+import Delete from '@mui/icons-material/Delete';
+import Description from '@mui/icons-material/Description';
+import Refresh from '@mui/icons-material/Refresh';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
-import { cabinetOutputs, downloadOutput } from '../../utils/download';
+import { docxFallbackName, filenameFromDisposition, saveBlob } from '../../utils/files';
+import { describeError } from '../../utils/apiError';
 
-const fileIcon = (name) => {
-  if (name.endsWith('.pdf')) return <PictureAsPdf fontSize="small" />;
-  if (name.endsWith('.pptx')) return <Slideshow fontSize="small" />;
-  return <Description fontSize="small" />;
-};
-
-const statusColor = { submitted: 'success', in_progress: 'warning', analyzing: 'info', error: 'error' };
-const statusLabel = {
-  submitted: 'Надіслано',
-  in_progress: 'У роботі',
-  analyzing: 'Аналізується',
-  error: 'Помилка',
-};
+const statusColor = { in_progress: 'warning', analyzing: 'info', error: 'error' };
+const statusLabel = { in_progress: 'In progress', analyzing: 'Analysing', error: 'Error' };
 
 const StatusChip = ({ status }) => (
   <Chip label={statusLabel[status] || status || '—'} size="small" color={statusColor[status] || 'default'} />
@@ -45,24 +36,21 @@ const StatusChip = ({ status }) => (
 
 const ReadinessCell = ({ syllabus }) => {
   const score = Number(syllabus.readiness?.score || 0);
-  const counts = syllabus.issueCounts || {};
-  const pending = Number(counts.pending || 0);
-  const total = Number(counts.total || 0);
-  const resolved = Number(counts.accepted || 0) + Number(counts.rejected || 0);
+  const counts = syllabus.readiness?.counts || {};
   return (
     <Box sx={{ minWidth: 130 }}>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
         <Typography variant="body2" sx={{ fontWeight: 600 }}>{score}%</Typography>
-        {total > 0 && (
+        {counts.required > 0 && (
           <Typography variant="caption" color="text.secondary">
-            {resolved}/{total} опрацьовано
+            {counts.approved}/{counts.required} approved
           </Typography>
         )}
       </Stack>
       <LinearProgress
         variant="determinate"
         value={Math.max(0, Math.min(100, score))}
-        color={total > 0 && pending === 0 ? 'success' : 'primary'}
+        color="primary"
         sx={{ height: 6, borderRadius: 1 }}
       />
     </Box>
@@ -88,7 +76,7 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
       setRows(data.syllabi || []);
       setTotal(data.total || 0);
     } catch (err) {
-      setSnack(err.response?.data?.message || 'Не вдалося завантажити силабуси');
+      setSnack(err.response?.data?.message || "Could not load syllabi");
     } finally {
       setLoading(false);
     }
@@ -96,19 +84,13 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
 
   useEffect(() => { load(); }, [load]);
 
-  const resend = async (id) => {
+  const download = async (syllabus) => {
     try {
-      await api.cabinet.resendSubmission(id);
-      setSnack('Лист надіслано повторно');
-      load();
-    } catch (err) {
-      setSnack(err.response?.data?.message || 'Не вдалося надіслати повторно');
-    }
-  };
-
-  const download = async (syllabus, name) => {
-    const failure = await downloadOutput(syllabus._id, name, syllabus.course?.name || syllabus.title || 'syllabus');
-    if (failure) setSnack(failure);
+      const response = await api.chat.downloadDocx(syllabus._id || syllabus.id);
+      saveBlob(response.data, filenameFromDisposition(response.headers?.['content-disposition']) || docxFallbackName(syllabus.title || syllabus.course?.name));
+      setRows((list) => list.map((row) => row === syllabus ? { ...row, downloads: (row.downloads || 0) + 1 } : row));
+      onChanged?.();
+    } catch (err) { setSnack((await describeError(err)).message); }
   };
 
   const getOwnerId = (syllabus) => {
@@ -137,21 +119,21 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
 
   const deleteSyllabus = async (syllabus) => {
     if (!canDeleteSyllabus(syllabus)) {
-      setSnack('Можна видаляти лише власні силабуси');
+      setSnack("You can only delete your own syllabi");
       return;
     }
-    const courseTitle = syllabus.course?.name || syllabus.title || 'цей силабус';
-    if (!window.confirm(`Видалити «${courseTitle}»? Цю дію неможливо скасувати.`)) return;
+    const courseTitle = syllabus.course?.name || syllabus.title || "this syllabus";
+    if (!window.confirm(`Delete “${courseTitle}”? This cannot be undone.`)) return;
     setDeletingId(syllabus._id);
     try {
       await api.syllabus.deleteSyllabus(syllabus._id);
       clearDeletedWorkspaceState(syllabus._id);
-      setSnack('Силабус видалено');
+      setSnack("Syllabus deleted");
       onChanged?.();
       if (rows.length === 1 && page > 1) setPage((p) => p - 1);
       else load();
     } catch (err) {
-      setSnack(err.response?.data?.message || 'Не вдалося видалити');
+      setSnack(err.response?.data?.message || "Could not delete");
     } finally {
       setDeletingId('');
     }
@@ -161,28 +143,29 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
     <Box>
       <Stack direction="row" spacing={2} sx={{ mb: 2, alignItems: 'center' }}>
         <Select size="small" value={program} onChange={(e) => { setProgram(e.target.value); setPage(1); }} displayEmpty sx={{ minWidth: 160 }}>
-          <MenuItem value="">Усі програми</MenuItem>
+          <MenuItem value="">All programmes</MenuItem>
           {programs.map((p) => <MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>)}
         </Select>
         <Select size="small" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} displayEmpty sx={{ minWidth: 140 }}>
-          <MenuItem value="">Усі статуси</MenuItem>
-          {['analyzing', 'in_progress', 'submitted', 'error'].map((s) => <MenuItem key={s} value={s}>{statusLabel[s] || s}</MenuItem>)}
+          <MenuItem value="">All statuses</MenuItem>
+          {['analyzing', 'in_progress', 'error'].map((s) => <MenuItem key={s} value={s}>{statusLabel[s] || s}</MenuItem>)}
         </Select>
         <IconButton onClick={load} disabled={loading}><Refresh /></IconButton>
-        <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>Усього: {total}</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>Total: {total}</Typography>
       </Stack>
       {loading && <CircularProgress size={20} sx={{ mb: 2 }} />}
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Курс</TableCell>
-              <TableCell>Викладач</TableCell>
-              <TableCell>Програма</TableCell>
-              <TableCell>Готовність</TableCell>
-              <TableCell>Статус</TableCell>
-              <TableCell>Оновлено</TableCell>
-              <TableCell align="right">Дії</TableCell>
+              <TableCell>Course</TableCell>
+              <TableCell>Instructor</TableCell>
+              <TableCell>Programme</TableCell>
+              <TableCell>Readiness</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Downloads</TableCell>
+              <TableCell>Updated</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -193,23 +176,17 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
                 <TableCell>{s.programId?.name || '—'}</TableCell>
                 <TableCell><ReadinessCell syllabus={s} /></TableCell>
                 <TableCell><StatusChip status={s.status} /></TableCell>
-                <TableCell>{new Date(s.updatedAt).toLocaleDateString('uk-UA')}</TableCell>
+                <TableCell>{s.downloads ?? 0}</TableCell>
+                <TableCell>{new Date(s.updatedAt).toLocaleDateString('en-GB')}</TableCell>
                 <TableCell align="right">
-                  <Tooltip title="Відкрити чат">
+                  <Tooltip title="Open chat">
                     <IconButton size="small" onClick={() => navigate(`/workspace/${s._id}`)}><Chat fontSize="small" /></IconButton>
                   </Tooltip>
-                  {s.status === 'submitted' && cabinetOutputs(s).map((file) => (
-                    <Tooltip key={file.name} title={file.label}>
-                      <IconButton size="small" onClick={() => download(s, file.name)}>{fileIcon(file.name)}</IconButton>
-                    </Tooltip>
-                  ))}
-                  {s.status === 'submitted' && s.submissionEmailStatus === 'failed' && isAdmin && (
-                    <Tooltip title="Надіслати лист повторно">
-                      <IconButton size="small" onClick={() => resend(s._id)}><Email fontSize="small" /></IconButton>
-                    </Tooltip>
+                  {(s.outputs || []).includes('syllabus.docx') && (
+                    <Tooltip title="Download .docx"><IconButton size="small" onClick={() => download(s)}><Description fontSize="small" /></IconButton></Tooltip>
                   )}
                   {canDeleteSyllabus(s) && (
-                    <Tooltip title="Видалити силабус">
+                    <Tooltip title="Delete syllabus">
                       <span>
                         <IconButton
                           size="small"
@@ -226,16 +203,16 @@ const SyllabiTab = ({ programs, isAdmin, user, onChanged }) => {
               </TableRow>
             ))}
             {!loading && rows.length === 0 && (
-              <TableRow><TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.secondary' }}>Силабусів не знайдено</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} align="center" sx={{ py: 3, color: 'text.secondary' }}>No syllabi found</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
       </TableContainer>
       {total > 20 && (
         <Stack direction="row" spacing={1} sx={{ mt: 2, justifyContent: 'center' }}>
-          <Button size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Назад</Button>
-          <Typography variant="body2" sx={{ alignSelf: 'center' }}>Сторінка {page}</Typography>
-          <Button size="small" disabled={rows.length < 20} onClick={() => setPage((p) => p + 1)}>Далі</Button>
+          <Button size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Back</Button>
+          <Typography variant="body2" sx={{ alignSelf: 'center' }}>Page {page}</Typography>
+          <Button size="small" disabled={rows.length < 20} onClick={() => setPage((p) => p + 1)}>Next</Button>
         </Stack>
       )}
       <Snackbar open={!!snack} autoHideDuration={4000} onClose={() => setSnack('')} message={snack} />

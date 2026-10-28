@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Tab, Tabs, Typography } from '@mui/material';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
+import Typography from '@mui/material/Typography';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import MetricsRow from './MetricsRow';
@@ -7,8 +11,8 @@ import SyllabiTab from './SyllabiTab';
 import UsersTab from './UsersTab';
 import ProgramsTab from './ProgramsTab';
 
-const ADMIN_TABS = ['Силабуси', 'Користувачі', 'Програми'];
-const INSTRUCTOR_TABS = ['Силабуси'];
+const ADMIN_TABS = ["Syllabi", "Users", "Programmes"];
+const INSTRUCTOR_TABS = ["Syllabi"];
 
 const Cabinet = () => {
   const { user } = useAuth();
@@ -23,7 +27,7 @@ const Cabinet = () => {
       const { data } = await api.cabinet.listPrograms();
       setPrograms(data || []);
     } catch {
-      setError('Не вдалося завантажити програми');
+      setError("Could not load programmes");
     }
   }, []);
 
@@ -38,7 +42,7 @@ const Cabinet = () => {
 
   return (
     <Box sx={{ p: 3, maxWidth: 1100, mx: 'auto' }}>
-      <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>{isAdmin ? 'Кабінет адміністратора' : 'Мої силабуси'}</Typography>
+      <Typography variant="h5" sx={{ mb: 2, fontWeight: 600 }}>{isAdmin ? "Administrator cabinet" : "My syllabi"}</Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       <MetricsRow metrics={metrics} />
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>

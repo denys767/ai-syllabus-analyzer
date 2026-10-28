@@ -1,0 +1,48 @@
+{
+  "version": "1.0",
+  "source": "Освітньо-професійні програми KSE GBS, розділ «Нормативні освітні компоненти». MBA27 — 2025-26 ред.3; MBA28 — 2026-27 ред.1.",
+  "note": "Визначає courseType силабуса. Курс, що є в цьому переліку своєї програми, — core. Будь-який інший — elective. Від цього залежить норма покриття PLO: core має покривати щонайменше один програмний результат (часткове покриття = 0,5), elective норми не має. Переліки різні між наборами: у MBA28 Risk Management і Financial Decision-Making більше не нормативні.",
+  "programmes": {
+    "MBA27": {
+      "label": "MBA27 (набір 2025-26)",
+      "totalCredits": 66,
+      "core": [
+        { "code": "НД.1", "uk": "Лідерство в організаціях", "en": "Leadership in Organizations", "ects": 3 },
+        { "code": "НД.2", "uk": "Управління проєктами", "en": "Project Management", "ects": 3 },
+        { "code": "НД.3", "uk": "Фінансовий та управлінський облік", "en": "Financial and Managerial Accounting", "ects": 3 },
+        { "code": "НД.4", "uk": "Управління ризиками", "en": "Risk Management", "ects": 2 },
+        { "code": "НД.5", "uk": "Стратегічний менеджмент", "en": "Strategic Management", "ects": 4 },
+        { "code": "НД.6", "uk": "Прийняття фінансових рішень", "en": "Financial Decision-Making", "ects": 3 },
+        { "code": "НД.7", "uk": "Управлінська економіка", "en": "Managerial Economics", "ects": 2 },
+        { "code": "НД.8", "uk": "Макроекономіка", "en": "Macroeconomics", "ects": 3 },
+        { "code": "НД.9", "uk": "Стратегічний маркетинг", "en": "Strategic Marketing", "ects": 4 },
+        { "code": "НД.10", "uk": "Організаційна поведінка", "en": "Organizational Behaviour", "ects": 4 },
+        { "code": "НД.11", "uk": "Академічне письмо", "en": "Academic Writing", "ects": 1 },
+        { "code": "ПР.1", "uk": "Практика 1", "en": "Internship 1", "ects": 3 },
+        { "code": "ПР.2", "uk": "Практика 2", "en": "Internship 2", "ects": 9 },
+        { "code": "АТ.1", "uk": "Кваліфікаційна магістерська робота", "en": "Capstone Project", "ects": 22 }
+      ]
+    },
+    "MBA28": {
+      "label": "MBA28 (набір 2026-27)",
+      "totalCredits": 62,
+      "core": [
+        { "code": "НД.1", "uk": "Лідерство в організаціях", "en": "Leadership in Organizations", "ects": 3 },
+        { "code": "НД.2", "uk": "Управління проєктами", "en": "Project Management", "ects": 3 },
+        { "code": "НД.3", "uk": "Фінансовий та управлінський облік", "en": "Financial and Managerial Accounting", "ects": 3 },
+        { "code": "НД.4", "uk": "Стратегічний менеджмент", "en": "Strategic Management", "ects": 4 },
+        { "code": "НД.5", "uk": "Управлінська економіка", "en": "Managerial Economics", "ects": 2 },
+        { "code": "НД.6", "uk": "Макроекономіка", "en": "Macroeconomics", "ects": 3 },
+        { "code": "НД.7", "uk": "Стратегічний маркетинг", "en": "Strategic Marketing", "ects": 4 },
+        { "code": "НД.8", "uk": "Організаційна поведінка", "en": "Organizational Behaviour", "ects": 4 },
+        { "code": "НД.9", "uk": "Академічне письмо", "en": "Academic Writing", "ects": 1 },
+        { "code": "ПР.1", "uk": "Практика", "en": "Internship", "ects": 12 },
+        { "code": "АТ.1", "uk": "Кваліфікаційна магістерська робота", "en": "Capstone Project", "ects": 23 }
+      ]
+    }
+  },
+  "droppedFromCoreInMBA28": [
+    { "uk": "Управління ризиками", "en": "Risk Management" },
+    { "uk": "Прийняття фінансових рішень", "en": "Financial Decision-Making" }
+  ]
+}

@@ -1,12 +1,11 @@
-// Спільні низькорівневі утиліти для WordprocessingML: парсинг, серіалізація,
+// Спільні низькорівневі утиліти для WordprocessingML (лише читання): парсинг,
 // пошук абзаців тіла, класифікація абзаців і «сплющення» тексту абзацу.
 
 const JSZip = require('jszip');
-const { DOMParser, XMLSerializer } = require('@xmldom/xmldom');
+const { DOMParser } = require('@xmldom/xmldom');
 
 const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const W14_NS = 'http://schemas.microsoft.com/office/word/2010/wordml';
-const XML_NS = 'http://www.w3.org/XML/1998/namespace';
 const DOCUMENT_PART = 'word/document.xml';
 
 const ELEMENT_NODE = 1;
@@ -27,36 +26,6 @@ function parseXml(xml, partName = 'xml') {
     },
   });
   return parser.parseFromString(xml, 'text/xml');
-}
-
-const serializer = new XMLSerializer();
-
-/**
- * Серіалізує вузол без повторних xmlns-оголошень, які вже є на корені документа
- * (xmldom додає їх при серіалізації піддерева).
- */
-function serializeFragment(node, rootNamespaces) {
-  const xml = serializer.serializeToString(node);
-  const end = xml.indexOf('>');
-  const head = xml.slice(0, end).replace(/\s+xmlns(?::([\w.-]+))?="([^"]*)"/g, (full, prefix, uri) => (
-    rootNamespaces[prefix || ''] === uri ? '' : full
-  ));
-  return head + xml.slice(end);
-}
-
-function serializeDocument(dom) {
-  return serializer.serializeToString(dom);
-}
-
-function rootNamespaces(dom) {
-  const out = {};
-  const attrs = dom.documentElement.attributes;
-  for (let i = 0; i < attrs.length; i += 1) {
-    const { name, value } = attrs[i];
-    if (name === 'xmlns') out[''] = value;
-    else if (name.startsWith('xmlns:')) out[name.slice(6)] = value;
-  }
-  return out;
 }
 
 function isW(node, localName) {
@@ -123,34 +92,6 @@ function bodyOf(dom) {
 /** Усі w:p тіла в порядку документа (pre-order), включно з вкладеними (написи). */
 function bodyParagraphs(dom) {
   return Array.from(bodyOf(dom).getElementsByTagNameNS(W_NS, 'p'));
-}
-
-/**
- * Позиції [start, end) усіх елементів `<prefix:p>` усередині w:body у сирому XML, у порядку початку.
- * Порядок збігається з bodyParagraphs(), тому індекси взаємозамінні.
- */
-function scanParagraphRanges(xml, prefix) {
-  const qname = prefix ? `${prefix}:p` : 'p';
-  const bodyQ = prefix ? `${prefix}:body` : 'body';
-  const re = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<(\/?)([^\s/>]+)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/g;
-  const ranges = [];
-  const stack = [];
-  let inBody = false;
-  let m;
-  while ((m = re.exec(xml))) {
-    const [full, closing, name, , selfClosing] = m;
-    if (!name) continue;
-    if (name === bodyQ) { inBody = !closing; continue; }
-    if (!inBody || name !== qname) continue;
-    if (selfClosing) ranges.push({ start: m.index, end: m.index + full.length });
-    else if (!closing) { stack.push(ranges.length); ranges.push({ start: m.index, end: -1 }); }
-    else ranges[stack.pop()].end = m.index + full.length;
-  }
-  return ranges;
-}
-
-function wPrefix(dom) {
-  return dom.documentElement.lookupPrefix(W_NS) || 'w';
 }
 
 // ---------- styles / numbering ----------
@@ -323,9 +264,9 @@ function flattenParagraph(p) {
 }
 
 module.exports = {
-  W_NS, W14_NS, XML_NS, DOCUMENT_PART, ELEMENT_NODE, ATOMIC, MARKERS,
-  docError, parseXml, serializeFragment, serializeDocument, rootNamespaces,
+  W_NS, W14_NS, DOCUMENT_PART, ELEMENT_NODE, ATOMIC, MARKERS,
+  docError, parseXml,
   isW, elementChildren, wChild, wChildren, wAttr, closestW, textOf,
-  loadPackage, readPart, bodyOf, bodyParagraphs, scanParagraphRanges, wPrefix,
+  loadPackage, readPart, bodyOf, bodyParagraphs,
   readStyles, readNumbering, classifyParagraph, flattenParagraph,
 };

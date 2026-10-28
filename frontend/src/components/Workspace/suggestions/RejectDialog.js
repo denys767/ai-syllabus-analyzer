@@ -1,17 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material';
-import { REJECT_TAGS } from '../constants';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import { REJECT_TAGS, S } from '../../../strings';
 
 const RejectDialog = ({ open, requiresReason, busy, error, onClose, onSubmit }) => {
   const [reason, setReason] = useState('');
@@ -36,12 +34,10 @@ const RejectDialog = ({ open, requiresReason, busy, error, onClose, onSubmit }) 
 
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} fullWidth maxWidth="sm">
-      <DialogTitle>Відхилити пропозицію</DialogTitle>
+      <DialogTitle>{S.cancelTitle}</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          {requiresReason
-            ? 'Критичні та важливі пропозиції можна відхилити лише з причиною — вона потрапить у звіт для академічного директора.'
-            : 'Причина необов’язкова, але допомагає покращити наступні пропозиції.'}
+          {requiresReason ? S.cancelReasonRequired : S.cancelReasonOptional}
         </Typography>
         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
           {REJECT_TAGS.map((item) => (
@@ -60,7 +56,7 @@ const RejectDialog = ({ open, requiresReason, busy, error, onClose, onSubmit }) 
           fullWidth
           multiline
           minRows={3}
-          label={requiresReason ? 'Причина (обов’язково)' : 'Причина'}
+          label={requiresReason ? S.reasonRequired : S.reason}
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           disabled={busy}
@@ -69,9 +65,9 @@ const RejectDialog = ({ open, requiresReason, busy, error, onClose, onSubmit }) 
         {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
       </DialogContent>
       <DialogActions>
-        <Button disabled={busy} onClick={onClose}>Назад</Button>
-        <Button variant="contained" color="warning" disabled={!canSubmit} onClick={submit}>
-          Відхилити
+        <Button disabled={busy} onClick={onClose}>{S.back}</Button>
+        <Button variant="contained" color="primary" disabled={!canSubmit} onClick={submit}>
+          {S.cancelTitle}
         </Button>
       </DialogActions>
     </Dialog>

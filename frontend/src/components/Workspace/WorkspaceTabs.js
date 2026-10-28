@@ -1,6 +1,12 @@
 import React from 'react';
-import { Box, IconButton, Tab, Tabs, Tooltip } from '@mui/material';
-import { Add, Close } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import IconButton from '@mui/material/IconButton';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
+import Tooltip from '@mui/material/Tooltip';
+import { S } from '../../strings';
+import Add from '@mui/icons-material/Add';
+import Close from '@mui/icons-material/Close';
 
 const WorkspaceTabs = ({ tabs, activeId, onSelect, onClose, onNew, extra }) => (
   <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid', borderColor: 'divider', px: 1, bgcolor: 'background.paper' }}>
@@ -19,7 +25,7 @@ const WorkspaceTabs = ({ tabs, activeId, onSelect, onClose, onNew, extra }) => (
           label={(
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <Box sx={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {t.title || 'Без назви'}
+                {t.title || S.untitled}
               </Box>
               <IconButton
                 size="small"
@@ -35,7 +41,7 @@ const WorkspaceTabs = ({ tabs, activeId, onSelect, onClose, onNew, extra }) => (
       ))}
     </Tabs>
     {extra}
-    <Tooltip title="Новий силабус">
+    <Tooltip title={S.newSyllabus}>
       <IconButton size="small" onClick={onNew}>
         <Add fontSize="small" />
       </IconButton>

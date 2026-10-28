@@ -1,5 +1,6 @@
 import React from 'react';
-import { Container, Box } from '@mui/material';
+import Container from '@mui/material/Container';
+import Box from '@mui/material/Box';
 import PolicyReader from '../components/PolicyReader';
 
 const PoliciesPage = () => {

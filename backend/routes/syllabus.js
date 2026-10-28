@@ -8,10 +8,20 @@ const { body, validationResult } = require('express-validator');
 const mongoose = require('mongoose');
 const Syllabus = require('../models/Syllabus');
 const Suggestion = require('../models/Suggestion');
+const Program = require('../models/Program');
 const { auth, requireRole } = require('../middleware/auth');
 const analysisRunner = require('../services/analysisRunner');
 const { deleteSyllabiCascade, deleteConversationsFor } = require('../services/syllabusCleanup');
 const { removeOutputDir } = require('../services/outputs');
+const { httpError, sendError } = require('../utils/httpError');
+const { getRefs } = require('../services/references');
+const { createEmptyState } = require('../services/syllabusState/empty');
+const store = require('../services/syllabusState/store');
+
+const { initState } = store;
+const { resolveProfile } = require('../services/lecturers/profile');
+const { prepareInstructor } = require('../services/lecturers/cards');
+const { createDraftSuggestions } = require('../services/chat/draftSuggestions');
 
 const CLEANUP_GRACE_MS = 10 * 60 * 1000;
 
@@ -20,14 +30,10 @@ const router = express.Router();
 // Некоректний ObjectId → 400 замість 500
 router.param('id', (req, res, next, id) => {
   if (!mongoose.isValidObjectId(id)) {
-    return res.status(400).json({ message: 'Некоректний id силабусу' });
+    return res.status(400).json({ message: 'Invalid syllabus id', code: 'INVALID_ID' });
   }
   next();
 });
-
-function httpError(statusCode, message) {
-  return Object.assign(new Error(message), { statusCode });
-}
 
 function getOwnerId(syllabus) {
   const inst = syllabus && syllabus.instructor;
@@ -51,10 +57,12 @@ function isOwnerOrAdmin(user, syllabus) {
   return isOwner(user, syllabus) || user.role === 'admin';
 }
 
+const notFound = () => httpError(404, 'Syllabus not found', { code: 'NOT_FOUND' });
+const forbidden = (message = 'Access denied') => httpError(403, message, { code: 'FORBIDDEN' });
+
 // Формат визначаємо за розширенням І сигнатурою файлу, а не за mimetype клієнта.
 const FORMAT_MIMETYPES = {
   pdf: 'application/pdf',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   doc: 'application/msword',
 };
@@ -74,12 +82,11 @@ async function detectFormat(filePath, ext) {
   const isOle = head.subarray(0, 4).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0]));
   if (ext === '.pdf' && isPdf) return 'pdf';
   if (ext === '.doc' && isOle) return 'doc';
-  // OOXML — це zip: DOCX і PPTX розрізняємо за головною частиною пакета
-  const ooxmlPart = { '.docx': 'word/document.xml', '.pptx': 'ppt/presentation.xml' }[ext];
-  if (ooxmlPart && isZip) {
+  // DOCX — це zip з головною частиною word/document.xml
+  if (ext === '.docx' && isZip) {
     try {
       const zip = await JSZip.loadAsync(await fs.readFile(filePath));
-      return zip.file(ooxmlPart) ? ext.slice(1) : null;
+      return zip.file('word/document.xml') ? 'docx' : null;
     } catch {
       return null;
     }
@@ -103,6 +110,8 @@ const storage = multer.diskStorage({
   }
 });
 
+const UNSUPPORTED_FORMAT_MESSAGE = 'Upload a .docx, .doc or .pdf file';
+
 const upload = multer({
   storage: storage,
   limits: {
@@ -110,10 +119,10 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     const fileExt = path.extname(file.originalname).toLowerCase();
-    if (['.pdf', '.docx', '.doc', '.pptx'].includes(fileExt)) {
+    if (['.pdf', '.docx', '.doc'].includes(fileExt)) {
       return cb(null, true);
     }
-    cb(httpError(400, 'Непідтримуваний тип файлу. Дозволені DOCX, DOC, PDF і PPTX.'));
+    cb(httpError(400, UNSUPPORTED_FORMAT_MESSAGE, { code: 'UNSUPPORTED_FORMAT' }));
   }
 });
 
@@ -121,36 +130,109 @@ async function unlinkQuiet(filePath) {
   if (filePath) await fs.unlink(filePath).catch(() => {});
 }
 
-// Upload and analyze syllabus
-router.post('/upload', auth, upload.single('syllabus'), [
-  body('courseName').trim().notEmpty().withMessage('Назва силабусу обов\'язкова'),
-  body('courseCode').optional().trim(),
-  body('credits').optional().isInt({ min: 1, max: 10 }).withMessage('Кредити мають бути від 1 до 10'),
-  body('semester').optional().trim(),
-  body('year').optional().isInt({ min: 2020, max: 2030 }).withMessage('Рік має бути від 2020 до 2030'),
-  body('programId').trim().notEmpty().withMessage('Програма обов\'язкова')
+// Помилки multer (формат, розмір) віддаємо з code; розмір лишається на глобальному обробнику (413)
+function uploadSingle(req, res, next) {
+  upload.single('syllabus')(req, res, (err) => {
+    if (err && err.statusCode) return sendError(res, err);
+    next(err);
+  });
+}
+
+// programCode — редакція програми; без редакцій у програмі він дорівнює коду програми
+async function resolveProgram(programId, rawProgramCode) {
+  const program = await Program.findById(programId).lean();
+  if (!program) throw httpError(400, 'Program not found', { code: 'INVALID_PROGRAM_CODE' });
+  if (!program.editions || !program.editions.length) return { program, programCode: program.code };
+  const programCode = String(rawProgramCode || '').trim().toUpperCase();
+  if (!program.editions.some((e) => e.code === programCode)) {
+    throw httpError(400, `programCode must be one of: ${program.editions.map((e) => e.code).join(', ')}`, { code: 'INVALID_PROGRAM_CODE' });
+  }
+  return { program, programCode };
+}
+
+// Трек 1: силабус з нуля, без файлу. Порожній стан створює createEmptyState, пише його store.initState
+router.post('/', auth, [
+  body('title').trim().notEmpty().withMessage('Title is required'),
+  body('programId').trim().notEmpty().withMessage('Program is required')
     .bail()
-    .isMongoId().withMessage('Некоректний id програми')
+    .isMongoId().withMessage('Invalid program id'),
+  body('courseCode').optional({ nullable: true }).trim(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: 'Validation failed', code: 'VALIDATION_ERROR', errors: errors.array() });
+    }
+    const { title, programId, courseCode } = req.body;
+    const { programCode } = await resolveProgram(programId, req.body.programCode);
+    const code = courseCode || undefined;
+
+    const syllabus = await Syllabus.create({
+      title,
+      course: { code, name: title, year: new Date().getFullYear() },
+      instructor: req.user.userId,
+      programId,
+      programCode,
+      track: 'scratch',
+      sourceFormat: null,
+      status: 'in_progress',
+    });
+    try {
+      const refs = await getRefs(programCode);
+      const state = createEmptyState({ programCode, track: 'scratch', refs, course: { title, code } });
+      const instructorCard = prepareInstructor(state, await resolveProfile(req.user.userId));
+      const saved = await initState(syllabus._id, state, { setBaseline: true, refs });
+      await createDraftSuggestions([instructorCard], { syllabusId: syllabus._id, state: saved.state, refs });
+    } catch (err) {
+      await Suggestion.deleteMany({ syllabusId: syllabus._id });
+      await Syllabus.deleteOne({ _id: syllabus._id });
+      throw err;
+    }
+    const created = await Syllabus.findById(syllabus._id);
+    res.status(201).json({ syllabus: publicSyllabus(created) });
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// Upload and analyze syllabus
+router.post('/upload', auth, uploadSingle, [
+  body('courseName').trim().notEmpty().withMessage('Course name is required'),
+  body('courseCode').optional().trim(),
+  body('credits').optional().isInt({ min: 1, max: 10 }).withMessage('Credits must be between 1 and 10'),
+  body('semester').optional().trim(),
+  body('year').optional().isInt({ min: 2020, max: 2030 }).withMessage('Year must be between 2020 and 2030'),
+  body('programId').trim().notEmpty().withMessage('Program is required')
+    .bail()
+    .isMongoId().withMessage('Invalid program id')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       if (req.file) await unlinkQuiet(req.file.path);
-      return res.status(400).json({ message: 'Помилка валідації', errors: errors.array() });
+      return res.status(400).json({ message: 'Validation failed', code: 'VALIDATION_ERROR', errors: errors.array() });
     }
 
     if (!req.file) {
-      return res.status(400).json({ message: 'Файл силабусу обов\'язковий' });
+      return res.status(400).json({ message: 'A syllabus file is required', code: 'FILE_REQUIRED' });
     }
 
     const ext = path.extname(req.file.originalname).toLowerCase();
     const format = await detectFormat(req.file.path, ext);
     if (!format) {
       await unlinkQuiet(req.file.path);
-      return res.status(400).json({ message: 'Вміст файлу не відповідає його розширенню. Завантажте справжній DOCX, DOC, PDF або PPTX.' });
+      return res.status(400).json({ message: 'File content does not match its extension. Upload a real .docx, .doc or .pdf file', code: 'UNSUPPORTED_FORMAT' });
     }
 
     const { courseName, courseCode, credits, semester, year, programId } = req.body;
+
+    let programCode;
+    try {
+      ({ programCode } = await resolveProgram(programId, req.body.programCode));
+    } catch (err) {
+      await unlinkQuiet(req.file.path);
+      throw err;
+    }
 
     // Розбір документа (конвертація .doc/.pdf) іде у фоні як етап `extract`
 
@@ -165,6 +247,8 @@ router.post('/upload', auth, upload.single('syllabus'), [
       },
       instructor: req.user.userId,
       programId,
+      programCode,
+      track: 'upload',
       originalFile: {
         filename: req.file.filename,
         originalName: req.file.originalname,
@@ -182,17 +266,14 @@ router.post('/upload', auth, upload.single('syllabus'), [
     analysisRunner.runAnalysisInBackground(syllabus._id);
 
     res.status(201).json({
-      message: 'Силабус завантажено. Триває аналіз.',
+      message: 'The syllabus was uploaded. Analysis is in progress.',
       syllabusId: syllabus._id,
       status: syllabus.status
     });
   } catch (error) {
     if (req.file) await unlinkQuiet(req.file.path);
     console.error('Syllabus upload error:', error);
-    if (error.statusCode) {
-      return res.status(error.statusCode).json({ message: error.message });
-    }
-    res.status(500).json({ message: 'Внутрішня помилка сервера під час завантаження файлу' });
+    sendError(res, error, 'Internal server error while uploading the file');
   }
 });
 
@@ -204,6 +285,8 @@ function publicSyllabus(syllabus) {
   delete obj.outputs;
   delete obj.submittedPdfPath;
   delete obj.submitting;
+  delete obj.state;
+  delete obj.baselineState;
   return obj;
 }
 
@@ -214,16 +297,12 @@ router.get('/:id', auth, async (req, res) => {
       .populate('instructor', 'firstName lastName email')
       .populate('programId', 'name code academicDirectorEmail');
 
-    if (!syllabus) {
-      return res.status(404).json({ message: 'Силабус не знайдено' });
-    }
-    if (!isOwnerOrAdmin(req.user, syllabus)) {
-      return res.status(403).json({ message: 'Доступ заборонено. Ви можете переглядати лише власні силабуси.' });
-    }
+    if (!syllabus) return sendError(res, notFound());
+    if (!isOwnerOrAdmin(req.user, syllabus)) return sendError(res, forbidden('You can only view your own syllabi.'));
     res.json(publicSyllabus(syllabus));
   } catch (error) {
     console.error('Get syllabus error:', error);
-    res.status(500).json({ message: 'Внутрішня помилка сервера' });
+    sendError(res, error);
   }
 });
 
@@ -234,16 +313,12 @@ router.get('/:id/status', auth, async (req, res) => {
       .select('status analysisStage analysisError instructor')
       .populate('instructor', '_id');
 
-    if (!syllabus) {
-      return res.status(404).json({ message: 'Силабус не знайдено' });
-    }
-    if (!isOwnerOrAdmin(req.user, syllabus)) {
-      return res.status(403).json({ message: 'Доступ заборонено' });
-    }
+    if (!syllabus) return sendError(res, notFound());
+    if (!isOwnerOrAdmin(req.user, syllabus)) return sendError(res, forbidden());
     res.json({ status: syllabus.status, stage: syllabus.analysisStage || null, error: syllabus.analysisError || null });
   } catch (error) {
     console.error('Get status error:', error);
-    res.status(500).json({ message: 'Внутрішня помилка сервера' });
+    sendError(res, error);
   }
 });
 
@@ -251,75 +326,91 @@ router.get('/:id/status', auth, async (req, res) => {
 router.delete('/:id', auth, async (req, res) => {
   try {
     const syllabus = await Syllabus.findById(req.params.id).select('instructor');
-    if (!syllabus) {
-      return res.status(404).json({ message: 'Силабус не знайдено' });
-    }
-    if (!isOwnerOrAdmin(req.user, syllabus)) {
-      return res.status(403).json({ message: 'Доступ заборонено. Ви можете видаляти лише власні силабуси.' });
-    }
+    if (!syllabus) return sendError(res, notFound());
+    if (!isOwnerOrAdmin(req.user, syllabus)) return sendError(res, forbidden('You can only delete your own syllabi.'));
 
     await deleteSyllabiCascade({ _id: syllabus._id });
-    res.json({ message: 'Силабус видалено' });
+    res.json({ message: 'The syllabus was deleted' });
   } catch (error) {
     console.error('Delete syllabus error:', error);
-    res.status(500).json({ message: 'Внутрішня помилка сервера' });
+    sendError(res, error);
   }
 });
 
-// Update syllabus metadata (лише власник)
+// Update syllabus metadata (лише власник). Назва й код курсу синхронізуються зі state.header через store.mutate
+// (єдиний писач стану); програму й редакцію змінити не можна — силабус перевіряється проти свого programCode.
 router.put('/:id', auth, [
-  body('title').optional().trim().notEmpty().withMessage('Назва не може бути порожньою'),
+  body('title').optional().trim().notEmpty().withMessage('Title cannot be empty'),
   body('courseCode').optional().trim(),
   body('courseName').optional().trim(),
-  body('credits').optional().isInt({ min: 1, max: 10 }).withMessage('Кредити мають бути від 1 до 10'),
+  body('credits').optional().isInt({ min: 1, max: 10 }).withMessage('Credits must be between 1 and 10'),
   body('semester').optional().trim(),
-  body('year').optional().isInt({ min: 2020, max: 2030 }).withMessage('Рік має бути від 2020 до 2030'),
-  body('programId').optional().isMongoId().withMessage('Некоректний id програми')
+  body('year').optional().isInt({ min: 2020, max: 2030 }).withMessage('Year must be between 2020 and 2030'),
+  body('programId').optional().isMongoId().withMessage('Invalid program id'),
+  body('programCode').optional().isString().withMessage('Invalid programme edition'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ message: 'Помилка валідації', errors: errors.array() });
+      return res.status(400).json({ message: 'Validation failed', code: 'VALIDATION_ERROR', errors: errors.array() });
     }
     const syllabus = await Syllabus.findById(req.params.id);
-    if (!syllabus) {
-      return res.status(404).json({ message: 'Силабус не знайдено' });
-    }
-    if (!isOwner(req.user, syllabus)) {
-      return res.status(403).json({ message: 'Доступ заборонено. Ви можете редагувати лише власні силабуси.' });
+    if (!syllabus) return sendError(res, notFound());
+    if (!isOwner(req.user, syllabus)) return sendError(res, forbidden('You can only edit your own syllabi.'));
+    if (syllabus.status === 'analyzing') {
+      return sendError(res, httpError(409, 'The file is still being analysed. Try again when the analysis finishes.', { code: 'ANALYSIS_IN_PROGRESS' }));
     }
 
-    const { title, courseCode, courseName, credits, semester, year, programId } = req.body;
-    if (title) syllabus.title = title;
-    if (courseCode !== undefined) syllabus.course.code = courseCode;
-    if (courseName !== undefined) syllabus.course.name = courseName;
-    if (credits !== undefined) syllabus.course.credits = parseInt(credits);
-    if (semester !== undefined) syllabus.course.semester = semester;
-    if (year !== undefined) syllabus.course.year = parseInt(year);
-    if (programId !== undefined) syllabus.programId = programId || undefined;
+    const { title, courseCode, courseName, credits, semester, year, programId, programCode } = req.body;
+    const sameProgram = programId === undefined || String(programId) === String(syllabus.programId || '');
+    const sameEdition = programCode === undefined || String(programCode).trim().toUpperCase() === String(syllabus.programCode || '');
+    if (!sameProgram || !sameEdition) {
+      return sendError(res, httpError(400, 'The programme and its edition cannot be changed. Create a new syllabus for another programme.', { code: 'PROGRAM_CHANGE_NOT_ALLOWED' }));
+    }
 
-    await syllabus.save();
-    res.json({ message: 'Силабус оновлено', syllabus });
+    // Спершу стан (умова на ревізію): якщо запис не вдався, метадані теж не змінюються
+    const header = {};
+    if (courseName) header.courseTitle = courseName;
+    else if (title) header.courseTitle = title;
+    if (courseCode !== undefined) header.courseCode = courseCode || null;
+    const v5 = syllabus.state && !syllabus.legacy && !syllabus.needsRebuild;
+    if (v5 && Object.keys(header).length) {
+      await store.mutate(syllabus._id, syllabus.stateRevision || 0, (st) => {
+        st.header = { ...st.header, ...header };
+      }, { by: req.user.userId, source: 'instructor_directed', refs: await getRefs(syllabus.programCode) });
+    }
+
+    const updates = {};
+    if (title) updates.title = title;
+    if (courseCode !== undefined) updates['course.code'] = courseCode;
+    if (courseName !== undefined) updates['course.name'] = courseName;
+    if (credits !== undefined) updates['course.credits'] = parseInt(credits, 10);
+    if (semester !== undefined) updates['course.semester'] = semester;
+    if (year !== undefined) updates['course.year'] = parseInt(year, 10);
+    const saved = Object.keys(updates).length
+      ? await Syllabus.findByIdAndUpdate(syllabus._id, { $set: updates }, { new: true })
+      : await Syllabus.findById(syllabus._id);
+    res.json({ message: 'The syllabus was updated', syllabus: publicSyllabus(saved) });
   } catch (error) {
     console.error('Update syllabus error:', error);
-    res.status(500).json({ message: 'Внутрішня помилка сервера' });
+    sendError(res, error);
   }
 });
 
 // Trigger AI analysis (re-analyze) — лише власник; скидає розмову й похідний стан
 router.post('/:id/analyze', auth, async (req, res) => {
   try {
-    const syllabus = await Syllabus.findById(req.params.id).select('instructor status');
-    if (!syllabus) {
-      return res.status(404).json({ message: 'Силабус не знайдено' });
-    }
-    if (!isOwner(req.user, syllabus)) {
-      return res.status(403).json({ message: 'Доступ заборонено' });
+    const syllabus = await Syllabus.findById(req.params.id).select('instructor status track');
+    if (!syllabus) return sendError(res, notFound());
+    if (!isOwner(req.user, syllabus)) return sendError(res, forbidden('Only the syllabus owner can run the analysis.'));
+
+    if (syllabus.track === 'scratch') {
+      return res.status(409).json({ message: 'A syllabus created from scratch has no file to analyze', code: 'NO_SOURCE_FILE' });
     }
 
     // Атомарне захоплення: два паралельні запити не запустять аналіз двічі
     const claimed = await Syllabus.findOneAndUpdate(
-      { _id: syllabus._id, status: { $nin: ['analyzing', 'submitted'] } },
+      { _id: syllabus._id, status: { $ne: 'analyzing' } },
       {
         $set: { status: 'analyzing', analysisStage: null, analysisStartedAt: new Date(), analysisAttempts: 0 },
         $unset: { outputs: '', rubricSummary: '', analysisError: '', analysisLeaseUntil: '', analysisLeaseToken: '' },
@@ -327,10 +418,7 @@ router.post('/:id/analyze', auth, async (req, res) => {
       { new: false }
     );
     if (!claimed) {
-      const reason = syllabus.status === 'submitted'
-        ? 'Силабус уже відправлено, повторний аналіз неможливий'
-        : 'Аналіз уже виконується';
-      return res.status(409).json({ message: reason, status: syllabus.status });
+      return res.status(409).json({ message: 'Analysis is already running', code: 'ANALYSIS_RUNNING', status: syllabus.status });
     }
 
     await removeOutputDir(syllabus._id);
@@ -338,10 +426,10 @@ router.post('/:id/analyze', auth, async (req, res) => {
     await deleteConversationsFor([syllabus._id]);
     analysisRunner.runAnalysisInBackground(syllabus._id);
 
-    res.json({ message: 'Аналіз розпочато', status: 'analyzing' });
+    res.json({ message: 'The analysis has started', status: 'analyzing' });
   } catch (error) {
     console.error('Start analysis error:', error);
-    res.status(500).json({ message: 'Внутрішня помилка сервера' });
+    sendError(res, error);
   }
 });
 
@@ -349,23 +437,22 @@ router.post('/:id/analyze', auth, async (req, res) => {
 router.get('/:id/download', auth, async (req, res) => {
   try {
     const syllabus = await Syllabus.findById(req.params.id);
-    if (!syllabus) {
-      return res.status(404).json({ message: 'Силабус не знайдено' });
-    }
-    if (!isOwnerOrAdmin(req.user, syllabus)) {
-      return res.status(403).json({ message: 'Доступ заборонено' });
-    }
+    if (!syllabus) return sendError(res, notFound());
+    if (!isOwnerOrAdmin(req.user, syllabus)) return sendError(res, forbidden());
 
-    const filePath = syllabus.originalFile.path;
+    const filePath = syllabus.originalFile?.path;
+    if (!filePath) {
+      return res.status(404).json({ message: 'This syllabus has no uploaded file', code: 'NO_SOURCE_FILE' });
+    }
     try {
       await fs.access(filePath);
     } catch (error) {
-      return res.status(404).json({ message: 'Файл на сервері не знайдено' });
+      return res.status(404).json({ message: 'The uploaded file was not found on the server', code: 'FILE_NOT_FOUND' });
     }
     res.download(filePath, syllabus.originalFile.originalName);
   } catch (error) {
     console.error('Download syllabus error:', error);
-    res.status(500).json({ message: 'Внутрішня помилка сервера' });
+    sendError(res, error);
   }
 });
 
@@ -390,10 +477,10 @@ router.post('/maintenance/cleanup-uploads', auth, requireRole('admin'), async (r
         deleted++;
       } catch { /* ignore */ }
     }
-    return res.json({ message: 'Очищення завершено', deleted });
+    return res.json({ message: 'Cleanup finished', deleted });
   } catch (e) {
     console.error('Cleanup uploads error:', e);
-    return res.status(500).json({ message: 'Внутрішня помилка сервера' });
+    return sendError(res, e);
   }
 });
 

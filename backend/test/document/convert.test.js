@@ -6,9 +6,8 @@ const lo = isAvailable() ? test : test.skip;
 
 describe('convert', () => {
   lo('.doc → .docx: текст і структура зберігаються', async () => {
-    const { buffer, doc, convertedFrom } = await loadDocument(fixture('legacy.doc'), 'doc');
+    const { doc, convertedFrom } = await loadDocument(fixture('legacy.doc'), 'doc');
     expect(convertedFrom).toBe('doc');
-    expect(buffer.subarray(0, 2).toString()).toBe('PK');
     const t = texts(doc);
     expect(t).toEqual(expect.arrayContaining([
       'Курс триває 10 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.',
@@ -20,21 +19,10 @@ describe('convert', () => {
   }, 120000);
 
   lo('таймаут задачі дає зрозумілу помилку і не блокує чергу', async () => {
-    await expect(convert(fixture('syllabus.docx'), 'docx', 'pdf', { timeoutMs: 1 }))
+    await expect(convert(fixture('legacy.doc'), 'doc', 'docx', { timeoutMs: 1 }))
       .rejects.toMatchObject({ statusCode: 504, code: 'CONVERSION_TIMEOUT' });
-    const pdf = await convert(fixture('syllabus.docx'), 'docx', 'pdf');
-    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
-  }, 120000);
-
-  lo('buildOutputs: clean, tracked і PDF з коментарями як анотаціями', async () => {
-    const { extractDocx, buildOutputs } = require('../../services/document');
-    const original = fixture('syllabus.docx');
-    const doc = await extractDocx(original);
-    const block = doc.blocks.find((b) => b.text.startsWith('Академічна доброчесність'));
-    const accepted = [{ id: 's', rationale: 'Уточнити політику.', ops: [{ op: 'replaceBlock', blockId: block.id, newText: 'Академічна доброчесність: плагіат і списування неприпустимі.' }] }];
-    const out = await buildOutputs(original, doc, accepted, { pdf: true });
-    expect(Object.keys(out)).toEqual(['clean', 'tracked', 'trackedPdf']);
-    expect(out.trackedPdf.toString('latin1')).toMatch(/\/Subtype\s*\/Text/);
+    const docx = await convert(fixture('legacy.doc'), 'doc', 'docx');
+    expect(docx.subarray(0, 2).toString()).toBe('PK');
   }, 120000);
 
   test('відсутній soffice → 503 SOFFICE_MISSING', async () => {

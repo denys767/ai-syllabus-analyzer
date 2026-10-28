@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Paper } from '@mui/material';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
 
 const Bubble = ({ role, children, sx }) => {
   const isUser = role === 'user';
@@ -14,7 +15,7 @@ const Bubble = ({ role, children, sx }) => {
           color: isUser ? 'primary.contrastText' : 'text.primary',
           border: isUser ? 'none' : '1px solid',
           borderColor: 'divider',
-          borderRadius: 2,
+          borderRadius: '16px',
           ...sx,
         }}
       >

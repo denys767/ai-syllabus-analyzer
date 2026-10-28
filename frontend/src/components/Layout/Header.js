@@ -1,27 +1,24 @@
 import React from 'react';
-import {
-  Toolbar,
-  Typography,
-  IconButton,
-  Box,
-  Avatar,
-  Menu,
-  MenuItem,
-  Divider,
-} from '@mui/material';
-import {
-  Menu as MenuIcon,
-  AccountCircle,
-  Settings,
-  Logout,
-  DarkMode,
-  LightMode,
-  BrightnessAuto
-} from '@mui/icons-material';
+import Toolbar from '@mui/material/Toolbar';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import Box from '@mui/material/Box';
+import Avatar from '@mui/material/Avatar';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Divider from '@mui/material/Divider';
+import MenuIcon from '@mui/icons-material/Menu';
+import AccountCircle from '@mui/icons-material/AccountCircle';
+import Settings from '@mui/icons-material/Settings';
+import Logout from '@mui/icons-material/Logout';
+import DarkMode from '@mui/icons-material/DarkMode';
+import LightMode from '@mui/icons-material/LightMode';
+import BrightnessAuto from '@mui/icons-material/BrightnessAuto';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useThemeMode } from '../../contexts/ThemeContext';
-import { ToggleButtonGroup, ToggleButton } from '@mui/material';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import ToggleButton from '@mui/material/ToggleButton';
 
 const Header = ({ onMenuClick, drawerOpen }) => {
   const { user, logout } = useAuth();
@@ -67,7 +64,7 @@ const Header = ({ onMenuClick, drawerOpen }) => {
     <Toolbar>
       <IconButton
         color="inherit"
-        aria-label="відкрити меню"
+        aria-label="Open menu"
         edge="start"
         onClick={onMenuClick}
         sx={{ mr: 2 }}
@@ -79,17 +76,17 @@ const Header = ({ onMenuClick, drawerOpen }) => {
         variant="h6"
         noWrap
         component="div"
-        sx={{ 
+        sx={{
           flexGrow: 1,
           fontWeight: 600,
           color: 'common.white'
         }}
       >
-        AI-аналізатор силабусів
+        AI Syllabus Analyzer
       </Typography>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        {/* Theme switcher matching dashboard style */}
+        {/* Перемикач теми */}
         <ToggleButtonGroup
           value={mode}
           exclusive
@@ -97,28 +94,28 @@ const Header = ({ onMenuClick, drawerOpen }) => {
           onChange={handleThemeChange}
           sx={{ mr: 1, bgcolor: 'background.paper', borderRadius: 2, '& .MuiToggleButton-root': { py: 0.5 } }}
         >
-          <ToggleButton value="system" aria-label="system" title="Системна тема">
+          <ToggleButton value="system" aria-label="system" title="System theme">
             <BrightnessAuto fontSize="small" />
           </ToggleButton>
-          <ToggleButton value="light" aria-label="light" title="Світла тема">
+          <ToggleButton value="light" aria-label="light" title="Light theme">
             <LightMode fontSize="small" />
           </ToggleButton>
-          <ToggleButton value="dark" aria-label="dark" title="Темна тема">
+          <ToggleButton value="dark" aria-label="dark" title="Dark theme">
             <DarkMode fontSize="small" />
           </ToggleButton>
         </ToggleButtonGroup>
-        {/* User menu */}
+        {/* Меню користувача */}
         <IconButton
           size="large"
-          aria-label="обліковий запис"
+          aria-label="Account"
           aria-controls="menu-appbar"
           aria-haspopup="true"
           onClick={handleMenu}
           color="inherit"
         >
           <Avatar
-            sx={{ 
-              width: 32, 
+            sx={{
+              width: 32,
               height: 32,
               bgcolor: 'primary.main',
               fontSize: '0.875rem'
@@ -159,28 +156,28 @@ const Header = ({ onMenuClick, drawerOpen }) => {
               {user?.email}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {user?.role === 'instructor' ? 'Викладач' :
-               user?.role === 'admin' ? 'Адміністратор' : user?.role}
+              {user?.role === 'instructor' ? "Instructor" :
+               user?.role === 'admin' ? "Administrator" : user?.role}
             </Typography>
           </Box>
-          
+
           <Divider />
-          
+
           <MenuItem onClick={handleProfile}>
             <AccountCircle sx={{ mr: 2 }} />
-            Профіль
+            Profile
           </MenuItem>
-          
+
           <MenuItem onClick={handleSettings}>
             <Settings sx={{ mr: 2 }} />
-            Налаштування
+            Settings
           </MenuItem>
-          
+
           <Divider />
-          
+
           <MenuItem onClick={handleLogout}>
             <Logout sx={{ mr: 2 }} />
-            Вийти
+            Sign out
           </MenuItem>
         </Menu>
       </Box>

@@ -1,12 +1,15 @@
 import React from 'react';
-import { Paper, Stack, Typography } from '@mui/material';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
 
 const MetricsRow = ({ metrics }) => (
-  <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+  <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap" sx={{ mb: 3 }}>
     {[
-      { label: 'Усього', value: metrics?.total ?? '—' },
-      { label: 'Надіслано', value: metrics?.submitted ?? '—', color: 'success.main' },
-      { label: 'У роботі', value: metrics?.inProgress ?? '—', color: 'warning.main' },
+      { label: 'Total', value: metrics?.total ?? '—' },
+      { label: '100% ready', value: metrics?.ready100 ?? '—', color: 'primary.main' },
+      { label: 'Downloads', value: metrics?.downloads ?? '—' },
+      { label: 'In progress', value: metrics?.inProgress ?? '—', color: 'warning.main' },
     ].map(({ label, value, color }) => (
       <Paper key={label} variant="outlined" sx={{ px: 3, py: 1.5, minWidth: 120, textAlign: 'center' }}>
         <Typography variant="h5" sx={{ color: color || 'text.primary' }}>{value}</Typography>
