@@ -228,6 +228,7 @@ async function initializeAdmin() {
   try {
     const stats = await seedPolicyLibrary();
     console.log('✅ Policy library seeded', stats);
+    if (stats.conflicts.length) console.warn('⚠️ Блоки довідника політик з адмінськими правками не оновлено (нова версія фікстури):', stats.conflicts.map((c) => c.key).join(', '));
   } catch (error) {
     console.error('❌ Error seeding policy library:', error);
   }

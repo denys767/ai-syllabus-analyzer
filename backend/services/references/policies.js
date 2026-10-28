@@ -75,8 +75,10 @@ function blockFields(block, version) {
 }
 
 // Ідемпотентний upsert за key. Блок із libraryVersion >= версії фікстури не чіпаємо (адмін міг правити).
+// Блок з adminModified не перезаписуємо навіть при новій версії фікстури: він іде в stats.conflicts
+// ({ key, libraryVersion, fixtureVersion }), щоб адмін вирішив, чи брати фікстуру.
 async function seedPolicyLibrary(library = fixtureLibrary(), { dryRun = false } = {}) {
-  const stats = { created: 0, updated: 0, skipped: 0 };
+  const stats = { created: 0, updated: 0, skipped: 0, conflicts: [] };
   for (const block of library.blocks) {
     const existing = await Policy.findOne({ key: block.key });
     if (!existing) {
@@ -84,6 +86,8 @@ async function seedPolicyLibrary(library = fixtureLibrary(), { dryRun = false } 
       stats.created += 1;
     } else if (existing.type === TYPE && versionGte(existing.libraryVersion, library.version)) {
       stats.skipped += 1;
+    } else if (existing.adminModified) {
+      stats.conflicts.push({ key: block.key, libraryVersion: existing.libraryVersion || null, fixtureVersion: library.version });
     } else {
       if (!dryRun) {
         const { key, ...fields } = blockFields(block, library.version);

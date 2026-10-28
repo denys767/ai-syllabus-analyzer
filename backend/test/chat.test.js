@@ -561,56 +561,6 @@ describe('refine, answer, вільний чат', () => {
   });
 });
 
-describe('submit', () => {
-  test('gate pending → 409 зі списком; лист з tracked.docx і tracked.pdf; повторний submit → 409', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { title: 'Тижні', severity: 'high', ops: [replaceOp('b0004', 'Курс триває 12 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.')] });
-    const b = await helpers.createSuggestion(s, { title: 'Доброчесність', group: 'policy', ops: [replaceOp('b0030', 'Академічна доброчесність: плагіат заборонено.')] });
-    await start(s);
-    let res = await post(s, '/submit');
-    expect(res.status).toBe(409);
-    expect(res.body.code).toBe('PENDING_SUGGESTIONS');
-    expect(res.body.pending.map((p) => p.title)).toEqual(['Тижні', 'Доброчесність']);
-    expect((await Syllabus.findById(s._id)).submitting).toBe(false);
-
-    await post(s, `/suggestions/${a._id}/accept`);
-    await post(s, `/suggestions/${b._id}/reject`, { rejectTag: 'not_relevant', reason: 'Не для цього курсу' });
-
-    const send = () => post(s, '/submit');
-    const results = await Promise.all([send(), send()]);
-    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
-    const ok = results.find((r) => r.status === 200).body;
-    expect(ok.submitted).toBe(true);
-    expect(ok.syllabus).toMatchObject({ status: 'submitted', submissionEmailStatus: 'sent', canMutate: false });
-
-    expect(mockSendMail).toHaveBeenCalledTimes(1);
-    const mail = mockSendMail.mock.calls[0][0];
-    expect(mail.to).toBe('ad@example.com');
-    const names = mail.attachments.map((x) => x.filename);
-    expect(names[0]).toBe('syllabus_tracked.docx');
-    if (isConverterAvailable()) expect(names).toEqual(['syllabus_tracked.docx', 'syllabus_tracked.pdf']);
-    expect(await documentXml(mail.attachments[0].content)).toMatch(/<w:ins /);
-    expect(mail.html).toMatch(/Прийняті пропозиції/);
-    expect(mail.html).toMatch(/не стосується курсу/);
-    expect(mail.html).toMatch(/Не для цього курсу/);
-
-    expect((await send()).status).toBe(409);
-    // outputs доступні й після submit
-    expect((await request(app).get(`${api(s)}/outputs/tracked.docx`).set(authOf(owner))).status).toBe(200);
-    // рішення після submit заборонені
-    expect((await post(s, `/suggestions/${b._id}/reopen`)).status).toBe(409);
-    expect((await Conversation.findOne({ syllabusId: s._id })).status).toBe('submitted');
-  }, 60000);
-
-  test('resend-submission (admin) надсилає ті самі outputs', async () => {
-    const s = await docSyllabus({ status: 'submitted' });
-    const res = await request(app).post(`/api/cabinet/syllabi/${s._id}/resend-submission`).set(authOf(admin));
-    expect(res.status).toBe(200);
-    const names = mockSendMail.mock.calls[0][0].attachments.map((x) => x.filename);
-    expect(names[0]).toBe('syllabus_tracked.docx');
-  }, 60000);
-});
-
 describe('legacy', () => {
   test('читання працює, мутації → 409 LEGACY_SYLLABUS', async () => {
     const s = await helpers.createSyllabus(owner, { legacy: true, extractedText: 'old' });

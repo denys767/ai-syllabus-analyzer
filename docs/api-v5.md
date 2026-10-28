@@ -186,6 +186,18 @@ readiness = {
 
 Для `locked`-слотів усі мутуючі інструменти повертають `{ error: 'LOCKED' }`.
 
+Реалізація (`services/ai/tools`): `definitions.js` (strict function tools, `buildTools(state)`), `handlers.js` (правила безпеки в коді), `runner.js` (`runOrchestratorTurn`: ≤ 6 викликів моделі, ≤ 1 запису стану за хід).
+
+| Додатково | Дія |
+|---|---|
+| `propose_draft(key, text, instruction?, entity_id?, proposed_values[])` | `entity_id` — для `assessment.criteria` і `schedule.additional` |
+| `suggest_plo(outcome_ids)` | Картки `outcomes[<id>].plo` через `prompts/loMapping.js` (`confirmed: false`) |
+| `suggest_readings(query)` | Картка `materials.recommended[]` через `prompts/readings.js`; лише з перевіреним URL, інакше нічого |
+
+Коди помилок інструментів: `LOCKED`, `UNKNOWN_SLOT`, `SLOT_NOT_WRITABLE`, `NOT_SCALAR`, `USE_PROPOSE_DRAFT`, `POLICY_NEEDS_INSTRUCTION`, `SLOT_NOT_DRAFTABLE`, `UNKNOWN_ENTITY`, `UNVERIFIED_URL`, `NEEDS_CONFIRM`, `ONE_WRITE_PER_TURN` та коди `accept` (`STALE_DRAFT` тощо).
+
+`runOrchestratorTurn(ctx)`: `ctx.deps = { mutate(syllabusId, expectedRevision, fn, ctx), getState(syllabusId), createDraftSuggestions(inputs, ctx), runChecks(state, refs), findSuggestion(id), acceptSuggestion(id, { expectedRevision, userId }) }`. Перші п'ять мають дефолти (`store.mutate`, `store.getState`, `draftSuggestions.createDraftSuggestions`, `checks.runChecks`, `Suggestion.findById`); `acceptSuggestion` реалізує сервіс рішень чату, без нього `apply_edit` повертає `NOT_CONFIGURED`.
+
 ## 9. Спільні модулі та інтерфейси (W2)
 
 - **`services/ai/facts.js` — серверний сканер фактів.** `scanFacts(text, { known })`, `mergeProposedValues(modelValues, scanned)`, `toTemplate`, `renderTemplate`. Застосовується до **кожної** чернетки моделі; `known` = репліки викладача + тексти довідників + поточне значення слота.

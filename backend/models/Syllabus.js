@@ -40,7 +40,8 @@ const syllabusSchema = new mongoose.Schema({
   // Формат, який завантажив викладач
   sourceFormat: {
     type: String,
-    enum: ['docx', 'doc', 'pdf', 'pptx'],
+    enum: ['docx', 'doc', 'pdf', 'pptx', null], // null — трек 1 (без файлу); pptx лишився для v4-силабусів
+    default: null,
   },
   // Оригінальний файл викладача, незмінний
   originalFile: {
