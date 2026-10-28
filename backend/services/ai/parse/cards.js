@@ -143,7 +143,7 @@ function courseHintCards(courseHint) {
     description: `The course title matches the core course "${courseHint.title}" (code ${courseHint.code}) of the programme. If it is the same course, what is the course code in your syllabus?`,
     rationale: 'Core courses must cover programme learning outcomes',
     question: `The course title matches the core course "${courseHint.title}" (code ${courseHint.code}). If it is the same course, please confirm the course code.`,
-    target: { path: 'header.courseCode', section: 'course_info' },
+    target: { path: 'header.courseCode', section: 'at_a_glance' },
     promptVersion: PROMPT_VERSION,
   }];
 }

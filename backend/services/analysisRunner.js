@@ -49,20 +49,19 @@ function hasDocument(syllabus) {
 
 /**
  * Етап extract: оригінал → робочий файл (docx — сам оригінал; doc — сконвертований .docx;
- * pdf — синтезований .docx з блоками PDF 1:1; pptx — сам оригінал) → blocks.
+ * pdf — синтезований .docx з блоками PDF 1:1) → blocks.
  * Пропускається, якщо document уже є (re-analyze).
  */
 async function extractDocument(syllabusId, { leaseToken } = {}) {
   await assertLease(syllabusId, leaseToken);
   const syllabus = await Syllabus.findById(syllabusId);
   if (!syllabus) throw new Error('Силабус не знайдено');
-  if (hasDocument(syllabus)) return;
-
   await Syllabus.updateOne(ownedAnalysis(syllabusId, leaseToken), { $set: { analysisStage: 'extract' } });
   const format = formatOf(syllabus);
   if (!INPUT_FORMATS.includes(format)) {
     throw httpError(400, 'This file format is not supported. Upload a DOCX, DOC or PDF file.', { code: 'UNSUPPORTED_FORMAT' });
   }
+  if (hasDocument(syllabus)) return;
   const originalPath = syllabus.originalFile?.path;
   let original;
   try {

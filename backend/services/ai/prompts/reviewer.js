@@ -2,6 +2,7 @@
 // Ревізор бачить лише вільні тексти (опис, цілі, LO, capstone, критерії оцінювання). Політики до промпту не потрапляють,
 // а ціль правки модель обирає з переліку `ref`, який будує код, тож націлитись на політику чи число структура відповіді не дозволяє.
 const { requestJSON } = require('../review/common');
+const { buildPreamble, untrusted } = require('./preamble');
 
 const PROMPT_VERSION = 'reviewer-v5-1';
 const MAX_SUGGESTIONS = 8;
@@ -55,9 +56,9 @@ What to look for:
 - Performance criteria: say what is assessed and what a strong result looks like.
 
 Rules:
-- Keep the meaning, language and scope of the original. Improve wording only.
+- Keep the meaning and scope of the original. Write in English. Improve wording only.
 - NEVER invent facts: no new numbers, percentages, hours, dates, thresholds, names of cases, readings or tools. If the new wording cannot avoid a new fact, list it in proposedValues (label + value exactly as written in "after"); otherwise return an empty list.
-- "after" is the full replacement text for that item, ready to use. Write it in the language of the original.
+- "after" is the full replacement text for that item, ready to use. Write it in English.
 - Return an item only when the original is genuinely weak or has an error. Skip good texts. At most one item per ref and at most ${MAX_SUGGESTIONS} items in total. An empty list is a valid answer.
 - severity: "medium" if the wording is vague enough to hurt assessment or clarity; otherwise "info".
 - "issue": one short English sentence saying what is weak, factual and calm (for example "Uses 'understand', which cannot be assessed").
@@ -88,11 +89,11 @@ function evidenceOf(target, blocks) {
  * @param {{ stats? }} deps
  * @returns {Promise<Array<object>>} входи для services/chat/draftSuggestions.createDraftSuggestions (origin: 'reviewer')
  */
-async function reviewState({ state, checks = [], blocks = [] }, { stats } = {}) {
+async function reviewState({ state, refs, checks = [], blocks = [] }, { stats } = {}) {
   const targets = reviewableTargets(state);
   if (!targets.length) return [];
   const byRef = new Map(targets.map((t) => [t.ref, t]));
-  const result = await requestJSON('review_state', buildSchema(targets.map((t) => t.ref)), SYSTEM, promptDocument(state, targets, checks), {
+  const result = await requestJSON('review_state', buildSchema(targets.map((t) => t.ref)), `${buildPreamble({ refs, state })}\n\n${SYSTEM}`, untrusted(promptDocument(state, targets, checks)), {
     effort: 'medium', stats,
     validate: (v) => {
       const errors = [];

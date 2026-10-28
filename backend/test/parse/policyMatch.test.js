@@ -114,3 +114,11 @@ test('similarity: ідентичні = 1, різні близькі до 0, ре
   expect(similarity('', 'x')).toBe(0);
   expect(buildSchema(['a'], ['b']).properties.classifications.items.required).toHaveLength(4);
 });
+
+test('locked-текст із розбіжністю дає info-нотатки навіть якщо модель помилково сказала exact', async () => {
+  const { policies, lockedNotes } = await matchPolicies({ segments: [seg('The passing score is 90.', 'passing')], refs: refs() }, {
+    classify: async () => [{ segmentIndex: 0, blockKey: 'policy.passing', optionKey: null, match: 'exact' }],
+  });
+  expect(by(policies)['policy.passing'].text).toBe(block('policy.passing').text);
+  expect(lockedNotes).toHaveLength(1);
+});

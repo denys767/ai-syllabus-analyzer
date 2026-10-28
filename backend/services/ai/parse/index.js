@@ -20,20 +20,15 @@ async function parseToState({ blocks, meta = {}, programCode, refs, course = {} 
   const { slots } = extracted;
 
   const policyResult = await (deps.matchPolicies || matchPolicies)({ segments: slots.policySegments, refs }, { stats: deps.stats });
-  const state = toState({ slots, policies: policyResult.policies, programCode, refs });
-
-  // courseKind у стані рахується лише за кодом курсу; збіг за назвою — підказка для картки з питанням про код
-  let courseHint = null;
-  try {
-    const match = await (deps.courseKind || references.courseKind)(programCode, {
-      courseCode: state.header.courseCode, courseTitle: state.header.courseTitle || course.title,
-    });
-    if (match.matchedBy === 'title' && !state.header.courseCode) {
-      courseHint = { code: match.course.code, title: match.course.en || match.course.uk, matchedBy: 'title' };
-    }
-  } catch (error) {
-    warnings.push(`The course type hint is unavailable: ${error.message}`);
-  }
+  const match = await (deps.courseKind || references.courseKind)(programCode, {
+    courseCode: slots.header.code, courseTitle: slots.header.title || course.title,
+  });
+  const state = toState({ slots, policies: policyResult.policies, programCode, refs,
+    courseMatch: match });
+  // Збіг назви — лише підказка; E-поле лишається elective до підтвердження коду.
+  const courseHint = match.matchedBy === 'title' && !state.header.courseCode
+    ? { code: match.course.code, title: match.course.en || match.course.uk, matchedBy: 'title' }
+    : null;
 
   return { state, policyMatches: policyResult.matches, lockedNotes: policyResult.lockedNotes, courseHint, warnings };
 }

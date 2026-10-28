@@ -158,7 +158,7 @@ async function matchPolicies({ segments = [], refs }, deps = {}) {
     if (block.mode === 'locked') {
       const sim = similarity(text, block.text);
       const strongest = mine.reduce((m, c) => (MATCH_RANK[c.match] > MATCH_RANK[m] ? c.match : m), 'none');
-      if (sim < SAME_THRESHOLD && strongest !== 'exact') lockedNotes.push({ key: block.key, fileText: text, similarity: sim, match: strongest, evidenceBlockIds });
+      if (sim < 1) lockedNotes.push({ key: block.key, fileText: text, similarity: sim, match: strongest, evidenceBlockIds });
       matches.push({ key: block.key, candidateOptionKey: null, match: strongest, similarity: sim });
       continue;
     }

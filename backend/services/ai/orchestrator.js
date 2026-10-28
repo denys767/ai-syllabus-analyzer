@@ -15,7 +15,9 @@ const { runChecks, runLlmChecks } = require('../checks');
 const { createDraftSuggestions } = require('../chat/draftSuggestions');
 
 async function setStage(syllabusId, stage, leaseToken) {
-  await Syllabus.updateOne(ownedAnalysis(syllabusId, leaseToken), { $set: { analysisStage: stage } });
+  await assertLease(syllabusId, leaseToken);
+  const updated = await Syllabus.updateOne(ownedAnalysis(syllabusId, leaseToken), { $set: { analysisStage: stage } });
+  if (!updated.matchedCount) await assertLease(syllabusId, leaseToken);
 }
 
 // Збій допоміжного кроку не має губити результат парсингу: логуємо й продовжуємо без нього
@@ -62,6 +64,7 @@ async function analyzeSyllabus(syllabusId, { leaseToken } = {}) {
 
   await assertLease(syllabusId, leaseToken);
   await Suggestion.deleteMany({ syllabusId });
+  await assertLease(syllabusId, leaseToken);
   await SlotChange.deleteMany({ syllabusId });
   let saved;
   try {
@@ -94,10 +97,11 @@ async function analyzeSyllabus(syllabusId, { leaseToken } = {}) {
     syllabusId, state, refs, known: knownTexts(state, refs),
   });
 
-  await Syllabus.updateOne(ownedAnalysis(syllabusId, leaseToken), {
+  const completed = await Syllabus.updateOne(ownedAnalysis(syllabusId, leaseToken), {
     $set: { status: 'in_progress', analysisStage: 'done', needsRebuild: false, track: 'upload' },
     $unset: { analysisError: '' },
   });
+  if (!completed.matchedCount) await assertLease(syllabusId, leaseToken);
   return { suggestions: created.length, revision: saved.revision };
 }
 

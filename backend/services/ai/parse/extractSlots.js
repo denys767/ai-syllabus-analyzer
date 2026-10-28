@@ -124,6 +124,13 @@ function validateExtraction(x, blocks, refs) {
   list('materials.recommended', x.materials.recommended);
   list('policySegments', x.policySegments);
 
+  // Політики не можуть містити новий текст моделі: лише дослівний фрагмент доказів.
+  const byId = new Map(blocks.map((b) => [b.id, b.text]));
+  x.policySegments.forEach((p, i) => {
+    const source = norm(p.blockIds.map((id) => byId.get(id) || '').join(' '));
+    if (!source.includes(norm(p.text))) errors.push(`policySegments[${i}]: text must be verbatim from the cited blocks`);
+  });
+
   const unique = (name, items) => {
     const seen = new Set();
     for (const it of items) {
@@ -140,7 +147,7 @@ function validateExtraction(x, blocks, refs) {
   });
   const programCodes = new Set((refs?.outcomes || []).map((o) => normalizePloCode(o.code)));
   x.outcomes.forEach((o, i) => {
-    for (const code of o.ploCodes) if (programCodes.size && !programCodes.has(normalizePloCode(code))) errors.push(`outcomes[${i}]: unknown PLO code ${code}`);
+    for (const code of o.ploCodes) if (!programCodes.has(normalizePloCode(code))) errors.push(`outcomes[${i}]: unknown PLO code ${code}`);
   });
   const nonNegative = (label, v) => { if (v !== null && !(v >= 0)) errors.push(`${label}: must not be negative`); };
   nonNegative('header.ects', x.header.ects);

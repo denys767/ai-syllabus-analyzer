@@ -119,3 +119,11 @@ test('дуже довгий документ відсікається з поп�
   const { warnings } = await extractSlots({ blocks: many, refs: refs() });
   expect(warnings).toEqual([expect.stringMatching(/very long: the last \d+ blocks were not analysed/)]);
 });
+
+test('вигаданий текст політики не проходить семантичну валідацію', async () => {
+  const x = slots();
+  x.policySegments[0].text = 'Invented policy with a new attendance threshold.';
+  createResponse.mockResolvedValue(reply(x));
+  await expect(extractSlots({ blocks, refs: refs() })).rejects.toThrow(/text must be verbatim/);
+  expect(createResponse).toHaveBeenCalledTimes(2);
+});

@@ -34,7 +34,7 @@ function sessionDate(text) {
  *   slots — результат extractSlots; policies — state.policies від policyMatch (за замовчуванням порожні блоки довідника)
  * @returns {object} state, валідний за syllabusState/schema.validateState (інакше кидає помилку)
  */
-function toState({ slots, policies, programCode, refs }) {
+function toState({ slots, policies, programCode, refs, courseMatch }) {
   const h = slots.header;
   // courseKind і ECTS нормативного курсу — лише за кодом із файлу (createEmptyState + recompute); назва — тільки підказка
   const state = createEmptyState({ programCode, track: 'upload', refs, course: { code: clean(h.code) } });
@@ -109,6 +109,7 @@ function toState({ slots, policies, programCode, refs }) {
   if (policies) state.policies = policies;
 
   const result = recompute(state, refs);
+  if (courseMatch) result.header.courseKind = courseMatch.matchedBy === 'code' ? courseMatch.kind : 'elective';
   const errors = validateState(result);
   if (errors.length) throw Object.assign(new Error(`Parsed state is invalid: ${errors.slice(0, 5).join('; ')}`), { code: 'PARSE_INVALID_STATE', errors });
   return result;
