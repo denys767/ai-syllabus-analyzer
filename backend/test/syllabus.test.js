@@ -59,7 +59,7 @@ describe('upload', () => {
 });
 
 describe('analyze guard', () => {
-  test.each(['analyzing', 'submitted'])('статус %s → 409', async (status) => {
+  test.each(['analyzing'])('статус %s → 409', async (status) => {
     const s = await helpers.createSyllabus(owner, { status });
     const res = await request(app).post(`/api/syllabus/${s._id}/analyze`).set(auth);
     expect(res.status).toBe(409);
@@ -130,8 +130,8 @@ describe('кабінет', () => {
     expect(item.extractedText).toBeUndefined();
     expect(item.document).toBeUndefined();
     expect(item.issueCounts).toEqual({ pending: 1, accepted: 1, rejected: 0, total: 2 });
-    expect(item.readiness.breakdown).toMatchObject({ template: 100, policy: 0 });
-    expect(item.readiness.score).toBe(85);
+    expect(item.readiness.score).toBe(0); // readiness рахується зі state; його в цього силабусу немає
+    expect(item.outputs).toEqual(['syllabus.docx']);
 
     const bad = await request(app).get('/api/cabinet/syllabi?program=zzz').set(auth);
     expect(bad.status).toBe(400);

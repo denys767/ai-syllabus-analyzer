@@ -46,6 +46,8 @@ const PolicySchema = new mongoose.Schema({
     text: { type: String, required: true }
   }],
   libraryVersion: String,
+  // Адмін правив блок довідника через API: сід нових версій фікстури його не перезаписує (stats.conflicts)
+  adminModified: { type: Boolean, default: false },
   isRequired: {
     type: Boolean,
     default: true

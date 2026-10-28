@@ -1,15 +1,10 @@
-const fs = require('fs');
-const path = require('path');
 const Syllabus = require('../models/Syllabus');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Suggestion = require('../models/Suggestion');
+const SlotChange = require('../models/SlotChange');
 const { removeOutputDir } = require('./outputs');
 const { LEASE_MS, MAX_ATTEMPTS, RECOVERY_ERROR, expiredLease } = require('./analysisLease');
-
-const PDF_DIR = path.join(__dirname, '../uploads/pdfs');
-const PDF_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 async function deleteConversationsFor(syllabusIds) {
   if (!syllabusIds.length) return;
@@ -22,7 +17,7 @@ async function deleteConversationsFor(syllabusIds) {
 }
 
 // Видаляє силабуси за фільтром разом з файлами (оригінал, робочий .docx, outputs), пропозиціями,
-// розмовами й повідомленнями
+// журналом змін стану, розмовами й повідомленнями
 async function deleteSyllabiCascade(filter) {
   const syllabi = await Syllabus.find(filter).select(`_id ${Syllabus.FILE_FIELDS}`);
   for (const syllabus of syllabi) {
@@ -31,6 +26,7 @@ async function deleteSyllabiCascade(filter) {
   }
   const ids = syllabi.map((s) => s._id);
   await Suggestion.deleteMany({ syllabusId: { $in: ids } });
+  await SlotChange.deleteMany({ syllabusId: { $in: ids } });
   await deleteConversationsFor(ids);
   await Syllabus.deleteMany({ _id: { $in: ids } });
   return ids.length;
@@ -60,46 +56,13 @@ async function sweepStuckAnalyses() {
   return { requeued, failed };
 }
 
-// uploads/pdfs (PDF старого пайплайну): видаляє файли старші за 7 днів, на які не посилається жоден силабус
-async function sweepOldPdfs({ maxAgeMs = PDF_MAX_AGE_MS } = {}) {
-  let entries;
-  try { entries = await fs.promises.readdir(PDF_DIR); } catch { return 0; }
-
-  const docs = await Syllabus.find({ submittedPdfPath: { $exists: true } }).select('submittedPdfPath').lean();
-  const referenced = new Set(docs.map((d) => path.basename(d.submittedPdfPath)));
-
-  let deleted = 0;
-  for (const name of entries) {
-    if (referenced.has(name)) continue;
-    const full = path.join(PDF_DIR, name);
-    try {
-      const stat = await fs.promises.stat(full);
-      if (!stat.isFile() || Date.now() - stat.mtimeMs < maxAgeMs) continue;
-      await fs.promises.unlink(full);
-      deleted++;
-    } catch { /* ignore */ }
-  }
-  if (deleted) console.log(`[sweep] видалено застарілих PDF: ${deleted}`);
-  return deleted;
-}
-
-// Прапорець submitting міг лишитись після падіння процесу посеред відправки
-async function releaseStuckSubmits() {
-  const result = await Syllabus.updateMany({ submitting: true }, { $set: { submitting: false } });
-  if (result.modifiedCount) console.warn(`[sweep] знято прапорець submitting: ${result.modifiedCount}`);
-  return result.modifiedCount;
-}
-
 // Перевірка lease аналізів — частіше за добову (кілька періодів lease)
 const ANALYSIS_SWEEP_INTERVAL_MS = Math.max(60000, 5 * LEASE_MS);
 
 function startBackgroundSweepers() {
   const sweepAnalyses = () => sweepStuckAnalyses().catch((e) => console.error('[sweep] analyses error:', e.message));
-  const sweepPdfs = () => sweepOldPdfs().catch((e) => console.error('[sweep] pdf error:', e.message));
-  releaseStuckSubmits().catch((e) => console.error('[sweep] submits error:', e.message));
   sweepAnalyses();
-  sweepPdfs();
-  const timers = [setInterval(sweepPdfs, SWEEP_INTERVAL_MS), setInterval(sweepAnalyses, ANALYSIS_SWEEP_INTERVAL_MS)];
+  const timers = [setInterval(sweepAnalyses, ANALYSIS_SWEEP_INTERVAL_MS)];
   timers.forEach((t) => t.unref());
   return timers;
 }
@@ -108,7 +71,5 @@ module.exports = {
   deleteSyllabiCascade,
   deleteConversationsFor,
   sweepStuckAnalyses,
-  sweepOldPdfs,
-  releaseStuckSubmits,
   startBackgroundSweepers,
 };
