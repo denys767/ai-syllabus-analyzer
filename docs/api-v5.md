@@ -124,7 +124,7 @@ readiness = {
 | Метод | Шлях | Опис |
 |---|---|---|
 | POST | `/` | Трек 1. body `{ title, programId, programCode, courseCode? }`. Створює порожній стан і повертає `{ syllabus }` |
-| POST | `/upload` | Трек 2. multipart `file` (docx/doc/pdf; pptx → 400 `UNSUPPORTED_FORMAT`) + `programId`, `programCode` (має бути в `Program.editions`, інакше 400 `INVALID_PROGRAM_CODE`) |
+| POST | `/upload` | Трек 2. multipart `syllabus` (docx/doc/pdf; pptx → 400 `UNSUPPORTED_FORMAT`) + `programId`, `programCode` (має бути в `Program.editions`, інакше 400 `INVALID_PROGRAM_CODE`) |
 | GET | `/:id/status` | `{ status, stage, error }` |
 | POST | `/:id/analyze` | Повторний парсинг або перебудова v4 → v5 (`needsRebuild`) |
 | DELETE | `/:id` | Видалення силабусу |
