@@ -108,7 +108,9 @@ const SECTION_GAPS = {
     }),
   ],
   materials: (s) => [!(s.materials?.required || []).some((m) => filled(m.citation)) && 'At least one required material'],
-  policies: (s) => (s.policies || []).filter((p) => !policyDecided(p)).map((p) => `${p.key}: choose an option or write your own`),
+  // Без жодного блоку (порожній довідник політик) розділ не може бути повним
+  policies: (s) => (!(s.policies || []).length ? ['Policies: the policy library is empty']
+    : s.policies.filter((p) => !policyDecided(p)).map((p) => `${p.key}: choose an option or write your own`)),
 };
 
 function sectionGaps(sectionKey, state) {

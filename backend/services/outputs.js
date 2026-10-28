@@ -52,8 +52,17 @@ async function programLabelOf(syllabus) {
 
 /** Готовий файл для поточної ревізії стану: з кешу або рендер. */
 async function ensureDocx(syllabusId) {
-  const syllabus = await Syllabus.findById(syllabusId).select('title programCode programId needsRebuild legacy state');
-  if (!syllabus) throw httpError(404, 'Syllabus not found');
+  const syllabus = await Syllabus.findById(syllabusId).select('title programCode programId needsRebuild legacy state status');
+  if (!syllabus) throw httpError(404, 'Syllabus not found', { code: 'NOT_FOUND' });
+  // Стану ще немає (трек 2 до кінця розбору): причина — аналіз, а не стара версія
+  if (!syllabus.legacy && !syllabus.needsRebuild && !syllabus.state) {
+    if (syllabus.status === 'analyzing') {
+      throw httpError(409, 'The file is still being analysed. The .docx will be available when the analysis finishes.', { code: 'ANALYSIS_IN_PROGRESS', retryable: true });
+    }
+    if (syllabus.status === 'error') {
+      throw httpError(409, 'The analysis of this file failed. Run the analysis again to get the .docx.', { code: 'ANALYSIS_FAILED' });
+    }
+  }
   if (syllabus.legacy || syllabus.needsRebuild || !syllabus.state) {
     throw httpError(409, 'This syllabus was created in an older version. Rebuild in the new format to continue.', { code: 'NEEDS_REBUILD' });
   }

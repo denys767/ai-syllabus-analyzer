@@ -153,15 +153,17 @@ async function unapproveSection(syllabusId, key, { by = null, expectedRevision }
 /**
  * Гуртове затвердження: лише заповнені розділи без блокерів, одним записом.
  * blockersFor(key) → причина (рядок, англійською) або null; може бути async (відкриті Check/Suggestion — W2).
+ * keys — лише ці розділи (картка approve-all); без keys — усі. Невідомий ключ → 400 UNKNOWN_SECTION.
  * Уже затверджені розділи пропускаються мовчки.
  * @returns {Promise<{ approved: string[], skipped: { key, reason }[], state, revision }>}
  */
-async function approveAll(syllabusId, { blockersFor, by = null, expectedRevision } = {}) {
+async function approveAll(syllabusId, { blockersFor, by = null, expectedRevision, keys } = {}) {
+  if (keys) keys.forEach(assertSectionKey);
   const { state, revision } = await loadAt(syllabusId, expectedRevision);
   const sections = { ...(state.sections || {}) };
   const approved = [];
   const skipped = [];
-  for (const key of SECTION_KEYS) {
+  for (const key of SECTION_KEYS.filter((k) => !keys || keys.includes(k))) {
     if (sections[key]?.approved) continue;
     const gaps = sectionGaps(key, state);
     if (gaps.length) {

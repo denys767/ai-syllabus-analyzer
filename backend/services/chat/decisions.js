@@ -12,7 +12,7 @@ const { slotOfPath, getPath } = require('../syllabusState/paths');
 const { httpError } = require('../../utils/httpError');
 const { renderTemplate, toTemplate } = require('../ai/facts');
 const formulator = require('../ai/prompts/formulator');
-const { buildDraftSuggestion, hashValue } = require('./draftSuggestions');
+const { buildDraftSuggestion, hashValue, SOURCE_NOT_CONFIRMED } = require('./draftSuggestions');
 const {
   loadContext, requiresReason, REJECT_TAGS, refreshConversationReadiness, refreshStale, markStale,
 } = require('./state');
@@ -20,7 +20,7 @@ const { knownFor } = require('./known');
 const { writeBackAccepted } = require('../lecturers/profile');
 const { policyKeyOf, assertWritable, writeSlot, policyPatch, setPolicy, filled } = require('./slotWrite');
 const {
-  getOrCreateConversation, postNextStep, postUserMessage, postAiMessage, postSuggestionCard, transcriptOf, withAiFailureTracking,
+  getOrCreateConversation, postNextStep, postUserMessage, postServerMessage, postAiMessage, postSuggestionCard, transcriptOf, withAiFailureTracking,
 } = require('./flow');
 
 async function loadSuggestion(syllabusId, suggestionId) {
@@ -169,7 +169,7 @@ async function acceptSuggestion(syllabusId, suggestionId, { optionId = null, exp
     }
   }
   await Suggestion.updateOne({ _id: s._id }, { $push: { decisionHistory: { action: 'accepted', by: userId, optionId: optionId || undefined } } });
-  await postUserMessage(conversation, `Confirmed: ${s.title}`, s._id);
+  await postServerMessage(conversation, `Confirmed: ${s.title}`, s._id);
   if (plan?.focusInstructor) {
     await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: 'instructor.profile', currentSuggestionId: null } });
     await postAiMessage(conversation, 'What would you like to update in your instructor profile? Share your changes and I will prepare them for confirmation.');
@@ -249,24 +249,31 @@ async function rejectSuggestion(syllabusId, suggestionId, { reason, rejectTag } 
     { new: true },
   );
   if (!updated) throw notPending();
-  await postUserMessage(conversation, `Cancelled: ${s.title}${text ? ` — ${text}` : ''}`, s._id);
+  await postServerMessage(conversation, `Cancelled: ${s.title}${text ? ` — ${text}` : ''}`, s._id);
   await afterDecision(conversation);
   return updated;
 }
 
 // ---------- refine (Reword) ----------
 
+/**
+ * Чернетка з відповіді моделі (Reword / answer) + опис картки: вигадані URL вирізає buildDraftSuggestion,
+ * а позначка «Source not confirmed» додається до опису (без повторів після кількох Reword).
+ */
 function draftFromModel(s, out, ctx, known) {
+  const description = String(out.description || s.description || '').split(`\n\n${SOURCE_NOT_CONFIRMED}`).join('').split(SOURCE_NOT_CONFIRMED).join('').trim();
   const built = buildDraftSuggestion({
     origin: s.origin || 'orchestrator',
     severity: s.severity,
     kind: 'edit',
+    description,
     target: { section: s.target.section, path: s.target.path, entityId: s.target.entityId },
     text: typeof out.text === 'string' ? out.text : undefined,
     value: out.value,
     proposedValues: out.proposedValues,
+    sources: s.sources,
   }, { syllabusId: s.syllabusId, state: ctx.state, refs: ctx.refs, known });
-  return built.draft;
+  return { draft: built.draft, description: built.description };
 }
 
 const hasDraftText = (out) => out && (typeof out.text === 'string' || out.value !== undefined);
@@ -291,11 +298,10 @@ async function refineSuggestion(syllabusId, suggestionId, { feedback }, userId, 
     return res;
   });
 
-  const draft = draftFromModel(s, out, ctx, knownFor(s, ctx, instructorLines, [text]));
-  const set = { draft, stale: false };
+  const { draft, description } = draftFromModel(s, out, ctx, knownFor(s, ctx, instructorLines, [text]));
+  const set = { draft, stale: false, description };
   if (out.rationale) set.rationale = out.rationale;
   if (out.title) set.title = out.title;
-  if (out.description) set.description = out.description;
   const updated = await Suggestion.findOneAndUpdate(
     pendingFilter(s),
     { $set: set, $inc: { __v: 1 }, $push: { versions: snapshot(s, { action: 'refined', feedback: text }), decisionHistory: { action: 'refined', by: userId, feedback: text } } },
@@ -339,12 +345,12 @@ async function answerSuggestion(syllabusId, suggestionId, { answer }, userId) {
     await afterDecision(conversation, { nextStep: false });
     return Suggestion.findById(s._id);
   }
-  const draft = draftFromModel(s, pick, ctx, knownFor(s, ctx, instructorLines, [text]));
+  const { draft, description } = draftFromModel(s, { ...pick, description: undefined }, ctx, knownFor(s, ctx, instructorLines, [text]));
   const updated = await Suggestion.findOneAndUpdate(
     { ...pendingFilter(s), kind: 'question' },
     {
       $inc: { __v: 1 },
-      $set: { kind: 'edit', draft, answer: text, stale: false, ...(pick.rationale ? { rationale: pick.rationale } : {}) },
+      $set: { kind: 'edit', draft, description, answer: text, stale: false, ...(pick.rationale ? { rationale: pick.rationale } : {}) },
       $push: { versions: snapshot(s, { action: 'answered' }), decisionHistory: { action: 'answered', by: userId } },
     },
     { new: true },
@@ -393,7 +399,7 @@ async function reopenSuggestion(syllabusId, suggestionId, userId) {
       throw err;
     }
   }
-  await postUserMessage(conversation, `Back to: ${s.title}`, s._id);
+  await postServerMessage(conversation, `Back to: ${s.title}`, s._id);
   await afterDecision(conversation, { card: claimed });
   return claimed;
 }

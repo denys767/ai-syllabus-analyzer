@@ -6,7 +6,7 @@ const { renderText, renderState } = require('../../syllabusState/render');
 const { buildOrchestratorInstructions } = require('../prompts/orchestrator');
 const { untrusted } = require('../prompts/preamble');
 const { buildTools } = require('./definitions');
-const { createToolContext, runTool, norm } = require('./handlers');
+const { createToolContext, runTool, isInstructorMessage, norm } = require('./handlers');
 
 const MAX_STEPS = 6;
 const HISTORY_MESSAGES = 12;
@@ -31,7 +31,8 @@ function parseArguments(raw) {
 
 function historyInput(messages, userText) {
   const items = (messages || [])
-    .filter((m) => (m.kind || 'text') === 'text' && m.content && ['user', 'ai'].includes(m.role))
+    // Серверні «Confirmed: …», «Skip: …» — не слова викладача: в історію моделі не йдуть
+    .filter((m) => (m.kind || 'text') === 'text' && m.content && (m.role === 'ai' || isInstructorMessage(m)))
     .slice(-HISTORY_MESSAGES)
     .map((m) => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content }));
   // Поточну репліку вже могли зберегти в messages: не дублюємо

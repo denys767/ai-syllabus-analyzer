@@ -75,7 +75,7 @@ const strictAuthLimiter = rateLimit({
   max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '10', 10),
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: 'Забагато спроб. Спробуйте пізніше.' },
+  message: { message: 'Too many attempts. Please try again later.', code: 'RATE_LIMITED' },
   skip: (req) => req.method === 'OPTIONS'
 });
 ['login', 'forgot-password', 'reset-password'].forEach((name) => {
@@ -108,7 +108,7 @@ app.use((req, res, next) => {
   res.setTimeout(timeoutMs, () => {
     if (!res.headersSent) {
       console.warn(`[timeout] ${req.method} ${url} id=${id} exceeded ${timeoutMs}ms`);
-      res.status(504).json({ message: 'Час очікування запиту вичерпано' });
+      res.status(504).json({ message: 'The request timed out', code: 'REQUEST_TIMEOUT', retryable: true });
     }
   });
 
@@ -126,7 +126,7 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return next(); // let CORS preflight pass
   if (mongoose.connection.readyState !== 1 && req.path !== '/health') {
-    return res.status(503).json({ message: 'Сервіс тимчасово недоступний (база даних)' });
+    return res.status(503).json({ message: 'The service is temporarily unavailable (database)', code: 'DB_UNAVAILABLE', retryable: true });
   }
   next();
 });
@@ -152,10 +152,10 @@ app.get('/health', (req, res) => {
 
 // 404 handler
 app.use('/api', (req, res) => {
-  res.status(404).json({ message: 'Маршрут не знайдено' });
+  res.status(404).json({ message: 'Route not found', code: 'ROUTE_NOT_FOUND' });
 });
 app.use('*', (req, res) => {
-  res.status(404).json({ message: 'Маршрут не знайдено' });
+  res.status(404).json({ message: 'Route not found', code: 'ROUTE_NOT_FOUND' });
 });
 
 // Error handling middleware
@@ -164,21 +164,26 @@ app.use((err, req, res, next) => {
 
   let status = err.statusCode || err.status || 500;
   let message;
+  let code = err.statusCode && err.code ? err.code : undefined;
 
   if (err.name === 'MulterError') {
     if (err.code === 'LIMIT_FILE_SIZE') {
       status = 413;
-      message = `Файл завеликий. Максимальний розмір — ${Math.round(MAX_FILE_SIZE / (1024 * 1024))} МБ.`;
+      message = `The file is too large. The maximum size is ${Math.round(MAX_FILE_SIZE / (1024 * 1024))} MB.`;
+      code = 'FILE_TOO_LARGE';
     } else {
       status = 400;
-      message = 'Некоректне завантаження файлу.';
+      message = 'Invalid file upload.';
+      code = 'INVALID_UPLOAD';
     }
   } else if (err.type === 'entity.parse.failed') {
     status = 400;
-    message = 'Некоректний JSON у тілі запиту.';
+    message = 'Invalid JSON in the request body.';
+    code = 'INVALID_JSON';
   } else if (err.type === 'entity.too.large') {
     status = 413;
-    message = 'Тіло запиту завелике.';
+    message = 'The request body is too large.';
+    code = 'BODY_TOO_LARGE';
   } else if (status < 500) {
     message = err.message;
   }
@@ -186,11 +191,12 @@ app.use((err, req, res, next) => {
   if (status >= 500) {
     console.error('Error stack:', err.stack);
     return res.status(status).json({
-      message: 'Внутрішня помилка сервера',
+      message: 'Internal server error',
+      code: 'INTERNAL_ERROR',
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
-  res.status(status).json({ message });
+  res.status(status).json({ message, code: code || 'BAD_REQUEST' });
 });
 
 // Initialize admin user

@@ -4,7 +4,7 @@ const dns = require('dns');
 const { createResponse } = require('../../services/ai/client');
 const { generateSuggestion } = require('../../services/ai/review/rewrite');
 const {
-  verifyUrl, saneUrl, isCaseFinding, applyVerifiedSources, UNVERIFIED_LABEL,
+  verifyUrl, saneUrl, isCaseFinding, applyVerifiedSources, findCaseSources, UNVERIFIED_LABEL,
 } = require('../../services/ai/review/caseSources');
 const { blocks, finding, response } = require('./fixtures');
 
@@ -140,6 +140,19 @@ describe('generateSuggestion з CASE_WEB_SEARCH', () => {
     expect(s.description).toContain(UNVERIFIED_LABEL);
     expect(s.sources).toEqual([]);
   });
+});
+
+test('m2: програма в промпті пошуку — з refs силабусу (meta.programCode), «MBA» не зашито', async () => {
+  createResponse.mockResolvedValue({ output_text: '', output: [] });
+  await findCaseSources({ finding: { claim: 'risk' }, meta: { courseName: 'Risk', programCode: 'EMBA1' } }, { verify: async () => false });
+  const [system, user] = createResponse.mock.calls[0][0].input;
+  expect(system.content).toContain('suitable for a KSE EMBA1 course');
+  expect(user.content).toContain('Programme: EMBA1');
+  createResponse.mockClear();
+  await findCaseSources({ finding: { claim: 'risk' }, meta: {} }, { verify: async () => false });
+  const input = createResponse.mock.calls[0][0].input.map((m) => m.content).join('\n');
+  expect(input).not.toMatch(/MBA/);
+  expect(input).toContain('a KSE course');
 });
 
 test('applyVerifiedSources зберігає підтверджений URL з кінцевою крапкою і чистить варіанти choice', () => {

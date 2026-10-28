@@ -130,3 +130,19 @@ test('initState перевіряє lease атомарно, навіть коли
   expect(saved.stateRevision).toBe(0);
   expect(await Suggestion.countDocuments({ syllabusId: s._id })).toBe(0);
 });
+
+test('m5: lease втрачено між перевіркою і вставкою карток → свої картки прибрано, дублікатів немає', async () => {
+  const s = await analyzing();
+  const insert = Suggestion.insertMany.bind(Suggestion);
+  const spy = jest.spyOn(Suggestion, 'insertMany').mockImplementationOnce(async (docs, ...args) => {
+    // Новий власник lease уже видалив старі картки й вставив свою
+    await Syllabus.updateOne({ _id: s._id }, { $set: { analysisLeaseToken: 'replacement', analysisLeaseUntil: new Date(Date.now() + 60000) } });
+    await insert([{ syllabusId: s._id, origin: 'reviewer', kind: 'edit', title: 'From the new owner', target: { path: 'summary.shortDescription' } }]);
+    return insert(docs, ...args);
+  });
+  try { await runner.runAnalysis(s._id); } finally { spy.mockRestore(); }
+  const saved = await Syllabus.findById(s._id).select('+analysisLeaseToken').lean();
+  expect(saved).toMatchObject({ status: 'analyzing', analysisLeaseToken: 'replacement' });
+  const left = await Suggestion.find({ syllabusId: s._id }).lean();
+  expect(left.map((x) => x.title)).toEqual(['From the new owner']);
+});

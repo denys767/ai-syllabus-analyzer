@@ -136,8 +136,14 @@ router.get('/:syllabusId/document', auth, gateRead, [
 
 // ---------- розділи ----------
 
-router.post('/:syllabusId/sections/approve-all', auth, gateMutate, [expectedRevision],
-  mutation((req) => workspaceService.approveAllSections(req.params.syllabusId, { userId: req.user.userId, expectedRevision: revisionOf(req) })));
+// body { sections?: [key], expectedRevision? } — sections: лише розділи з картки approve-all
+router.post('/:syllabusId/sections/approve-all', auth, gateMutate, [
+  expectedRevision,
+  body('sections').optional({ nullable: true }).isArray({ max: 50 }).withMessage('sections must be an array of section keys'),
+  body('sections.*').isString().isLength({ min: 1, max: 100 }).withMessage('Invalid section key'),
+], mutation((req) => workspaceService.approveAllSections(req.params.syllabusId, {
+  userId: req.user.userId, expectedRevision: revisionOf(req), keys: req.body.sections || undefined,
+})));
 
 router.post('/:syllabusId/sections/:key/approve', auth, gateMutate, [expectedRevision],
   mutation(async (req) => {

@@ -21,7 +21,7 @@ async function choosePolicy(syllabusId, rawKey, { optionKey, writeOwn, keepText,
   const conversation = await getOrCreateConversation(syllabusId, userId);
 
   if (writeOwn) {
-    await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: key } });
+    await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: key, writeOwnPolicyKey: key } });
     await postAiMessage(conversation, WRITE_OWN_PROMPT);
     return;
   }
@@ -33,7 +33,7 @@ async function choosePolicy(syllabusId, rawKey, { optionKey, writeOwn, keepText,
     (st) => setPolicy(st, key, policyPatch(blockOf(st), args, ctx.refs)),
     { by: userId, source: patch.source, refs: ctx.refs });
   await markStale(syllabusId, [`policies{${key}}`, ...result.changes.map((c) => c.path)]);
-  if (conversation.currentSlotKey === key) await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: null } });
+  if (conversation.currentSlotKey === key) await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: null, writeOwnPolicyKey: null } });
   await afterDecision(conversation, { nextStep: false });
   await postNextStep(conversation);
   await refreshConversationReadiness(syllabusId);

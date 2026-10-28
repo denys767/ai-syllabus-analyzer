@@ -90,7 +90,7 @@ const ProfessorTutorWorkspace = ({ client, mockId }) => {
     statePolicies: ws.state?.policies || [], documentSections: ws.document.sections || [], onSelectSuggestion: scrollToSuggestion,
   };
   const structure = <SyllabusStructurePanel sections={ws.sections} readiness={ws.readiness} checks={ws.checks} suggestions={suggestions} conversation={ws.conversation} focusedKey={focusedKey} onSelect={selectSection} actions={ws.actions} busy={ws.busy} readOnly={ws.readOnly || !ready} />;
-  const documentPanel = <LiveDocumentPanel document={ws.loaded && !ws.state ? { sections: [], error: ws.needsRebuild ? S.rebuildBanner : '' } : ws.document} templateSections={ws.sections} diff={ws.diff} onToggleDiff={ws.setDiff} onDownload={ws.downloadDocx} downloading={ws.downloading} canDownload={ws.loaded} focusedKey={focusedKey} />;
+  const documentPanel = <LiveDocumentPanel document={ws.loaded && !ws.state ? { sections: [], error: ws.needsRebuild ? S.rebuildBanner : '' } : ws.document} templateSections={ws.sections} diff={ws.diff} onToggleDiff={ws.setDiff} onDownload={ws.downloadDocx} downloading={ws.downloading} canDownload={!!ws.state} focusedKey={focusedKey} />;
 
   return (
     <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>

@@ -743,20 +743,43 @@ describe('інтеграція v5', () => {
     expect(c.draft.proposedValues).toEqual([expect.objectContaining({ value: '48 hours', confirmed: false })]);
     await post(s, `/suggestions/${c.id}/values`, { values: [{ id: 'v1', confirmed: true }] });
 
-    // Переданий expectedRevision не можна відкинути в адаптері.
-    const conflict = Object.assign(new Error('changed'), { statusCode: 409, code: 'STATE_CONFLICT' });
-    const mutate = jest.spyOn(store, 'mutate').mockRejectedValueOnce(conflict);
-    createResponse.mockResolvedValueOnce(tool('apply_edit', { draft_id: c.id })).mockResolvedValueOnce(reply('Please try again.'));
-    expect((await post(s, '/message', { text: 'confirm' })).status).toBe(200);
-    expect(mutate.mock.calls[0][1]).toBe(proposed.body.revision);
-    expect((await Suggestion.findById(c.id)).status).toBe('pending');
-    mutate.mockRestore();
-
+    // Переданий expectedRevision не можна відкинути в адаптері. Картку показано останньою — «confirm» її застосовує.
+    const mutate = jest.spyOn(store, 'mutate');
     createResponse.mockResolvedValueOnce(tool('apply_edit', { draft_id: c.id })).mockResolvedValueOnce(reply('Saved.'));
     const accepted = await post(s, '/message', { text: 'confirm' });
     expect(accepted.status).toBe(200);
+    expect(mutate.mock.calls[0][1]).toBe(proposed.body.revision);
+    mutate.mockRestore();
     expect(accepted.body.state.summary.shortDescription.text).toBe('You will practise risk analysis for 48 hours.');
     expect(accepted.body.suggestions[0].status).toBe('accepted');
+  });
+
+  test('M3: «Shall I look for readings?» → «yes» не застосовує показану раніше картку; STATE_CONFLICT лишає картку pending', async () => {
+    const s = await uploaded();
+    const c = await card(s);
+    await post(s, '/start');
+    // Картку показано; викладач питає про інше, AI ставить своє питання
+    createResponse.mockResolvedValueOnce(reply('Shall I look for readings?'));
+    await post(s, '/message', { text: 'Can we add some readings?' });
+    createResponse.mockResolvedValueOnce(tool('apply_edit', { draft_id: String(c._id) })).mockResolvedValueOnce(reply('Okay.'));
+    const res = await post(s, '/message', { text: 'yes' });
+    expect(res.status).toBe(200);
+    const output = JSON.parse(createResponse.mock.calls.at(-1)[0].input.find((m) => m.type === 'function_call_output').output);
+    expect(output).toMatchObject({ error: 'NEEDS_CONFIRM', reason: 'not_current_card' });
+    expect((await Suggestion.findById(c._id)).status).toBe('pending');
+    expect((await stateOf(s)).summary.shortDescription.text).not.toBe(c.draft.value);
+
+    // Конфлікт ревізії під час Confirm у чаті: картка лишається pending
+    const fresh = await uploaded();
+    const d = await card(fresh);
+    await post(fresh, '/start');
+    const conflict = Object.assign(new Error('changed'), { statusCode: 409, code: 'STATE_CONFLICT' });
+    const mutate = jest.spyOn(store, 'mutate').mockRejectedValueOnce(conflict);
+    createResponse.mockResolvedValueOnce(tool('apply_edit', { draft_id: String(d._id) })).mockResolvedValueOnce(reply('Please try again.'));
+    expect((await post(fresh, '/message', { text: 'confirm' })).status).toBe(200);
+    expect(mutate).toHaveBeenCalled();
+    expect((await Suggestion.findById(d._id)).status).toBe('pending');
+    mutate.mockRestore();
   });
 
   test('PLO mapping Confirm підтверджує кожен зв’язок; before завжди поточне значення', async () => {
