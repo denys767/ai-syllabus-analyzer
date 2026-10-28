@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
-import { Box, Button, Collapse, Stack, Typography } from '@mui/material';
-import { HelpOutline, SkipNext } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Collapse from '@mui/material/Collapse';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import HelpOutline from '@mui/icons-material/HelpOutline';
+import SkipNext from '@mui/icons-material/SkipNext';
 import Bubble from './Bubble';
 import MarkdownText from './MarkdownText';
 import { S } from '../../../strings';

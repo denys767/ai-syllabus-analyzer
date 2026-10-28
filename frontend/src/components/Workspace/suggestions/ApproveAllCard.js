@@ -1,6 +1,18 @@
 import React, { useState } from 'react';
-import { Alert, Box, Button, Chip, Collapse, IconButton, Paper, Stack, Typography } from '@mui/material';
-import { CheckCircle, DoneAll, ExpandLess, ExpandMore, RadioButtonUnchecked } from '@mui/icons-material';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
+import IconButton from '@mui/material/IconButton';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import CheckCircle from '@mui/icons-material/CheckCircle';
+import DoneAll from '@mui/icons-material/DoneAll';
+import ExpandLess from '@mui/icons-material/ExpandLess';
+import ExpandMore from '@mui/icons-material/ExpandMore';
+import RadioButtonUnchecked from '@mui/icons-material/RadioButtonUnchecked';
 import DocumentBlocks from '../document/DocumentBlocks';
 import { S } from '../../../strings';
 

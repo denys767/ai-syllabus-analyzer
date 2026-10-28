@@ -1,17 +1,17 @@
 import React from 'react';
-import {
-  Box,
-  Button,
-  Chip,
-  Collapse,
-  LinearProgress,
-  List,
-  ListItemButton,
-  Stack,
-  Tooltip,
-  Typography,
-} from '@mui/material';
-import { CheckCircle, EditNote, RadioButtonUnchecked } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
+import LinearProgress from '@mui/material/LinearProgress';
+import List from '@mui/material/List';
+import ListItemButton from '@mui/material/ListItemButton';
+import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
+import CheckCircle from '@mui/icons-material/CheckCircle';
+import EditNote from '@mui/icons-material/EditNote';
+import RadioButtonUnchecked from '@mui/icons-material/RadioButtonUnchecked';
 import { S, SECTION_STATUS, SEVERITY, sectionsApproved } from '../../strings';
 
 const STATUS_ICON = {
@@ -46,6 +46,7 @@ const CheckBadges = ({ checks }) => {
 const SyllabusStructurePanel = ({
   sections = [],
   readiness,
+  conversation,
   checks = [],
   suggestions = [],
   focusedKey = null,
@@ -55,6 +56,7 @@ const SyllabusStructurePanel = ({
   readOnly = false,
 }) => {
   const counts = readiness?.counts || { approved: 0, required: sections.filter((s) => s.required !== false).length, pendingSuggestions: 0 };
+  const skippedSlots = conversation?.skippedSlots || [];
   const score = Math.max(0, Math.min(100, Math.round(readiness?.score ?? 0)));
   const [error, setError] = React.useState('');
 
@@ -78,12 +80,16 @@ const SyllabusStructurePanel = ({
         )}
       </Box>
 
+      {skippedSlots.length > 0 && <Box sx={{ px: 2, pb: 1 }}>
+        <Typography variant="caption" color="text.secondary">Skipped slots — you can answer them in the chat at any time:</Typography>
+        {skippedSlots.map((key) => <Typography key={key} variant="body2">• {sections.find((sec) => sec.key === key)?.title || key.replace(/^policy\./, '').replace(/[._]/g, ' ')}</Typography>)}
+      </Box>}
       <List dense disablePadding sx={{ pb: 2 }}>
         {sections.map((sec) => {
           const info = readiness?.sections?.[sec.key] || {};
           const status = info.status || 'empty';
           const selected = focusedKey === sec.key;
-          const skipped = Array.isArray(info.skipped) ? info.skipped.length : Number(info.skipped || 0);
+          const skipped = skippedSlots.includes(sec.key) || (sec.key === 'policies' && skippedSlots.some((k) => k.startsWith('policy.')));
           const pending = suggestions.filter((s) => s.status === 'pending' && (s.section || s.target?.section) === sec.key).length;
           const failed = checks.filter((c) => c.section === sec.key && c.passed === false);
           return (

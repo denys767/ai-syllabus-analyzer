@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Box, TextField, Typography } from '@mui/material';
-import { Send } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import Send from '@mui/icons-material/Send';
 import SuggestionFrame from './SuggestionFrame';
 import { S } from '../../../strings';
 

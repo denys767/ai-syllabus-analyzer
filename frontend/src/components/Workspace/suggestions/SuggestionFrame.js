@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Collapse,
-  IconButton,
-  Paper,
-  Stack,
-  Typography,
-} from '@mui/material';
-import { Check, Close, Edit, ExpandLess, ExpandMore, Undo } from '@mui/icons-material';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
+import IconButton from '@mui/material/IconButton';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import Check from '@mui/icons-material/Check';
+import Close from '@mui/icons-material/Close';
+import Edit from '@mui/icons-material/Edit';
+import ExpandLess from '@mui/icons-material/ExpandLess';
+import ExpandMore from '@mui/icons-material/ExpandMore';
+import Undo from '@mui/icons-material/Undo';
 import RejectDialog from './RejectDialog';
 import RefineDialog from './RefineDialog';
 import { REJECT_TAGS, SEVERITY, S } from '../../../strings';

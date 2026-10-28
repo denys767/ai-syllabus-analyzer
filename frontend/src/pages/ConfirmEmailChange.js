@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Box, CircularProgress, Alert, Typography, Button } from '@mui/material';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
+import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 
@@ -12,13 +16,13 @@ export default function ConfirmEmailChange(){
 
   useEffect(()=>{
     const token = params.get('token');
-    if (!token){ setErr('Відсутній токен підтвердження'); setLoading(false); return; }
+    if (!token){ setErr("The confirmation token is missing"); setLoading(false); return; }
     (async ()=>{
       try {
         await api.emailChange.confirm(token);
-        setMsg('Email успішно змінено. Можна повернутися до профілю.');
+        setMsg("Your email has been changed. You can return to your profile.");
       } catch (e) {
-        setErr(e.response?.data?.message || 'Не вдалося підтвердити зміну email');
+        setErr(e.response?.data?.message || "Could not confirm the email change");
       } finally {
         setLoading(false);
       }
@@ -27,12 +31,12 @@ export default function ConfirmEmailChange(){
 
   return (
     <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="60vh" p={2}>
-      <Typography variant="h5" gutterBottom>Підтвердження зміни email</Typography>
+      <Typography variant="h5" gutterBottom>Confirm email change</Typography>
       {loading && <CircularProgress />}
       {!loading && msg && <Alert severity="success" sx={{ mb: 2 }}>{msg}</Alert>}
       {!loading && err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
       {!loading && (
-        <Button variant="contained" onClick={()=> navigate('/profile')}>Повернутися до профілю</Button>
+        <Button variant="contained" onClick={()=> navigate('/profile')}>Return to profile</Button>
       )}
     </Box>
   );

@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, IconButton, InputBase, Tooltip } from '@mui/material';
+import Box from '@mui/material/Box';
+import IconButton from '@mui/material/IconButton';
+import InputBase from '@mui/material/InputBase';
+import Tooltip from '@mui/material/Tooltip';
 import { alpha, useTheme } from '@mui/material/styles';
-import { Check, Close } from '@mui/icons-material';
+import Check from '@mui/icons-material/Check';
+import Close from '@mui/icons-material/Close';
 
 // Розбиває текст чернетки на шматки: звичайний текст і proposedValues.
-// З template — за плейсхолдерами {{id}}; без нього — шукаємо значення в тексті (перше входження).
+// З template — за плейсхолдерами {{id}}; без нього — підсвічуємо кожне входження значення.
 export function splitDraft(text, template, values = []) {
   const byId = new Map(values.map((v) => [v.id, v]));
   if (template) {
@@ -15,26 +19,19 @@ export function splitDraft(text, template, values = []) {
     });
   }
   let chunks = [{ text: String(text || '') }];
-  values.forEach((v) => {
-    if (!v.value) return;
-    let done = false;
-    chunks = chunks.flatMap((c) => {
-      if (done || c.value) return [c];
-      const at = c.text.indexOf(v.value);
-      if (at < 0) return [c];
-      done = true;
-      return [
-        { text: c.text.slice(0, at) },
-        { value: v },
-        { text: c.text.slice(at + v.value.length) },
-      ].filter((x) => x.value || x.text);
+  [...values].sort((a, b) => String(b.value).length - String(a.value).length).forEach((v) => {
+    if (v.value == null || v.value === '') return;
+    const needle = String(v.value);
+    chunks = chunks.flatMap((chunk) => {
+      if (chunk.value) return [chunk];
+      return chunk.text.split(needle).flatMap((text, i) => i === 0 ? [{ text }] : [{ value: v }, { text }]);
     });
   });
   return chunks;
 }
 
 const InlineEditor = ({ initial, label, busy, onSave, onCancel }) => {
-  const [draft, setDraft] = useState(initial);
+  const [draft, setDraft] = useState(String(initial ?? ''));
   const ref = useRef(null);
   useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
   const save = () => {

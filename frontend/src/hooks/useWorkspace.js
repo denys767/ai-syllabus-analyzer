@@ -18,7 +18,7 @@ const normalizeView = (data) => ({
   sections: [...(data?.sections || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
   readiness: data?.readiness || null,
   checks: data?.checks || [],
-  suggestions: data?.suggestions || [],
+  suggestions: (data?.suggestions || []).map((s) => ({ ...s, id: s.id || s._id })),
   conversation: data?.conversation || null,
   messages: data?.messages || [],
 });
@@ -48,27 +48,27 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
   const idRef = useRef(syllabusId);
   idRef.current = syllabusId;
   const viewRef = useRef(null);
+  const mutationRef = useRef(false);
   const onNotFoundRef = useRef(onNotFound);
   onNotFoundRef.current = onNotFound;
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
 
   const setView = useCallback((next) => {
-    setViewState((prev) => {
-      const value = typeof next === 'function' ? next(prev) : next;
-      viewRef.current = value;
-      return value;
-    });
+    const value = typeof next === 'function' ? next(viewRef.current) : next;
+    viewRef.current = value;
+    setViewState(value);
   }, []);
 
   const status = view?.syllabus?.status;
   const revision = view?.revision;
   const ready = !!view && status === 'in_progress' && !view.syllabus?.needsRebuild;
+  const documentReady = !!view?.state && !view.syllabus?.needsRebuild;
 
   const loadView = useCallback(async (id, { start = true } = {}) => {
     const { data } = await client.chat.get(id);
     let next = normalizeView(data);
-    if (start && needsStart(next)) {
+    if (start && next.syllabus?.canMutate !== false && needsStart(next)) {
       const started = await client.chat.start(id);
       next = normalizeView(started.data);
     }
@@ -78,6 +78,8 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
   // Завантаження при зміні силабуса; автостарт розмови, коли аналіз завершено, а розмови ще немає.
   useEffect(() => {
     setView(null);
+    setBusy(false);
+    mutationRef.current = false;
     setError('');
     setAnalysis({ stage: null, error: null, timedOut: false });
     setPendingText(null);
@@ -173,7 +175,7 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
 
   // Живий документ: перечитуємо на кожну нову ревізію стану і при перемиканні Diff.
   useEffect(() => {
-    if (!syllabusId || !ready) return undefined;
+    if (!syllabusId || !documentReady) return undefined;
     let cancelled = false;
     setDoc((d) => ({ ...d, loading: true, error: '' }));
     client.chat.document(syllabusId, { diff })
@@ -186,7 +188,7 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
         setDoc((d) => ({ ...d, loading: false, error: info.message }));
       });
     return () => { cancelled = true; };
-  }, [syllabusId, ready, revision, diff, client]);
+  }, [syllabusId, documentReady, revision, diff, client]);
 
   // Довідник політик для карток вибору (один раз на клієнт)
   useEffect(() => {
@@ -198,7 +200,10 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
         const list = Array.isArray(data) ? data : data?.policies || [];
         setPolicyLibrary(Object.fromEntries(list.filter((p) => p.key).map((p) => [p.key, p])));
       })
-      .catch(() => {});
+      .catch(async (err) => {
+        const info = await describeError(err, 'Could not load policy options.');
+        if (!cancelled) setError(info.message);
+      });
     return () => { cancelled = true; };
   }, [ready, client]);
 
@@ -214,7 +219,9 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
 
   // Мутація: застосовує повернутий View. Повертає { ok, data } або { ok:false, error, code, status, details }.
   const mutate = useCallback(async (call) => {
+    if (mutationRef.current) return { ok: false, error: 'Please wait for the current action to finish.' };
     const id = idRef.current;
+    mutationRef.current = true;
     setBusy(true);
     try {
       const { data } = await call(id);
@@ -222,10 +229,10 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
       return { ok: true, data };
     } catch (err) {
       const info = await describeError(err);
-      if (RELOAD_CODES.has(info.code)) reload();
+      if (idRef.current === id && RELOAD_CODES.has(info.code)) reload();
       return { ok: false, error: info.message, code: info.code, status: info.status, details: info.data };
     } finally {
-      setBusy(false);
+      if (idRef.current === id) { mutationRef.current = false; setBusy(false); }
     }
   }, [reload, setView]);
 
@@ -236,17 +243,25 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
 
   const actions = useMemo(() => ({
     // Confirm: кнопка називає непідтверджені proposedValues, тож натискання підтверджує їх (POST values), потім accept.
-    confirm: async (sid, { optionId } = {}) => {
-      const s = findSuggestion(viewRef.current, sid);
-      const unconfirmed = (s?.draft?.proposedValues || []).filter((v) => !v.confirmed);
-      if (unconfirmed.length) {
-        const confirmed = await mutate((id) => client.chat.setValues(id, sid,
-          unconfirmed.map((v) => ({ id: v.id, value: v.value, confirmed: true }))));
-        if (!confirmed.ok) return confirmed;
-      }
-      const body = { expectedRevision: viewRef.current?.revision };
-      if (optionId) body.optionId = optionId;
-      return mutate((id) => client.chat.accept(id, sid, body));
+    confirm: (sid, { optionId } = {}) => {
+      const suggestion = findSuggestion(viewRef.current, sid);
+      const unconfirmed = (suggestion?.draft?.proposedValues || []).filter((v) => !v.confirmed);
+      const revisionAtClick = viewRef.current?.revision;
+      return mutate(async (id) => {
+        let expectedRevision = revisionAtClick;
+        if (unconfirmed.length) {
+          const response = await client.chat.setValues(id, sid,
+            unconfirmed.map((v) => ({ id: v.id, value: v.value, confirmed: true })));
+          if (idRef.current !== id) return response;
+          const next = normalizeView(response.data);
+          setView(next);
+          expectedRevision = next.revision;
+        }
+        const body = {};
+        if (expectedRevision != null) body.expectedRevision = expectedRevision;
+        if (optionId) body.optionId = optionId;
+        return client.chat.accept(id, sid, body);
+      });
     },
     setValue: (sid, valueId, value) => mutate((id) => client.chat.setValues(id, sid, [{ id: valueId, value, confirmed: true }])),
     reject: (sid, body = {}) => mutate((id) => client.chat.reject(id, sid, body)),
@@ -256,17 +271,20 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
     approveSection: (key) => mutate((id) => client.chat.approveSection(id, key)),
     unapproveSection: (key) => mutate((id) => client.chat.unapproveSection(id, key)),
     // { ok, data: { approved, skipped, ...View } }
-    approveAll: (sections) => mutate((id) => client.chat.approveAll(id, sections?.length ? { sections } : {})),
+    approveAll: () => mutate((id) => client.chat.approveAll(id)),
     choosePolicy: (key, optionKey) => mutate((id) => client.chat.choosePolicy(id, key, { optionKey })),
+    keepPolicyText: (key) => mutate((id) => client.chat.choosePolicy(id, key, { keepText: true })),
     writeOwnPolicy: (key) => mutate((id) => client.chat.choosePolicy(id, key, { writeOwn: true })),
     skip: (slotKey) => mutate((id) => client.chat.skip(id, slotKey)),
-  }), [mutate, client]);
+  }), [mutate, client, setView]);
 
   // Вільне повідомлення: показуємо його одразу, відповідь (хід оркестратора) приходить у View.
   const sendMessage = useCallback(async (text) => {
+    const id = idRef.current;
     setError('');
     setPendingText(text);
     const result = await mutate((id) => client.chat.sendMessage(id, text));
+    if (idRef.current !== id) return result.ok;
     setPendingText(null);
     return reportFailure(result).ok;
   }, [mutate, reportFailure, client]);
@@ -278,13 +296,14 @@ export default function useWorkspace(syllabusId, { client = defaultClient, onNot
     setError('');
     try {
       await client.syllabus.reanalyze(id);
+      if (idRef.current !== id) return;
       setView((v) => (v ? {
         ...v,
         conversation: null,
         messages: [],
         suggestions: [],
         readiness: null,
-        syllabus: { ...v.syllabus, status: 'analyzing', needsRebuild: false },
+        syllabus: { ...v.syllabus, canMutate: true, status: 'analyzing', needsRebuild: false },
       } : v));
       setAnalysis({ stage: null, error: null, timedOut: false });
       setPollEpoch((n) => n + 1);

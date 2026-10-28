@@ -1,12 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Radio, Stack, Typography } from '@mui/material';
-import { Check } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import Radio from '@mui/material/Radio';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import Check from '@mui/icons-material/Check';
 import SuggestionFrame from './SuggestionFrame';
 import valueText from './valueText';
 import { S } from '../../../strings';
 
 // Текст варіанта: власне value або (для політик) текст варіанта довідника за optionKey
 const optionBody = (option, library) => {
+  if (option.after != null) return valueText(option.after);
   if (option.value !== undefined && option.value !== null) return valueText(option.value);
   if (option.optionKey && library) return library.options?.find((o) => o.key === option.optionKey)?.text || '';
   return '';
@@ -47,7 +51,7 @@ const ChoiceCard = ({ suggestion, actions, policyLibrary = {}, ...frameProps }) 
           return (
             <Box
               key={option.id}
-              onClick={() => pending && !frameProps.readOnly && setSelected(option.id)}
+              onClick={() => pending && !frameProps.readOnly && !frameProps.busy && setSelected(option.id)}
               sx={{
                 p: 1.25,
                 border: '1px solid',
@@ -62,7 +66,7 @@ const ChoiceCard = ({ suggestion, actions, policyLibrary = {}, ...frameProps }) 
                   <Radio
                     size="small"
                     checked={isSelected}
-                    disabled={frameProps.readOnly}
+                    disabled={frameProps.readOnly || frameProps.busy}
                     onChange={() => setSelected(option.id)}
                     inputProps={{ 'aria-label': option.label }}
                     sx={{ mt: -0.5, ml: -0.75 }}

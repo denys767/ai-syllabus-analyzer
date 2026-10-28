@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 import DiffText from '../diff/DiffText';
 
 // Плейсхолдери рендера стану (backend/services/syllabusState/render.js)

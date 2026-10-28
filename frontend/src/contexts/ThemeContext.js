@@ -29,10 +29,12 @@ export function buildTheme(mode = 'light') {
     palette: {
       mode,
       primary,
-      // secondary/warning = accent, info = primary, щоб у палітрі лишалося три кольори (error і success — системні)
+      // Системні статуси теж використовують primary або accent: у палітрі три кольори.
       secondary: accent,
       warning: accent,
       info: primary,
+      success: primary,
+      error: accent,
       accent,
       background: { default: n.bg, paper: n.paper },
       text: { primary: n.text, secondary: n.textSecondary },

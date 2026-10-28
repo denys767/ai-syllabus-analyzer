@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
-import { Box, Button, Menu, MenuItem, Typography } from '@mui/material';
-import { Check, Tune } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Typography from '@mui/material/Typography';
+import Check from '@mui/icons-material/Check';
+import Tune from '@mui/icons-material/Tune';
 import SuggestionFrame from './SuggestionFrame';
-import DraftText from './DraftText';
+import DraftText, { splitDraft } from './DraftText';
 import valueText from './valueText';
 import { S, confirmLabel } from '../../../strings';
 
@@ -36,6 +41,8 @@ const DraftCard = ({ suggestion, actions, busy, readOnly, ...frameProps }) => {
 
   const afterText = valueText(draft.value);
   const beforeText = valueText(s.before);
+  const renderedIds = new Set(splitDraft(afterText, draft.template, values).filter((chunk) => chunk.value).map((chunk) => chunk.value.id));
+  const extraValues = values.filter((v) => !renderedIds.has(v.id));
 
   const startChange = (event) => {
     if (values.length === 1) setEditingId(values[0].id);
@@ -91,6 +98,10 @@ const DraftCard = ({ suggestion, actions, busy, readOnly, ...frameProps }) => {
             onCancel={() => setEditingId(null)}
           />
         </Pane>
+        {extraValues.map((v) => <Box key={v.id}>
+          <Typography variant="caption">{v.label || 'Proposed value'}</Typography>
+          <DraftText template={`{{${v.id}}}`} values={[v]} editable={editable} editingId={editingId} busy={busy} onEdit={setEditingId} onSave={saveValue} onCancel={() => setEditingId(null)} />
+        </Box>)}
         {pending && unconfirmed.length > 0 && (
           <Typography variant="caption" color="text.secondary">{S.valuesHint}</Typography>
         )}

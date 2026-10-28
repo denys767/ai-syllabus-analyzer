@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Paper } from '@mui/material';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
 
 const Bubble = ({ role, children, sx }) => {
   const isUser = role === 'user';

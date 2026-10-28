@@ -1,22 +1,18 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import {
-  Box,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Toolbar,
-  Typography,
-  Chip,
-} from '@mui/material';
-import {
-  Forum,
-  AdminPanelSettings,
-  School,
-  Policy,
-} from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
+import ListItemButton from '@mui/material/ListItemButton';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Toolbar from '@mui/material/Toolbar';
+import Typography from '@mui/material/Typography';
+import Chip from '@mui/material/Chip';
+import Forum from '@mui/icons-material/Forum';
+import AdminPanelSettings from '@mui/icons-material/AdminPanelSettings';
+import School from '@mui/icons-material/School';
+import Policy from '@mui/icons-material/Policy';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Sidebar = ({ onItemClick }) => {
@@ -36,7 +32,7 @@ const Sidebar = ({ onItemClick }) => {
           targetId = null;
         }
       } catch {
-        // Ignore malformed local storage and fall back to the plain workspace.
+        // Ігноруємо пошкоджені дані сховища та відкриваємо початковий екран.
         targetId = null;
       }
       navigate(targetId ? `/workspace/${targetId}` : path);
@@ -55,19 +51,19 @@ const Sidebar = ({ onItemClick }) => {
 
   const items = [
     {
-      text: 'Чат',
+      text: "Chat",
       icon: <Forum />,
       path: '/workspace',
       roles: ['instructor', 'admin'],
     },
     {
-      text: user?.role === 'admin' ? 'Кабінет' : 'Мої силабуси',
+      text: user?.role === 'admin' ? "Cabinet" : "My syllabi",
       icon: <AdminPanelSettings />,
       path: '/cabinet',
       roles: ['admin', 'instructor'],
     },
     {
-      text: 'Документи',
+      text: "Documents",
       icon: <Policy />,
       path: '/policies',
       roles: ['instructor', 'admin'],
@@ -75,7 +71,7 @@ const Sidebar = ({ onItemClick }) => {
   ].filter((item) => item.roles.includes(user?.role));
 
   const roleColors = { admin: 'error', instructor: 'primary' };
-  const roleLabels = { admin: 'Адміністратор', instructor: 'Викладач' };
+  const roleLabels = { admin: "Administrator", instructor: "Instructor" };
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

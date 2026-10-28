@@ -1,6 +1,8 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import Box from '@mui/material/Box';
+import CircularProgress from '@mui/material/CircularProgress';
+import Typography from '@mui/material/Typography';
 import { useAuth } from '../../contexts/AuthContext';
 
 const ProtectedRoute = ({ children, requiredRoles = [] }) => {
@@ -21,7 +23,7 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
       >
         <CircularProgress size={48} />
         <Typography variant="body1" color="text.secondary">
-          Завантаження…
+          Loading…
         </Typography>
       </Box>
     );

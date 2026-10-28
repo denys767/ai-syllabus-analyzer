@@ -1,5 +1,7 @@
 import React from 'react';
-import { Box, Chip, Typography } from '@mui/material';
+import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Typography from '@mui/material/Typography';
 import TextMessage from './TextMessage';
 import QuestionMessage from './QuestionMessage';
 import DraftCard from '../suggestions/DraftCard';

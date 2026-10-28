@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import {
-  Box,
-  CssBaseline,
-  Drawer,
-  AppBar,
-  Toolbar,
-  useTheme,
-  useMediaQuery,
-} from '@mui/material';
+import Box from '@mui/material/Box';
+import CssBaseline from '@mui/material/CssBaseline';
+import Drawer from '@mui/material/Drawer';
+import AppBar from '@mui/material/AppBar';
+import Toolbar from '@mui/material/Toolbar';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 
 import Sidebar from './Sidebar';
 import Header from './Header';
@@ -38,17 +36,17 @@ const Layout = () => {
   return (
     <Box sx={{ display: 'flex' }}>
       <CssBaseline />
-      
-      {/* Header */}
+
+      {/* Верхня панель */}
       <AppBar
         position="fixed"
         sx={{
-          width: { 
-            sm: desktopOpen ? `calc(100% - ${drawerWidth}px)` : '100%',
+          width: {
+            md: desktopOpen ? `calc(100% - ${drawerWidth}px)` : '100%',
             xs: '100%'
           },
-          ml: { 
-            sm: desktopOpen ? `${drawerWidth}px` : 0,
+          ml: {
+            md: desktopOpen ? `${drawerWidth}px` : 0,
             xs: 0
           },
           transition: theme.transitions.create(['width', 'margin'], {
@@ -57,32 +55,32 @@ const Layout = () => {
           }),
         }}
       >
-        <Header 
+        <Header
           onMenuClick={handleDrawerToggle}
           drawerOpen={isMobile ? mobileOpen : desktopOpen}
         />
       </AppBar>
 
-      {/* Sidebar */}
+      {/* Бічна панель */}
       <Box
         component="nav"
-        sx={{ 
-          width: { sm: desktopOpen ? drawerWidth : 0 }, 
-          flexShrink: { sm: 0 } 
+        sx={{
+          width: { md: desktopOpen ? drawerWidth : 0 },
+          flexShrink: { md: 0 }
         }}
       >
-        {/* Mobile drawer */}
+        {/* Мобільна панель */}
         <Drawer
           variant="temporary"
           open={mobileOpen}
           onClose={handleMobileDrawerClose}
           ModalProps={{
-            keepMounted: true, // Better open performance on mobile.
+            keepMounted: true, // Швидше відкриття на мобільному.
           }}
           sx={{
             display: { xs: 'block', md: 'none' },
-            '& .MuiDrawer-paper': { 
-              boxSizing: 'border-box', 
+            '& .MuiDrawer-paper': {
+              boxSizing: 'border-box',
               width: drawerWidth,
               backgroundColor: 'background.paper',
             },
@@ -91,14 +89,14 @@ const Layout = () => {
           <Sidebar onItemClick={handleMobileDrawerClose} />
         </Drawer>
 
-        {/* Desktop drawer */}
+        {/* Панель на великому екрані */}
         <Drawer
           variant="persistent"
           open={desktopOpen}
           sx={{
             display: { xs: 'none', md: 'block' },
-            '& .MuiDrawer-paper': { 
-              boxSizing: 'border-box', 
+            '& .MuiDrawer-paper': {
+              boxSizing: 'border-box',
               width: drawerWidth,
               backgroundColor: 'background.paper',
               borderRight: '1px solid',
@@ -110,7 +108,7 @@ const Layout = () => {
         </Drawer>
       </Box>
 
-      {/* Main content */}
+      {/* Основний вміст */}
       <Box
         component="main"
         sx={{
@@ -118,8 +116,8 @@ const Layout = () => {
           minHeight: '100vh',
           ...(fullHeight && { height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }),
           backgroundColor: 'background.default',
-          width: { 
-            sm: desktopOpen ? `calc(100% - ${drawerWidth}px)` : '100%',
+          width: {
+            md: desktopOpen ? `calc(100% - ${drawerWidth}px)` : '100%',
             xs: '100%'
           },
           transition: theme.transitions.create(['width', 'margin'], {
@@ -128,8 +126,8 @@ const Layout = () => {
           }),
         }}
       >
-        <Toolbar /> {/* This adds space for the fixed AppBar */}
-        
+        <Toolbar /> {/* Відступ під фіксовану верхню панель */}
+
         <Box sx={fullHeight ? { flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : { p: 3 }}>
           <Outlet />
         </Box>

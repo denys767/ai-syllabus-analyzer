@@ -1,17 +1,15 @@
 import React, { useEffect, useRef } from 'react';
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  FormControlLabel,
-  LinearProgress,
-  Paper,
-  Stack,
-  Switch,
-  Typography,
-} from '@mui/material';
-import { Download } from '@mui/icons-material';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import LinearProgress from '@mui/material/LinearProgress';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import Typography from '@mui/material/Typography';
+import Download from '@mui/icons-material/Download';
 import DocumentBlocks from './document/DocumentBlocks';
 import { S } from '../../strings';
 
@@ -35,7 +33,7 @@ const LiveDocumentPanel = ({
   useEffect(() => {
     if (!focusedKey || !scrollRef.current) return;
     const el = scrollRef.current.querySelector(`[data-section="${focusedKey}"]`);
-    if (el) scrollRef.current.scrollTo({ top: el.offsetTop - 12, behavior: 'smooth' });
+    if (el) scrollRef.current.scrollTo({ top: el.getBoundingClientRect().top - scrollRef.current.getBoundingClientRect().top + scrollRef.current.scrollTop - 12, behavior: 'smooth' });
   }, [focusedKey, sections]);
 
   let lastDocNumber = null;

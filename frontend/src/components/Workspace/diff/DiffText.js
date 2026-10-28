@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box } from '@mui/material';
+import Box from '@mui/material/Box';
 import { alpha, useTheme } from '@mui/material/styles';
 
 // Рендерить parts: [{ type: 'eq' | 'del' | 'ins', text }] в одному рядку.

@@ -174,6 +174,8 @@ export const ERROR_MESSAGES = {
   STALE_DRAFT: 'This draft was written for an older version of the section. Reword it to get a fresh draft.',
   UNCONFIRMED_VALUES: 'Confirm or change the highlighted values first.',
   SECTION_INCOMPLETE: 'This section is not complete yet.',
+  ANALYSIS_IN_PROGRESS: 'Your syllabus is still being analysed. Please wait for the analysis to finish.',
+  ANSWER_REQUIRED: 'Answer the question before confirming this suggestion.',
   LOCKED: 'This part comes from the KSE template and cannot be changed.',
   NEEDS_REBUILD: 'This syllabus was created in the previous version. Rebuild it in the new format to continue.',
   REOPEN_CONFLICT: 'This change cannot be undone: the section was edited after it.',

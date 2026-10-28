@@ -1,3 +1,5 @@
+import { mockDocx } from './docx';
+
 // Мок-бекенд за docs/api-v5.md для розробки UI без сервера (REACT_APP_USE_MOCKS=1 і /dev/cards).
 // Два силабуси: трек 2 (Risk Management v.2 після парсингу) і трек 1 (з нуля, інтерв'юер), плюс v4 з needsRebuild.
 // Клієнт має ті самі методи, що й api.chat / api.syllabus, і повертає { data } або кидає axios-подібну помилку.
@@ -200,6 +202,7 @@ function policyText(p) {
   if (p.mode === 'locked') return p.text;
   if (['instructor_directed', 'fixture_edited'].includes(p.source) && p.text) return p.text;
   if (p.optionKey) return optionText(p.key, p.optionKey) || p.text || CHOOSE;
+  if (p.text) return `${p.text} (from your file — choose an option or keep your text)`;
   return CHOOSE;
 }
 
@@ -410,7 +413,7 @@ export const renderTemplate = (template, values) => String(template || '')
 const base = (over) => ({
   origin: 'reviewer', checkId: null, criterionId: null, kind: 'edit', description: '', rationale: null,
   options: [], question: null, answer: null, applicable: true, stale: false, status: 'pending', selectedOptionId: null,
-  decisionReason: null, rejectTag: null, decisionHistory: [], versions: [], sources: [], requiresReason: false,
+  decisionReason: null, rejectTag: null, decisionHistory: [], versions: [], sources: [],
   ...over,
   requiresReason: ['critical', 'high'].includes(over.severity),
 });
@@ -440,7 +443,7 @@ function trackTwoSuggestions() {
     withDraft(base({
       id: 'sg-selfstudy', origin: 'check', checkId: 'workload.selfStudy', section: 'schedule', severity: 'warning', order: 2,
       title: 'Add self-study for the case sessions',
-      description: 'Self-study is 14 h, below half of the 20 contact hours. A reading block before the case sessions closes the gap.',
+      description: 'Self-study is 14 h, below the recommended workload for 20 contact hours. Add preparation for the case sessions.',
       target: { section: 'schedule', path: 'individualWork[]' },
       before: null,
       draft: {
@@ -559,7 +562,7 @@ function toView(rec) {
     readiness: rec.conversation ? computeReadiness(rec.state, checks, rec.suggestions, rec.skipped) : null,
     checks,
     suggestions: rec.suggestions.map(({ _snapshot, ...s }) => s),
-    conversation: rec.conversation,
+    conversation: rec.conversation ? { ...rec.conversation, currentSlotKey: rec.currentSlotKey, skippedSlots: Object.keys(rec.skipped) } : null,
     messages: rec.messages,
   });
 }
@@ -644,6 +647,7 @@ export function createMockClient() {
     get: (id) => respond(id),
     start: (id) => respond(id, (r) => {
       if (r.conversation) return;
+      mutation(r);
       r.conversation = { id: `conv-${id}`, status: 'active', currentSlotKey: null };
       if (r.syllabus.track === 'scratch') {
         r.messages.push(textMessage('ai', `Hi! Let’s build the syllabus for **${r.syllabus.title}** together. I will ask one question at a time; you can skip any of them and come back later. The document on the right fills in as we go.`));
@@ -710,6 +714,11 @@ export function createMockClient() {
         }));
         return;
       }
+      if (body?.keepText && p.text) {
+        bumpState(r, 'policies', () => Object.assign(p, { optionKey: null, source: 'instructor_directed', modified: true }));
+        postNext(r);
+        return;
+      }
       const option = libraryOf(key)?.options?.find((o) => o.key === body?.optionKey);
       if (!option) throw httpErr(400, 'INVALID_OPTION', 'Unknown option');
       bumpState(r, 'policies', () => Object.assign(p, { optionKey: option.key, text: option.text, source: 'fixture', modified: false }));
@@ -727,6 +736,7 @@ export function createMockClient() {
       if (s.draft?.proposedValues?.some((v) => !v.confirmed)) {
         throw httpErr(409, 'UNCONFIRMED_VALUES', 'Unconfirmed values', { values: s.draft.proposedValues.filter((v) => !v.confirmed).map((v) => v.id) });
       }
+      if (s.kind === 'question') throw httpErr(409, 'ANSWER_REQUIRED', 'Answer the question first');
       if (s.kind === 'choice' && !body.optionId) throw httpErr(400, 'OPTION_REQUIRED', 'optionId is required');
       const apply = APPLY[s.id] || (s.target?.path?.startsWith('policies{') ? (st) => {
         const key = s.target.path.slice(9, -1);
@@ -738,6 +748,7 @@ export function createMockClient() {
         s._snapshot = clone(r.state);
         bumpState(r, s.section, (st) => apply(st, s, body.optionId));
       }
+      s.acceptedRevision = r.revision;
       Object.assign(s, { status: 'accepted', selectedOptionId: body.optionId || null });
       s.decisionHistory.push({ action: 'accepted', at: new Date().toISOString(), optionId: body.optionId || null });
       r.messages.push(textMessage('ai', s.applicable === false ? 'Noted.' : `Done: **${s.title}** is in the document.`));
@@ -784,7 +795,7 @@ export function createMockClient() {
         kind: 'edit', answer,
         before: 'Email: — · Office hours: —',
         draft: {
-          template: `Email: ${answer.match(/\S+@\S+/)?.[0] || 'o.gromyko@kse.org.ua'} · Office hours: {{v1}}`,
+          template: `Email: ${answer.match(/\S+@\S+/)?.[0] || '—'} · Office hours: {{v1}}`,
           proposedValues: [{ id: 'v1', label: 'Office hours', value: 'Wednesdays 18:00–19:00', confirmed: false }],
           basisHash: 'h-ins',
         },
@@ -801,6 +812,7 @@ export function createMockClient() {
       const s = findSuggestion(r, sid);
       if (s.status === 'pending') throw httpErr(409, 'NOT_PENDING', 'Already pending');
       if (s.status === 'accepted' && s._snapshot) {
+        if (r.revision !== s.acceptedRevision) throw httpErr(409, 'REOPEN_CONFLICT', 'The document changed after this confirmation');
         r.state = s._snapshot;
         r.revision += 1;
         delete s._snapshot;
@@ -813,19 +825,17 @@ export function createMockClient() {
       r.messages.push(textMessage('user', text));
       const slot = r.currentSlotKey;
       if (slot?.startsWith('policy.')) {
-        // «Write my own»: чернетка зі слів викладача; факт, якого він не назвав, — proposedValue
+        // «Write my own»: чернетка лише зі слів викладача, без самовільного запису в документ.
         const sg = withDraft(base({
           id: nextId('sg'), origin: 'orchestrator', section: 'policies', severity: 'medium', order: 50,
           title: `${libraryOf(slot)?.title || 'Policy'}: your rule`,
-          description: 'Written from your words. The highlighted value was not in your message, so please check it.',
+          description: 'Written from your words. Confirm to add this policy to the document.',
           target: { section: 'policies', path: `policies{${slot}}` },
           before: null,
           draft: {
-            template: 'Late work is accepted up to {{v1}} after the deadline and loses {{v2}} of the maximum score. After that it is not graded.',
-            proposedValues: [
-              { id: 'v1', label: 'Grace period', value: '48 hours', confirmed: false },
-              { id: 'v2', label: 'Penalty', value: '10%', confirmed: false },
-            ],
+            value: text,
+            template: null,
+            proposedValues: [],
             basisHash: 'h-pol',
           },
         }));
@@ -855,20 +865,13 @@ export function createMockClient() {
           r.messages.push(kindMessage('suggestion', null, { relatedSuggestionId: sg.id }));
           return;
         }
-        bumpState(r, SLOT_SECTION[step.slotKey], (st) => {
-          if (step.slotKey === 'summary.prerequisites') st.summary.prerequisites.text = text;
-          if (step.slotKey === 'sessions') {
-            st.sessions = [1, 2, 3, 4, 5].map((n) => ({ id: `s${n}`, n, topic: `Session ${n}`, hours: 4 }));
-            st.header.computed.contactHours = 20;
-          }
-          if (step.slotKey === 'assessments') {
-            st.assessments = [
-              { id: 'as1', name: 'Negotiation simulations', weight: 40, deadline: null },
-              { id: 'as2', name: 'Final negotiation plan', weight: 60, deadline: null },
-            ];
-            st.header.computed.assessmentTotal = 100;
-          }
-        });
+        if (step.slotKey === 'sessions' || step.slotKey === 'assessments') {
+          r.messages.push(textMessage('ai', 'Thanks. This mock leaves those details for the live assistant; you can continue with the next question.'));
+        } else {
+          bumpState(r, SLOT_SECTION[step.slotKey], (st) => {
+            if (step.slotKey === 'summary.prerequisites') st.summary.prerequisites.text = text;
+          });
+        }
         r.messages.push(textMessage('ai', 'Got it, I added that to the document.'));
         postNext(r);
         return;
@@ -887,25 +890,33 @@ export function createMockClient() {
       await wait();
       const r = rec(id);
       r.downloads += 1;
-      const text = renderState(r.state).map((s) => [`${s.docNumber ? `${s.docNumber}. ` : ''}${s.title}`, ...s.blocks.map((b) => b.text)].join('\n')).join('\n\n');
       return {
-        data: new Blob([text], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+        data: mockDocx(renderState(r.state)),
         headers: { 'content-disposition': `attachment; filename="${r.syllabus.title.replace(/\s+/g, '_')}_mock.docx"` },
       };
     },
   };
 
   const syllabus = {
-    create: async ({ title }) => {
+    create: async ({ title, programCode, courseCode }) => {
       await wait();
       const id = `mock-new-scratch-${(seq += 1)}`;
       const r = rec(id);
       r.syllabus.title = title || r.syllabus.title;
       r.state.header.courseTitle = title || r.state.header.courseTitle;
+      r.syllabus.programCode = programCode;
+      r.state.programCode = programCode;
+      r.state.header.courseCode = courseCode || null;
       return { data: { syllabus: { id, _id: id, title: r.syllabus.title } } };
     },
-    upload: async () => {
+    upload: async (formData) => {
       await wait();
+      const r = createRecord(MOCK_IDS.upload);
+      r.syllabus.title = formData.get('courseName') || r.syllabus.title;
+      r.state.header.courseTitle = r.syllabus.title;
+      r.syllabus.programCode = formData.get('programCode');
+      r.state.programCode = r.syllabus.programCode;
+      records.set(MOCK_IDS.upload, r);
       return { data: { syllabusId: MOCK_IDS.upload } };
     },
     getStatus: async (id) => ({ data: { status: rec(id).syllabus.status, stage: 'done', error: null } }),
@@ -930,5 +941,16 @@ export function createMockClient() {
 export function mockView(id = MOCK_IDS.upload) {
   const r = createRecord(id);
   r.conversation = { id: 'conv', status: 'active' };
+  if (id === MOCK_IDS.scratch) {
+    r.currentSlotKey = INTERVIEW[0].slotKey;
+    r.messages = [kindMessage('question', INTERVIEW[0])];
+  } else {
+    r.messages = [
+      textMessage('ai', "Here's what I found in Risk Management."),
+      kindMessage('approve-all', { sections: ['course_info', 'materials'] }),
+      kindMessage('suggestion', null, { relatedSuggestionId: 'sg-weights' }),
+      kindMessage('policy-choice', { policyKey: 'policy.attendance' }),
+    ];
+  }
   return toView(r);
 }

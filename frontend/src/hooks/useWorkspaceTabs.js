@@ -67,7 +67,7 @@ export default function useWorkspaceTabs(user, syllabusId) {
       if (tabs.some((t) => t.id === id)) {
         return tabs.map((t) => (t.id === id && title ? { ...t, title } : t));
       }
-      return [...tabs, { id, title: title || 'Силабус' }];
+      return [...tabs, { id, title: title || "Syllabus" }];
     });
   }, []);
 

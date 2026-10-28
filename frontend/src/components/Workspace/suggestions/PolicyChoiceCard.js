@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Box, Button, Chip, Paper, Radio, Stack, Typography } from '@mui/material';
-import { Check, EditNote, Gavel } from '@mui/icons-material';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import Paper from '@mui/material/Paper';
+import Radio from '@mui/material/Radio';
+import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
+import Check from '@mui/icons-material/Check';
+import EditNote from '@mui/icons-material/EditNote';
+import Gavel from '@mui/icons-material/Gavel';
 import { S } from '../../../strings';
 
 const OWN_SOURCES = ['instructor_directed', 'fixture_edited'];
@@ -12,7 +21,7 @@ const PolicyChoiceCard = ({ policyKey, policy, statePolicy, actions, busy, readO
   const options = policy?.options || [];
   const decidedOption = statePolicy?.optionKey ? options.find((o) => o.key === statePolicy.optionKey) : null;
   const ownText = OWN_SOURCES.includes(statePolicy?.source) && !statePolicy?.optionKey;
-  const decided = !!decidedOption || ownText;
+  const decided = !!statePolicy?.optionKey || ownText;
   const [selected, setSelected] = useState(null);
   const [changing, setChanging] = useState(false);
   const [error, setError] = useState('');
@@ -31,7 +40,7 @@ const PolicyChoiceCard = ({ policyKey, policy, statePolicy, actions, busy, readO
   const open = !decided || changing;
   const canAct = !readOnly && open;
   const parsedText = statePolicy?.source === 'parsed' ? statePolicy?.text : null;
-  const title = policy?.title || policyKey;
+  const title = policy?.title || policy?.name || policyKey;
 
   return (
     <Paper
@@ -58,13 +67,13 @@ const PolicyChoiceCard = ({ policyKey, policy, statePolicy, actions, busy, readO
       {decided && !changing && (
         <Stack spacing={1} sx={{ mt: 1 }}>
           <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-            <Chip size="small" color="primary" icon={<Check />} label={decidedOption ? `${S.chosenOption}: ${decidedOption.label}` : S.customText} />
+            <Chip size="small" color="primary" icon={<Check />} label={statePolicy?.optionKey ? `${S.chosenOption}: ${decidedOption?.label || statePolicy.optionKey}` : S.customText} />
             {!readOnly && (
               <Button size="small" variant="text" disabled={busy} onClick={() => setChanging(true)}>Change</Button>
             )}
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
-            {decidedOption?.text || statePolicy?.text}
+            {statePolicy?.text || decidedOption?.text}
           </Typography>
         </Stack>
       )}
@@ -138,6 +147,7 @@ const PolicyChoiceCard = ({ policyKey, policy, statePolicy, actions, busy, readO
               >
                 {S.writeOwn}
               </Button>
+              {parsedText && <Button variant="outlined" size="small" disabled={busy} onClick={() => exec(() => actions.keepPolicyText(policyKey))}>Keep my text</Button>}
               {changing && (
                 <Button variant="text" size="small" color="inherit" disabled={busy} onClick={() => setChanging(false)}>{S.back}</Button>
               )}
