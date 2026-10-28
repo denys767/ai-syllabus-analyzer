@@ -95,14 +95,17 @@ async function mutate(syllabusId, expectedRevision, fn, ctx = {}) {
 /**
  * Початковий стан (трек 1 — createEmptyState, трек 2 — результат парсера). Ревізія збільшується,
  * тож відкриті вкладки отримають STATE_CONFLICT. setBaseline — зберегти знімок для diff у правій панелі.
- * @param {{ setBaseline?: boolean, refs?, expectedRevision?: number }} opts
+ * filter — додаткова умова запису (наприклад, ownedAnalysis(id, leaseToken): запис лише власником lease аналізу);
+ * якщо умова не виконується, кидає 409 STATE_CONFLICT (або 404, якщо силабусу немає).
+ * @param {{ setBaseline?: boolean, refs?, expectedRevision?: number, filter?: object }} opts
  */
-async function initState(syllabusId, state, { setBaseline = true, refs, expectedRevision } = {}) {
+async function initState(syllabusId, state, { setBaseline = true, refs, expectedRevision, filter: extraFilter } = {}) {
   const next = structuredClone(refs ? recompute(state, refs) : state);
   assertValid(next);
   const $set = { state: next };
   if (setBaseline) $set.baselineState = next;
-  const filter = expectedRevision === undefined ? { _id: syllabusId } : revisionFilter(syllabusId, expectedRevision);
+  const base = expectedRevision === undefined ? { _id: syllabusId } : revisionFilter(syllabusId, expectedRevision);
+  const filter = extraFilter ? { $and: [base, extraFilter] } : base;
   const updated = await Syllabus.findOneAndUpdate(filter, { $set, $inc: { stateRevision: 1 } }, { new: true, projection: { stateRevision: 1 } }).lean();
   if (!updated) {
     const doc = await Syllabus.findById(syllabusId).select('stateRevision').lean();

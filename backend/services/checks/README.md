@@ -33,7 +33,7 @@
 | `regulations.ai_prohibitions` | info | policies | режим ШІ дозволяє ШІ і є компоненти → потрібна звірка в `llm.js` |
 | `regulations.retake` | high | assessment | 2.5.6(4): згадано resit/retake (не «retake the course»), але немає ні `compensation` групи `retake`, ні згадки в політиках |
 | `regulations.attendance` | high | policies | 2.4.3: `policy.attendance` не вирішено і тексту немає |
-| `regulations.bonus_penalty` | medium | (де знайдено) | 2.5.4(1): bonus/penalty згадано без розміру (крім політик доброчесності й ШІ) |
+| `regulations.bonus_penalty` | medium | (де знайдено) | 2.5.4(1): bonus/penalty згадано без розміру й без описаного механізму («reduction of the … score», «receives zero», «added to the grade»); політики доброчесності й ШІ не рахуються |
 | `regulations.control_mandatory:<id>` | medium | assessment | 2.4.3: «optional» біля компонента з `isControl` |
 | `regulations.ai_rules` | warning | policies | `policy.ai_mode` не вирішено і `ai_place` ≠ `ai_place_assignments` |
 | `regulations.language` | info | at_a_glance | 2.4.5(1): мова uk/en (passed) або не визначена/інша |

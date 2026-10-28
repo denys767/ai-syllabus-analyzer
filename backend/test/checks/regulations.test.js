@@ -85,8 +85,24 @@ describe('відвідування, 2.4.3 (high)', () => {
 });
 
 describe('бонусні/штрафні бали, 2.5.4(1) (medium, умовна)', () => {
-  test('штраф без розміру → medium (RM: late policy)', () => {
-    expect(byRule(run(rm()), 'regulations.bonus_penalty')[0]).toMatchObject({ severity: 'medium', section: 'policies', path: 'policies{policy.late}.text' });
+  test('штраф описаний механізмом, хоч без розміру (RM: reduction of the maximum possible score) → без зауваження', () => {
+    expect(byRule(run(rm()), 'regulations.bonus_penalty')).toEqual([]);
+  });
+  test.each([
+    ['Assignments submitted after the deadline may be subject to a penalty.'],
+    ['Students may earn bonus points for outstanding contributions.'],
+    ['Extra credit is possible at the instructor’s discretion.'],
+  ])('штраф чи бонус без розміру й без механізму → medium: %s', (text) => {
+    const state = rm((s) => { policy(s, 'policy.late').text = text; });
+    expect(byRule(run(state), 'regulations.bonus_penalty')[0]).toMatchObject({ severity: 'medium', section: 'policies', path: 'policies{policy.late}.text' });
+  });
+  test.each([
+    ['A late submission is subject to a penalty: the final score is reduced.'],
+    ['Late work is penalised and receives zero after seven days.'],
+    ['A bonus is added to the final grade for the best three projects.'],
+  ])('механізм названо словами → без зауваження: %s', (text) => {
+    const state = rm((s) => { policy(s, 'policy.late').text = text; });
+    expect(byRule(run(state), 'regulations.bonus_penalty')).toEqual([]);
   });
   test('з розміром — пройдено', () => {
     const state = rm((s) => { policy(s, 'policy.late').text = 'Late work carries a penalty of 10% per day.'; s.assessments[0].criteria = 'Up to 5 bonus points for the best case presentation.'; });

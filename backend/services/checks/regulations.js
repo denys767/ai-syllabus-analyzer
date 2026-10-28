@@ -22,6 +22,16 @@ const RETAKE_RE = /\b(re-?sit\w*|re-?tak\w*|second attempt|repeat (?:the )?(?:ex
 const WHOLE_COURSE_RE = /^\s+(?:the\s+|this\s+|a\s+)?(?:course|class|module|subject)\b|^\s+курс/i;
 const BONUS_RE = /\b(bonus\w*|extra (?:credit|points?)|penalt\w*|penali[sz]\w*|deduct\w*)\b|бонус\S*|штраф\S*|додатков\S*\s+бал\S*/i;
 const QUANTITY_RE = /\d+(?:[.,]\d+)?\s*(?:[\p{L}-]+\s+){0,2}?(?:%|percent\b|points?\b|pts\b|marks?\b|бал\S*|відсот\S*)/iu;
+// Механізм описаний словами, хоч розмір не названо: «reduction of the maximum possible score», «will receive zero», «added to the final grade»
+const SCORE = '(?:scores?|grades?|marks?|points?)';
+const EFFECT_RES = [
+  new RegExp(`\\b(?:reduc\\w+|lower\\w*|decreas\\w+|deduct\\w*|subtract\\w*|los[ei]\\w*|forfeit\\w*)\\b[^.]{0,80}\\b${SCORE}\\b`, 'i'),
+  new RegExp(`\\b${SCORE}\\b[^.]{0,60}\\b(?:reduc\\w+|lower\\w*|decreas\\w+|deduct\\w*)`, 'i'),
+  /\b(?:receiv\w+|get|gets|earn\w*|assigned|given)\b[^.]{0,30}\b(?:zero|0)\b/i,
+  /\b(?:not be accepted|will not be graded|will not be assessed)\b/i,
+  new RegExp(`\\b(?:add\\w*|award\\w*|increas\\w+|credited)\\b[^.]{0,60}\\b${SCORE}\\b`, 'i'),
+  /(?:знижен\S*|зменшен\S*|віднім\S*)[^.]{0,60}бал\S*|отрим\S*[^.]{0,20}\b0\b/i,
+];
 const OPTIONAL_RE = /\b(optional|voluntary|non-?mandatory|not (?:mandatory|compulsory|required))\b|необов['’ʼ]?язков\S*|за бажанням|добровільн\S*/i;
 // Прохідний бал: «pass … N», «minimum of N points», «прохідний бал N»
 const PASSING_PATTERNS = [
@@ -108,14 +118,14 @@ function attendance(state) {
   })];
 }
 
-// medium, 2.5.4(1), умовна: бонусні/штрафні бали, якщо згадуються, описані з розміром
+// medium, 2.5.4(1), умовна: бонусні/штрафні бали, якщо згадуються, описані (розмір або механізм впливу на оцінку)
 function bonusPenalty(state) {
   const mentions = findMentions(sources(state).filter((s) => !MISCONDUCT_POLICIES.has(s.policyKey)), BONUS_RE)
-    .filter((m) => !QUANTITY_RE.test(m.sentence));
+    .filter((m) => !QUANTITY_RE.test(m.sentence) && !EFFECT_RES.some((re) => re.test(m.sentence)));
   if (!mentions.length) return [];
   return [makeCheck({
     rule: 'regulations.bonus_penalty', severity: 'medium', section: mentions[0].section, path: mentions[0].path,
-    message: 'The syllabus mentions bonus or penalty points without saying how many (Regulations 2.5.4(1)). How many points are added or deducted, and when?',
+    message: 'The syllabus mentions bonus or penalty points without saying how they work (Regulations 2.5.4(1)). How many points are added or deducted, and when?',
     details: { regulation: '2.5.4(1)', mentions: mentions.map(publicMention) },
   })];
 }
