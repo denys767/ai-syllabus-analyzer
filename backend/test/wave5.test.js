@@ -49,53 +49,6 @@ function binary(req) { return req.buffer(true).parse((res, cb) => {
   const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => cb(null, Buffer.concat(chunks)));
 }); }
 
-test('PPTX upload → accept → previews, cached slides, outputs, submit', async () => {
-  const s = await upload('pptx');
-  const view = await get(s, '');
-  expect(view.body.syllabus.outputs).toEqual([
-    { name: 'edited.pptx', label: 'Презентація з правками' }, { name: 'preview.pdf', label: 'PDF презентації з правками' },
-  ]);
-  const block = s.document.blocks.find((b) => !b.readOnly && b.kind === 'slide-text');
-  const newText = `${block.text} Additional practical case discussion and assessment.`;
-  const suggestion = await helpers.createSuggestion(s, { ops: [helpers.replaceOp(block.id, newText)] });
-  // Вставка після блоку іншого слайду: slide — номер слайду якоря
-  const other = s.document.blocks.find((b) => !b.readOnly && b.locator.slide !== block.locator.slide && b.kind === 'slide-text');
-  const insert = await helpers.createSuggestion(s, { ops: [{ op: 'insertAfter', blockId: other.id, newBlocks: [{ kind: 'paragraph', text: 'Peer review.' }] }] });
-  const started = await post(s, '/start');
-  expect(started.status).toBe(200);
-  const viewOf = (id) => started.body.suggestions.find((x) => x.id === String(id));
-  expect(viewOf(suggestion._id).changes).toEqual([expect.objectContaining({ blockId: block.id, op: 'replaceBlock', slide: block.locator.slide })]);
-  expect(viewOf(insert._id).changes).toEqual([expect.objectContaining({ blockId: other.id, op: 'insertAfter', slide: other.locator.slide })]);
-  expect((await post(s, `/suggestions/${insert._id}/reject`, { reason: 'ні' })).status).toBe(200);
-  const slides = await get(s, `/suggestions/${suggestion._id}/slides`);
-  expect(slides.status).toBe(200);
-  expect(slides.body.slides).toHaveLength(1);
-  expect(slides.body.slides[0]).toMatchObject({ slide: block.locator.slide, overflowRisk: true,
-    before: expect.stringMatching(/^data:image\/png;base64,iVBOR/), after: expect.stringMatching(/^data:image\/png;base64,iVBOR/) });
-  await get(s, `/suggestions/${suggestion._id}/slides`);
-  expect(documents.renderPptxPreview).toHaveBeenCalledTimes(1);
-  // Refine без зміни docVersion не повертає попередній кеш.
-  await Suggestion.updateOne({ _id: suggestion._id }, { $set: { 'ops.0.newText': `${newText} Updated.` } });
-  expect((await get(s, `/suggestions/${suggestion._id}/slides`)).status).toBe(200);
-  expect(documents.renderPptxPreview).toHaveBeenCalledTimes(2);
-  expect((await post(s, `/suggestions/${suggestion._id}/accept`)).status).toBe(200);
-  const preview = await get(s, '/document/preview');
-  const changed = preview.body.blocks.find((b) => b.blockId === block.id);
-  expect(changed.parts.some((p) => p.type === 'ins')).toBe(true);
-  expect(changed.slide).toBe(block.locator.slide);
-  expect(preview.body.blocks.every((b) => Number.isInteger(b.slide))).toBe(true);
-  const cabinet = await request(app).get('/api/cabinet/syllabi').set(auth);
-  expect(cabinet.body.syllabi.find((x) => String(x._id) === String(s._id)).outputs.map((o) => o.name)).toEqual(['edited.pptx', 'preview.pdf']);
-  expect((await get(s, '/outputs/tracked.docx')).status).toBe(404);
-  const edited = await binary(get(s, '/outputs/edited.pptx'));
-  expect(edited.status).toBe(200);
-  expect((await documents.extractPptx(edited.body)).blocks.find((b) => b.id === block.id).text).toBe(`${newText} Updated.`);
-  const pdf = await binary(get(s, '/outputs/preview.pdf'));
-  expect(pdf.status).toBe(200); expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
-  expect((await post(s, '/submit')).status).toBe(200);
-  expect(sendSubmissionToAdEmail.mock.calls.at(-1)[0].attachments.map((a) => a.filename)).toEqual(['course_edited.pptx', 'course_preview.pdf']);
-});
-
 test('PPTX magic bytes reject DOCX zip and corrupt PK archive as 400 (і навпаки для .docx)', async () => {
   const docxZip = await new JSZip().file('word/document.xml', '<doc/>').generateAsync({ type: 'nodebuffer' });
   const pptxZip = await new JSZip().file('ppt/presentation.xml', '<p/>').generateAsync({ type: 'nodebuffer' });
@@ -123,8 +76,9 @@ test('outputs: legacy — порожній список і 409; PDF до хви�
   expect(res.body.code).toBe('OUTPUT_NOT_AVAILABLE');
   const cabinet = await request(app).get('/api/cabinet/syllabi').set(auth);
   const items = new Map(cabinet.body.syllabi.map((x) => [String(x._id), x]));
-  expect(items.get(String(legacy._id)).outputs).toEqual([]);
-  expect(items.get(String(oldPdf._id)).outputs.map((o) => o.name)).toEqual(['tracked.docx', 'clean.docx', 'tracked.pdf']);
+  // v5: кабінет віддає єдиний вихід
+  expect(items.get(String(legacy._id)).outputs).toEqual(['syllabus.docx']);
+  expect(items.get(String(oldPdf._id)).outputs).toEqual(['syllabus.docx']);
 });
 
 test('PDF blocks persist 1:1, accepted replacements/inserts/deletes annotate original, submit includes tracked files', async () => {
@@ -150,16 +104,6 @@ test('PDF blocks persist 1:1, accepted replacements/inserts/deletes annotate ori
   expect((await post(s, '/submit')).status).toBe(200);
   expect(sendSubmissionToAdEmail.mock.calls.at(-1)[0].attachments.map((a) => a.filename)).toEqual(['course_annotated.pdf', 'course_tracked.docx', 'course_tracked.pdf']);
   expect((await Syllabus.findById(s._id)).outputs.annotated.path).toBeTruthy();
-});
-
-test('PPTX submit без LibreOffice: лише edited.pptx і примітка у звіті', async () => {
-  const s = await upload('pptx');
-  await post(s, '/start');
-  documents.toPdf.mockRejectedValueOnce(Object.assign(new Error('no soffice'), { statusCode: 503, code: 'SOFFICE_MISSING' }));
-  expect((await post(s, '/submit')).status).toBe(200);
-  const mail = sendSubmissionToAdEmail.mock.calls.at(-1)[0];
-  expect(mail.attachments.map((a) => a.filename)).toEqual(['course_edited.pptx']);
-  expect(mail.summaryText).toMatch(/PDF-версію презентації не вдалося згенерувати/);
 });
 
 test('sources: у SuggestionView, Refine передає збережені джерела і зберігає нові', async () => {

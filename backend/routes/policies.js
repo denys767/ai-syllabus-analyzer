@@ -251,6 +251,7 @@ router.put('/:id',
       // content — похідне від варіантів/тексту; libraryVersion лишається, тож сід не перезапише правку
       policy.content = policyMarkdown(policy);
       if (policy.content !== before) policy.version += 1;
+      policy.adminModified = true;
       await policy.save();
       return res.json({ message: 'Документ оновлено успішно', policy });
     }
