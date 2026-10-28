@@ -1,57 +1,103 @@
-// Вільне повідомлення в чаті: класифікація наміру → відповідь AI або Refine поточної картки.
+// Вільне повідомлення: хід оркестратора з інструментами (services/ai/tools/runner). Усі записи стану йдуть через
+// deps (store.mutate, accept з перевірками); сам чат нічого не пише в стан.
 
+const mongoose = require('mongoose');
 const Message = require('../../models/Message');
 const Suggestion = require('../../models/Suggestion');
-const { chatReply, classifyIntent } = require('../ai/chatReply');
-const { loadSyllabus, isLegacy, docOf } = require('./state');
-const { suggestionViews } = require('./view');
-const { getOrCreateConversation, postUserMessage, postAiMessage, withAiFailureTracking } = require('./flow');
-const { refineSuggestion } = require('./decisions');
+const Conversation = require('../../models/Conversation');
+const store = require('../syllabusState/store');
+const { runChecks } = require('../checks');
+const { httpError } = require('../../utils/httpError');
+const runner = require('../ai/tools/runner');
+const { buildDraftSuggestion } = require('./draftSuggestions');
+const { loadContext } = require('./state');
+const { acceptSuggestion, afterDecision } = require('./decisions');
+const {
+  getOrCreateConversation, postUserMessage, postAiMessage, postSuggestionCard, postNextStep, transcriptOf, withAiFailureTracking,
+} = require('./flow');
+const { knownFor } = require('./known');
 
-async function currentSuggestion(conversation) {
-  if (!conversation.currentSuggestionId) return null;
-  return Suggestion.findOne({ _id: conversation.currentSuggestionId, syllabusId: conversation.syllabusId });
-}
+/** Залежності оркестратора, прив'язані до силабусу (docs/api-v5.md §9). */
+function buildDeps(ctx, conversation, userId, instructorLines) {
+  const syllabusId = ctx.syllabus._id;
+  const current = { state: ctx.state, revision: ctx.revision };
+  const reload = async () => Object.assign(current, await store.getState(syllabusId));
 
-function evidenceText(syllabus, s) {
-  if (!s || isLegacy(syllabus)) return '';
-  const ids = new Set([...(s.evidenceBlockIds || []), ...(s.ops || []).map((o) => o.blockId)]);
-  return docOf(syllabus).blocks.filter((b) => ids.has(b.id)).slice(0, 8)
-    .map((b) => `[${b.id}] ${b.text}`).join('\n');
+  return {
+    current,
+    getRefs: () => ctx.refs,
+    // mutate(fn, mctx?) → { state, revision, changes }; ревізію бере сам, на STATE_CONFLICT один повтор
+    async mutate(fn, mctx = {}) {
+      for (let attempt = 0; ; attempt += 1) {
+        const { revision } = await store.getState(syllabusId);
+        try {
+          const result = await store.mutate(syllabusId, revision, fn, { by: userId, refs: ctx.refs, ...mctx });
+          Object.assign(current, { state: result.state, revision: result.revision });
+          return result;
+        } catch (err) {
+          if (err.code !== 'STATE_CONFLICT' || attempt >= 1) throw err;
+        }
+      }
+    },
+    // inputs — вхід buildDraftSuggestion; сканер фактів доповнює proposedValues кожної картки
+    async createDraftSuggestions(inputs) {
+      const docs = inputs.map((input) => buildDraftSuggestion({ origin: 'orchestrator', ...input }, {
+        syllabusId, state: current.state, refs: ctx.refs,
+        known: knownFor({ target: input.target }, { state: current.state, refs: ctx.refs }, instructorLines),
+      }));
+      return docs.length ? Suggestion.insertMany(docs) : [];
+    },
+    runChecks: (state) => runChecks(state || current.state, ctx.refs),
+    async findSuggestion(id) {
+      if (!mongoose.isValidObjectId(id)) return null;
+      return Suggestion.findOne({ _id: id, syllabusId });
+    },
+    // Те саме, що кнопка Confirm: UNCONFIRMED_VALUES, STALE_DRAFT, LOCKED перевіряються тут
+    async acceptSuggestion(id, { optionId = null } = {}) {
+      const result = await acceptSuggestion(syllabusId, id, { optionId }, userId);
+      await reload();
+      return result;
+    },
+    reload,
+  };
 }
 
 async function freeChatMessage(syllabusId, text, userId) {
-  const syllabus = await loadSyllabus(syllabusId);
-  if (isLegacy(syllabus)) docOf(syllabus); // кидає LEGACY_SYLLABUS
+  const ctx = await loadContext(syllabusId);
   const conversation = await getOrCreateConversation(syllabusId, userId);
-  const current = await currentSuggestion(conversation);
-  const all = current ? await Suggestion.find({ syllabusId }) : [];
-  const views = current ? await suggestionViews(syllabus, all) : [];
-  const view = current ? views.find((v) => v.id === String(current._id)) : null;
-
-  // Refine можливий лише для pending-картки силабусу, що ще редагується
-  const canRefine = current && current.status === 'pending' && syllabus.status === 'in_progress';
-  let intent = 'question';
-  if (canRefine) {
-    try {
-      intent = await classifyIntent(text, view);
-    } catch (err) {
-      console.error('intent classification failed:', err.message);
-    }
-  }
-  if (intent === 'refine') {
-    await postUserMessage(conversation, text, current._id);
-    await refineSuggestion(syllabusId, current._id, { feedback: text }, userId, { postFeedback: false });
-    return;
-  }
-
   await postUserMessage(conversation, text);
-  const recent = await Message.find({ conversationId: conversation._id }).sort({ createdAt: -1, _id: -1 }).limit(8).lean();
-  const reply = await withAiFailureTracking(
-    conversation,
-    () => chatReply(syllabus, recent.reverse(), text, view, evidenceText(syllabus, current)),
-  );
-  await postAiMessage(conversation, reply || 'Не вдалося сформулювати відповідь. Спробуйте перефразувати питання.');
+
+  const { transcript, instructorLines } = await transcriptOf(conversation);
+  const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: -1, _id: -1 }).limit(12).lean();
+  const deps = buildDeps(ctx, conversation, userId, instructorLines);
+  const { current, reload, ...runnerDeps } = deps;
+
+  const result = await withAiFailureTracking(conversation, async () => {
+    const res = await runner.runOrchestratorTurn({
+      syllabus: ctx.syllabus, state: ctx.state, revision: ctx.revision, refs: ctx.refs,
+      conversation: conversation.toObject(), messages: messages.reverse(), transcript, userText: text, userId,
+      currentSlotKey: conversation.currentSlotKey || null,
+      deps: runnerDeps,
+    });
+    if (!res || typeof res.reply !== 'string') throw httpError(502, 'The orchestrator returned no reply');
+    return res;
+  });
+
+  const created = (result.createdSuggestionIds || []).map(String);
+  if (result.reply.trim()) await postAiMessage(conversation, result.reply.trim());
+  if (created.length) {
+    const cards = await Suggestion.find({ _id: { $in: created }, syllabusId, status: 'pending' }).sort({ order: 1, _id: 1 });
+    for (const card of cards) await postSuggestionCard(conversation, card);
+  }
+  if (result.currentSlotKey !== undefined) {
+    await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: result.currentSlotKey || null } });
+  } else if (created.length || result.stateChanged) {
+    await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: null } });
+  }
+  if (result.stateChanged || created.length) {
+    await afterDecision(await Conversation.findById(conversation._id), { nextStep: false });
+    if (result.stateChanged && !created.length) await postNextStep(await Conversation.findById(conversation._id));
+  }
 }
 
-module.exports = { freeChatMessage };
+module.exports = { freeChatMessage, buildDeps };

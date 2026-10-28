@@ -10,8 +10,6 @@ const Syllabus = require('../models/Syllabus');
 const Suggestion = require('../models/Suggestion');
 const { computeReadiness } = require('../services/chat/readiness');
 const { outputList } = require('../services/outputFormats');
-const { isLegacy } = require('../services/chat/state');
-const { sendSubmissionEmail, sendLegacySubmissionEmail } = require('../services/submission');
 const { sendInvitationEmail } = require('../services/emailService');
 const { isLastActiveAdmin } = require('../services/userService');
 const { generateToken } = require('../utils/tokens');
@@ -182,39 +180,6 @@ router.get('/syllabi', auth, async (req, res) => {
   } catch (err) {
     console.error('List syllabi error:', err);
     res.status(500).json({ message: 'Внутрішня помилка сервера' });
-  }
-});
-
-router.post('/syllabi/:id/resend-submission', auth, admin, async (req, res) => {
-  if (!isValidId(req.params.id)) return res.status(400).json({ message: 'Некоректний id силабусу' });
-  try {
-    const syllabus = await Syllabus.findById(req.params.id)
-      .populate('programId')
-      .populate('instructor', 'firstName lastName email');
-    if (!syllabus) return res.status(404).json({ message: 'Силабус не знайдено' });
-    if (syllabus.status !== 'submitted') return res.status(400).json({ message: 'Силабус ще не відправлено' });
-    const adEmail = syllabus.programId?.academicDirectorEmail;
-    if (!adEmail) return res.status(400).json({ message: 'Для цієї програми не вказано email академічного директора' });
-
-    const emailStatus = isLegacy(syllabus)
-      ? await sendLegacySubmissionEmail(syllabus)
-      : await sendSubmissionEmail(syllabus);
-    const info = { skipped: emailStatus !== 'sent' };
-    if (info?.skipped) {
-      await Syllabus.findByIdAndUpdate(req.params.id, { submissionEmailStatus: 'failed' });
-      if (res.headersSent) return;
-      return res.status(503).json({ message: 'Не вдалося надіслати лист: перевірте налаштування пошти' });
-    }
-
-    await Syllabus.findByIdAndUpdate(req.params.id, { submissionEmailStatus: 'sent' });
-    if (res.headersSent) return;
-    res.json({ message: 'Лист надіслано повторно' });
-  } catch (err) {
-    console.error('Resend submission error:', err);
-    await Syllabus.findByIdAndUpdate(req.params.id, { submissionEmailStatus: 'failed' }).catch(() => {});
-    if (res.headersSent) return;
-    if (err.statusCode && err.statusCode < 500) return res.status(err.statusCode).json({ message: err.message, code: err.code });
-    res.status(500).json({ message: 'Не вдалося надіслати лист повторно' });
   }
 });
 

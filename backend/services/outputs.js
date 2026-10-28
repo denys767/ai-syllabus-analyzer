@@ -1,30 +1,30 @@
-// Фінальні файли силабусу (перелік за форматом — outputFormats.js):
-// docx/doc — tracked.docx, clean.docx, tracked.pdf; pdf — ще annotated.pdf (примітки на оригіналі);
-// pptx — edited.pptx, preview.pdf.
-// Кеш у Syllabus.outputs за ключем (docVersion, acceptedHash); після кожного рішення інвалідовується.
+// Фінальний файл силабусу: один syllabus.docx за шаблоном KSE (writers/templateDocx.js).
+// Кеш — файл uploads/outputs/<id>/syllabus.r<stateRevision>.docx: нова ревізія стану дає нове ім'я,
+// тож застарілий файл ніколи не віддається; старі ревізії видаляються при рендері.
 
 const fs = require('fs').promises;
 const path = require('path');
 const Syllabus = require('../models/Syllabus');
-const {
-  writeDocx, writePptx, annotatePdf, toPdf, DEFAULT_AUTHOR,
-} = require('./document');
-const { mapPdfSuggestions, sourcePdfDoc } = require('./document/pdfMapping');
+const Program = require('../models/Program');
+const { renderSyllabusDocx } = require('./document/writers/templateDocx');
+const store = require('./syllabusState/store');
+const references = require('./references');
 const { httpError } = require('../utils/httpError');
-const { loadSyllabus, docOf, loadAcceptedDocs, acceptedHash } = require('./chat/state');
-const { OUTPUTS, outputNames } = require('./outputFormats');
+const { OUTPUTS } = require('./outputFormats');
 
 const OUTPUTS_DIR = path.join(__dirname, '../uploads/outputs');
-const FILE_NAMES = Object.fromEntries(Object.entries(OUTPUTS).map(([name, spec]) => [spec.key, name]));
+const CACHE_RE = /^syllabus\.r\d+\.docx$/;
+// Файли виходів v4 у тому самому каталозі
+const V4_NAMES = new Set(['tracked.docx', 'clean.docx', 'tracked.pdf', 'annotated.pdf', 'edited.pptx', 'preview.pdf']);
 
-function outputDir(syllabusId) {
-  return path.join(OUTPUTS_DIR, String(syllabusId));
-}
+const outputDir = (syllabusId) => path.join(OUTPUTS_DIR, String(syllabusId));
+const cachePath = (syllabusId, revision) => path.join(outputDir(syllabusId), `syllabus.r${revision}.docx`);
 
-function downloadName(syllabus, name) {
-  const original = syllabus.originalFile?.originalName || syllabus.title || 'syllabus';
-  const base = path.parse(original).name || 'syllabus';
-  return `${base}${OUTPUTS[name].suffix}`;
+/** `<Course_Title>_syllabus.docx`: літери й цифри будь-якої мови, решта — підкреслення. */
+function downloadName(syllabus, state) {
+  const title = state?.header?.courseTitle || syllabus.title || '';
+  const base = String(title).normalize('NFC').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'Syllabus';
+  return `${base}${OUTPUTS['syllabus.docx'].suffix}`;
 }
 
 async function exists(p) {
@@ -39,105 +39,54 @@ async function writeAtomic(target, buffer) {
   await fs.rename(tmp, target);
 }
 
-async function readWorkingFile(syllabus) {
-  try {
-    return await fs.readFile(syllabus.workingFile?.path);
-  } catch {
-    throw httpError(404, 'Робочий файл силабусу не знайдено на сервері. Завантажте силабус ще раз.');
-  }
-}
-
-async function readOriginalFile(syllabus) {
-  try {
-    return await fs.readFile(syllabus.originalFile?.path);
-  } catch {
-    throw httpError(404, 'Оригінальний файл силабусу не знайдено на сервері. Завантажте силабус ще раз.');
-  }
-}
-
-/**
- * Рендер одного файлу. `ctx` спільний для всіх ключів одного виклику: проміжні результати
- * (tracked.docx для tracked.pdf, edited.pptx для preview.pdf) будуються один раз.
- */
-async function render(key, ctx) {
-  const { syllabus, working, doc, accepted } = ctx;
-  const tracked = async () => {
-    ctx.tracked ||= await writeDocx(working, doc, accepted, { mode: 'tracked', author: DEFAULT_AUTHOR, comments: true });
-    return ctx.tracked;
-  };
-  const edited = async () => {
-    ctx.edited ||= await writePptx(working, doc, accepted);
-    return ctx.edited;
-  };
-  switch (key) {
-    case 'clean': return writeDocx(working, doc, accepted, { mode: 'clean', author: DEFAULT_AUTHOR });
-    case 'tracked': return tracked();
-    case 'trackedPdf': return toPdf(await tracked(), 'docx', { exportComments: true });
-    case 'edited': return edited();
-    case 'previewPdf': return toPdf(await edited(), 'pptx');
-    case 'annotated':
-      // Прийняті пропозиції адресують блоки синтезованого DOCX → переводимо на блоки PDF
-      return annotatePdf(await readOriginalFile(syllabus), sourcePdfDoc(doc), mapPdfSuggestions(doc, accepted), { author: DEFAULT_AUTHOR });
-    default: throw httpError(404, 'Невідомий файл');
-  }
-}
-
-/**
- * Повертає готові файли (з кешу, якщо ключ збігається, інакше рендерить).
- * @param {string[]} keys   ключі OUTPUTS: 'clean' | 'tracked' | 'trackedPdf' | 'annotated' | 'edited' | 'previewPdf'
- * @param {{fresh?: boolean}} opts  fresh — ігнорувати кеш (submit)
- * @returns {Promise<Record<string, {path: string, buffer?: Buffer}>>}
- */
-async function ensureOutputs(syllabusId, keys, { fresh = false } = {}) {
-  const syllabus = await loadSyllabus(syllabusId);
-  const doc = docOf(syllabus);
-  const allowed = outputNames(syllabus).map((name) => OUTPUTS[name].key);
-  if (keys.some((key) => !allowed.includes(key))) throw httpError(404, 'Цей файл недоступний для цього силабусу.', { code: 'OUTPUT_NOT_AVAILABLE' });
-  const accepted = await loadAcceptedDocs(syllabusId);
-  const hash = acceptedHash(accepted);
-  const docVersion = doc.docVersion;
-  const result = {};
-  const toRender = [];
-
-  for (const key of keys) {
-    const cached = syllabus.outputs?.[key];
-    if (!fresh && cached?.path && cached.acceptedHash === hash && cached.docVersion === docVersion && await exists(cached.path)) {
-      result[key] = { path: cached.path };
-    } else {
-      toRender.push(key);
+async function pruneOutputs(syllabusId, keepPath) {
+  const dir = outputDir(syllabusId);
+  for (const name of await fs.readdir(dir).catch(() => [])) {
+    const full = path.join(dir, name);
+    if (full !== keepPath && (CACHE_RE.test(name) || V4_NAMES.has(name))) {
+      await fs.unlink(full).catch(() => {});
     }
   }
-  if (!toRender.length) return result;
-
-  const ctx = { syllabus, working: await readWorkingFile(syllabus), doc, accepted };
-  const set = {};
-  for (const key of toRender) {
-    const buffer = await render(key, ctx);
-    const target = path.join(outputDir(syllabusId), FILE_NAMES[key]);
-    await writeAtomic(target, buffer);
-    set[`outputs.${key}`] = { path: target, generatedAt: new Date(), docVersion, acceptedHash: hash };
-    result[key] = { path: target, buffer };
-  }
-  // Зберігаємо кеш лише якщо множина прийнятих не змінилася під час рендеру
-  const current = acceptedHash(await loadAcceptedDocs(syllabusId));
-  if (current === hash) await Syllabus.updateOne({ _id: syllabusId }, { $set: set });
-  return result;
 }
 
-/** GET /outputs/:name → { path, filename, contentType } */
-async function getOutputFile(syllabusId, name) {
-  const syllabus = await loadSyllabus(syllabusId);
-  docOf(syllabus); // legacy → 409 LEGACY_SYLLABUS
-  const spec = outputNames(syllabus).includes(name) ? OUTPUTS[name] : null;
-  if (!spec) {
-    throw httpError(404, `Файл «${name}» недоступний для цього силабусу. Доступні: ${outputNames(syllabus).join(', ')}.`, { code: 'OUTPUT_NOT_AVAILABLE' });
+/** Підпис програми в At a Glance: label редакції з Program.editions, інакше programCode. */
+async function programLabelOf(syllabus) {
+  const code = syllabus.programCode;
+  if (!code) return null;
+  const program = syllabus.programId ? await Program.findById(syllabus.programId).select('editions').lean() : null;
+  return program?.editions?.find((e) => e.code === code)?.label || code;
+}
+
+/** Готовий файл для поточної ревізії стану: з кешу або рендер. */
+async function ensureDocx(syllabusId) {
+  const syllabus = await Syllabus.findById(syllabusId).select('title programCode programId needsRebuild legacy');
+  if (!syllabus) throw httpError(404, 'Syllabus not found');
+  if (syllabus.legacy || syllabus.needsRebuild) {
+    throw httpError(409, 'This syllabus was created in an older version. Rebuild in the new format to continue.', { code: 'NEEDS_REBUILD' });
   }
-  const files = await ensureOutputs(syllabusId, [spec.key]);
-  return { path: files[spec.key].path, filename: downloadName(syllabus, name), contentType: spec.contentType };
+  const { state, revision } = await store.getState(syllabusId);
+  const target = cachePath(syllabusId, revision);
+  if (!(await exists(target))) {
+    const refs = await references.getRefs(syllabus.programCode);
+    await writeAtomic(target, await renderSyllabusDocx(state, refs, { programLabel: await programLabelOf(syllabus) }));
+    await pruneOutputs(syllabusId, target);
+  }
+  return { path: target, filename: downloadName(syllabus, state), revision };
+}
+
+/** GET /outputs/:name → { path, filename, contentType }; збільшує лічильник завантажень. Старі імена → 404. */
+async function getOutputFile(syllabusId, name) {
+  const spec = OUTPUTS[name];
+  if (!spec) {
+    throw httpError(404, `File "${name}" is not available. Available: ${Object.keys(OUTPUTS).join(', ')}.`, { code: 'OUTPUT_NOT_AVAILABLE' });
+  }
+  const file = await ensureDocx(syllabusId);
+  await Syllabus.updateOne({ _id: syllabusId }, { $inc: { downloads: 1 } });
+  return { path: file.path, filename: file.filename, contentType: spec.contentType };
 }
 
 async function removeOutputDir(syllabusId) {
   await fs.rm(outputDir(syllabusId), { recursive: true, force: true }).catch(() => {});
 }
 
-module.exports = { OUTPUTS, OUTPUTS_DIR, ensureOutputs, getOutputFile, downloadName, outputDir, removeOutputDir };
+module.exports = { OUTPUTS, OUTPUTS_DIR, ensureDocx, getOutputFile, downloadName, outputDir, removeOutputDir };

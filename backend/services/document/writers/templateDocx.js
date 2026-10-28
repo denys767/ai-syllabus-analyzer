@@ -5,6 +5,8 @@ const {
   ShadingType, ExternalHyperlink, LevelFormat, AlignmentType,
 } = require('docx');
 const S = require('./templateStyles');
+const { FROM_FILE_NOTE } = require('../../syllabusState/render');
+const { policyDecided } = require('../../syllabusState/slots');
 
 const DASH = '—';
 const has = (v) => typeof v === 'string' ? v.trim() !== '' : v != null;
@@ -262,7 +264,12 @@ function policiesSection(state, refs) {
     knownKeys.add(b.key);
     const p = byKey.get(b.key);
     if (b.mode === 'locked') { emit(b.title, has(p?.text) ? p.text : b.text, b.title); continue; }
-    if (has(p?.text) && !has(p?.optionKey)) { emit(b.title, p.text, b.title); continue; } // власний текст викладача
+    if (has(p?.text) && !has(p?.optionKey)) {
+      if (policyDecided(p)) { emit(b.title, p.text, b.title); continue; } // власний текст викладача
+      // Текст з файлу без вибору: показуємо його з позначкою, а не порожній плейсхолдер
+      out.push(heading2(b.title), para([run(clean(p.text)), run(` ${FROM_FILE_NOTE}`, { italics: true })]));
+      continue;
+    }
     if (has(p?.optionKey)) {
       const opt = (b.options || []).find((o) => o.key === p.optionKey);
       emit(b.title, has(p.text) ? p.text : opt?.text, b.title, 'Choose an option');

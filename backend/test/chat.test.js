@@ -1,55 +1,45 @@
-// Чат v4: пропозиції, рішення, outputs, submit. Пайплайн review, OpenAI і пошта замокані.
-process.env.GMAIL_USER = 'robot@example.com';
-process.env.GMAIL_PASS = 'secret';
-
-const mockSendMail = jest.fn(async () => ({ messageId: 'test-message' }));
-jest.mock('nodemailer', () => ({ createTransport: jest.fn(() => ({ sendMail: mockSendMail })) }));
-jest.mock('../services/ai/review', () => ({
-  runReview: jest.fn(),
-  generateSuggestion: jest.fn(),
-  PROMPT_VERSION: 'test-v1',
-}));
-jest.mock('../services/ai/client', () => {
-  const actual = jest.requireActual('../services/ai/client');
-  return { ...actual, createResponse: jest.fn() };
-});
+// Чат v5: View, /start, рішення по картках, розділи, політики, документ, вихід .docx. LLM-модулі (formulator,
+// runner, interviewer) замокані — їх реалізують F і W3; тут перевіряється лише шар чату.
+jest.mock('../services/ai/prompts/formulator', () => ({ reword: jest.fn(), draftFromNarrative: jest.fn() }));
+jest.mock('../services/ai/tools/runner', () => ({ runOrchestratorTurn: jest.fn() }));
+jest.mock('../services/ai/prompts/interviewer', () => ({ nextQuestion: jest.fn() }));
 
 const helpers = require('./helpers');
 
-process.env.MAX_FILE_SIZE = String(10 * 1024 * 1024);
 const request = require('supertest');
 const JSZip = require('jszip');
 const app = require('../server');
-const review = require('../services/ai/review');
-const client = require('../services/ai/client');
+const formulator = require('../services/ai/prompts/formulator');
+const runner = require('../services/ai/tools/runner');
+const interviewer = require('../services/ai/prompts/interviewer');
 const Syllabus = require('../models/Syllabus');
 const Suggestion = require('../models/Suggestion');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
-const Program = require('../models/Program');
-const { extractDocx, isConverterAvailable } = require('../services/document');
-const { computeReadiness } = require('../services/chat/readiness');
-const { deleteSyllabiCascade } = require('../services/syllabusCleanup');
+const SlotChange = require('../models/SlotChange');
+const store = require('../services/syllabusState/store');
+const { setPath, getPath } = require('../services/syllabusState/paths');
+const { createEmptyState } = require('../services/syllabusState/empty');
+const { loadFixtureRefs } = require('../services/references/fixtureRefs');
+const { seedReferences } = require('../services/references/seed');
+const { createDraftSuggestions } = require('../services/chat/draftSuggestions');
+const { computeReadiness } = require('../services/syllabusState/readiness');
+const { removeOutputDir } = require('../services/outputs');
+const { riskManagementState } = require('./fixtures/state/riskManagement');
 
-const { replaceOp } = helpers;
-const B4 = 'Курс триває 10 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.';
+const refs = loadFixtureRefs('MBA28');
+const notImplemented = () => Object.assign(new Error('not implemented'), { statusCode: 501, code: 'NOT_IMPLEMENTED' });
 
 let owner;
 let admin;
 let stranger;
-let program;
 const created = [];
 
 const authOf = (user) => ({ Authorization: `Bearer ${helpers.tokenFor(user)}` });
 const api = (s) => `/api/chat/${s._id}`;
+const post = (s, path, body = {}, user = owner) => request(app).post(`${api(s)}${path}`).set(authOf(user)).send(body);
+const get = (s, path = '', user = owner) => request(app).get(`${api(s)}${path}`).set(authOf(user));
 
-async function docSyllabus(extra = {}) {
-  const s = await helpers.createDocSyllabus(owner, { programId: program._id, ...extra });
-  created.push(s._id);
-  return s;
-}
-
-/** Відповідь binary-запиту supertest як Buffer. */
 function binary(req) {
   return req.buffer(true).parse((res, cb) => {
     const chunks = [];
@@ -58,574 +48,648 @@ function binary(req) {
   });
 }
 
-async function documentXml(buffer) {
-  return (await JSZip.loadAsync(buffer)).file('word/document.xml').async('string');
+/** Силабус треку 2 зі станом Risk Management (policies — текст з файлу без вибору). */
+async function uploaded(extra = {}) {
+  const s = await helpers.createSyllabus(owner, { programCode: 'MBA28', track: 'upload', ...extra });
+  await store.initState(s._id, riskManagementState(), { refs });
+  created.push(s._id);
+  return Syllabus.findById(s._id);
 }
 
-async function blockText(buffer, blockId) {
-  return (await extractDocx(buffer)).blocks.find((b) => b.id === blockId)?.text;
+async function scratch() {
+  const s = await helpers.createSyllabus(owner, { programCode: 'MBA28', track: 'scratch', title: 'Negotiations' });
+  await store.initState(s._id, createEmptyState({ programCode: 'MBA28', track: 'scratch', refs, course: { title: 'Negotiations' } }), { refs });
+  created.push(s._id);
+  return Syllabus.findById(s._id);
 }
 
-async function start(s, user = owner) {
-  const res = await request(app).post(`${api(s)}/start`).set(authOf(user));
-  if (res.status !== 200) console.log(res.body);
-  expect(res.status).toBe(200);
-  return res.body;
+async function stateOf(s) {
+  return (await store.getState(s._id)).state;
 }
 
-const post = (s, path, body = {}, user = owner) => request(app).post(`${api(s)}${path}`).set(authOf(user)).send(body);
+/** Картка edit на шлях стану; факти з тексту сканер виносить у proposedValues. */
+async function card(s, input = {}) {
+  const { state } = await store.getState(s._id);
+  const [doc] = await createDraftSuggestions([{
+    origin: 'reviewer', severity: 'medium', kind: 'edit', title: 'Rewrite the short description',
+    description: 'The description is too generic.', rationale: 'Needs concrete topics.',
+    target: { path: 'summary.shortDescription' },
+    text: 'This course teaches MBA students to identify, assess and monitor project risks.',
+    ...input,
+  }], { syllabusId: s._id, state, refs, known: [] });
+  return doc;
+}
 
 beforeAll(async () => {
   await helpers.connectDb();
+  await seedReferences();
   owner = await helpers.createUser();
   admin = await helpers.createUser({ role: 'admin' });
   stranger = await helpers.createUser();
-  program = await Program.create({ name: 'MBA test', code: 'MBAT', academicDirectorEmail: 'ad@example.com' });
 });
 
 afterAll(async () => {
-  await deleteSyllabiCascade({ _id: { $in: created } });
+  for (const id of created) await removeOutputDir(id);
   await helpers.disconnectDb();
 });
 
 beforeEach(() => {
-  review.runReview.mockReset();
-  review.generateSuggestion.mockReset();
-  client.createResponse.mockReset();
-  mockSendMail.mockClear();
+  jest.clearAllMocks();
+  interviewer.nextQuestion.mockRejectedValue(notImplemented());
 });
 
-// ---------------------------------------------------------------------------
+describe('GET /api/chat/:id — View', () => {
+  test('форма View, доступ власника, admin (read-only) і стороннього', async () => {
+    const s = await uploaded({ title: 'Risk Management' });
+    const res = await get(s);
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body).sort()).toEqual(['checks', 'conversation', 'messages', 'readiness', 'revision', 'sections', 'state', 'suggestions', 'syllabus'].sort());
+    expect(res.body.syllabus).toMatchObject({
+      id: String(s._id), title: 'Risk Management', status: 'in_progress', track: 'upload', programCode: 'MBA28', canMutate: true, needsRebuild: false,
+    });
+    expect(res.body.conversation).toBeNull();
+    expect(res.body.revision).toBe(1);
+    expect(res.body.state.policies).toHaveLength(13);
+    expect(res.body.sections.map((x) => x.key)).toEqual(refs.template.map((x) => x.key));
+    expect(res.body.readiness).toMatchObject({ score: 0, counts: { approved: 0, required: 11, pendingSuggestions: 0 } });
+    expect(res.body.readiness.sections.policies).toMatchObject({ status: 'draft', complete: false });
+    expect(res.body.checks.length).toBeGreaterThan(0);
 
-describe('readiness', () => {
-  test('resolved = accepted + rejected, ваги груп, порожня група = 100', () => {
-    const r = computeReadiness([
-      { group: 'template', status: 'accepted' },
-      { group: 'template', status: 'pending' },
-      { group: 'outcomes', status: 'rejected' },
-      { group: 'policy', status: 'pending' },
-    ]);
-    expect(r.breakdown).toEqual({ template: 50, outcomes: 100, assessment: 100, practice: 100, policy: 0 });
-    expect(r.score).toBe(Math.round(0.3 * 50 + 0.25 * 100 + 0.2 * 100 + 0.1 * 100));
-    expect(r.counts).toEqual({ pending: 2, accepted: 1, rejected: 1, total: 4 });
-    expect(computeReadiness([]).score).toBe(100);
+    const asAdmin = await get(s, '', admin);
+    expect(asAdmin.status).toBe(200);
+    expect(asAdmin.body.syllabus.canMutate).toBe(false);
+    expect((await get(s, '', stranger)).status).toBe(403);
   });
-});
 
-describe('upload і аналіз', () => {
-  const fields = (r) => r.field('courseName', 'Стратегічний менеджмент').field('programId', String(program._id));
+  test('SuggestionView v5: target, draft з proposedValues, before/after', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'The course lasts 48 hours and covers project risks.' });
+    const res = await get(s);
+    const v = res.body.suggestions[0];
+    expect(v).toMatchObject({
+      id: String(c._id), kind: 'edit', status: 'pending', stale: false, applicable: true, unconfirmedCount: 1,
+      target: { section: 'short_description', path: 'summary.shortDescription' },
+      after: 'The course lasts 48 hours and covers project risks.',
+    });
+    expect(v.before).toBe((await stateOf(s)).summary.shortDescription.text);
+    expect(v.draft.proposedValues).toEqual([expect.objectContaining({ label: 'Quantity', value: '48 hours', confirmed: false })]);
+    expect(v.draft.template).toContain('{{v1}}');
+    expect(res.body.readiness.counts.pendingSuggestions).toBe(1);
+  });
 
-  async function waitAnalysis(id) {
-    for (let i = 0; i < 200; i += 1) {
-      const res = await request(app).get(`/api/syllabus/${id}/status`).set(authOf(owner));
-      if (res.body.status !== 'analyzing') return res.body;
-      await new Promise((r) => setTimeout(r, 50));
+  test('силабус v4 (без state): лише читання з підказкою, мутації → 409 NEEDS_REBUILD', async () => {
+    const s = await helpers.createSyllabus(owner, { title: 'Old', legacy: false });
+    created.push(s._id);
+    const res = await get(s);
+    expect(res.status).toBe(200);
+    expect(res.body.syllabus).toMatchObject({ needsRebuild: true, hint: 'Rebuild in the new format', canMutate: false });
+    expect(res.body.state).toBeNull();
+    expect(res.body.suggestions).toEqual([]);
+    for (const [path, body] of [['/start', {}], ['/message', { text: 'hi' }], ['/skip', { slotKey: 'x' }], ['/sections/approve-all', {}]]) {
+      const r = await post(s, path, body);
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe('NEEDS_REBUILD');
     }
-    throw new Error('analysis did not finish');
-  }
-
-  test('docx: документ збережено, пропозиції створено і впорядковано, збій generateSuggestion → порада', async () => {
-    review.runReview.mockImplementation(async ({ blocks }) => {
-      expect(blocks.length).toBe(30);
-      return {
-        findings: [
-          { id: 'f-low', criterionId: 'PO-1', group: 'policy', severity: 'critical', confidence: 0.5, claim: 'Немає AI-політики', rationale: 'r', evidenceBlockIds: ['b0030'], promptVersion: 'test-v1' },
-          { id: 'f-top', criterionId: 'T-2', group: 'template', severity: 'high', confidence: 0.9, claim: 'Немає пререквізитів', rationale: 'r', evidenceBlockIds: ['b0004'], promptVersion: 'test-v1' },
-        ],
-        rubricSummary: { counts: { ok: 20, issue: 2, not_applicable: 1 }, verdicts: [] },
-        stats: { llmCalls: 7 },
-      };
-    });
-    review.generateSuggestion.mockImplementation(async ({ finding, validateOps }) => {
-      if (finding.id === 'f-low') throw new Error('LLM down');
-      expect(validateOps([{ id: 'b0004', text: 'x' }], [replaceOp('b9999', 'y')])[0]).toMatch(/UNKNOWN_BLOCK/);
-      return { findingId: finding.id, kind: 'edit', title: 'Додати пререквізити', description: 'Опис', rationale: 'Пояснення', ops: [replaceOp('b0004', `${B4} Пререквізити: немає.`)] };
-    });
-
-    const res = await fields(request(app).post('/api/syllabus/upload').set(authOf(owner)))
-      .attach('syllabus', helpers.FIXTURE_DOCX);
-    expect(res.status).toBe(201);
-    created.push(res.body.syllabusId);
-    const status = await waitAnalysis(res.body.syllabusId);
-    expect(status).toEqual({ status: 'in_progress', stage: 'done', error: null });
-
-    const s = await Syllabus.findById(res.body.syllabusId).lean();
-    expect(s.sourceFormat).toBe('docx');
-    expect(s.document.blocks).toHaveLength(30);
-    expect(s.document.convertedFrom).toBeNull();
-    expect(s.workingFile.path).toBe(s.originalFile.path);
-    expect(s.rubricSummary.counts.ok).toBe(20);
-    const suggestions = await Suggestion.find({ syllabusId: s._id }).sort({ order: 1 }).lean();
-    expect(suggestions.map((x) => [x.findingId, x.order, x.applicable])).toEqual([['f-top', 0, true], ['f-low', 1, false]]);
-    expect(suggestions[1].ops).toEqual([]);
-    expect(suggestions[1].title).toBe('Немає AI-політики');
-    expect(suggestions[0].docVersion).toBe(s.document.docVersion);
-
-    const get = await request(app).get(`/api/syllabus/${s._id}`).set(authOf(owner));
-    expect(get.body.outputs).toBeUndefined();
-    expect(get.body.originalFile.path).toBeUndefined();
+    const flagged = await uploaded({ needsRebuild: true });
+    expect((await post(flagged, '/start')).body.code).toBe('NEEDS_REBUILD');
   });
 
-  test('pdf: синтезований DOCX, convertedFrom=pdf', async () => {
-    review.runReview.mockResolvedValue({ findings: [], rubricSummary: {}, stats: {} });
-    const res = await fields(request(app).post('/api/syllabus/upload').set(authOf(owner)))
-      .attach('syllabus', `${__dirname}/fixtures/pdf/syllabus-text.pdf`);
-    expect(res.status).toBe(201);
-    created.push(res.body.syllabusId);
-    expect((await waitAnalysis(res.body.syllabusId)).status).toBe('in_progress');
-    const s = await Syllabus.findById(res.body.syllabusId).lean();
-    expect(s.sourceFormat).toBe('pdf');
-    expect(s.document.convertedFrom).toBe('pdf');
-    expect(s.workingFile.path).toMatch(/\.working\.docx$/);
-    // pdf.js-екстрактор зливає абзац за геометрією, тож B4 — початок блоку
-    expect(s.document.blocks.some((b) => b.text.startsWith(B4))).toBe(true);
-    expect(s.document.sourceBlocks).toHaveLength(s.document.blocks.length);
-  });
-
-  const withSoffice = isConverterAvailable() ? test : test.skip;
-  withSoffice('doc: конвертація LibreOffice, convertedFrom=doc', async () => {
-    review.runReview.mockResolvedValue({ findings: [], rubricSummary: {}, stats: {} });
-    const res = await fields(request(app).post('/api/syllabus/upload').set(authOf(owner)))
-      .attach('syllabus', `${__dirname}/fixtures/docx/legacy.doc`);
-    expect(res.status).toBe(201);
-    created.push(res.body.syllabusId);
-    expect((await waitAnalysis(res.body.syllabusId)).status).toBe('in_progress');
-    const s = await Syllabus.findById(res.body.syllabusId).lean();
-    expect(s.sourceFormat).toBe('doc');
-    expect(s.document.convertedFrom).toBe('doc');
-    expect(s.document.blocks.length).toBeGreaterThan(0);
-  }, 60000);
-
-  test('збій runReview → status error з українським повідомленням', async () => {
-    review.runReview.mockRejectedValue(new Error('boom'));
-    const res = await fields(request(app).post('/api/syllabus/upload').set(authOf(owner)))
-      .attach('syllabus', helpers.FIXTURE_DOCX);
-    created.push(res.body.syllabusId);
-    const status = await waitAnalysis(res.body.syllabusId);
-    expect(status.status).toBe('error');
-    expect(status.error).toMatch(/Не вдалося проаналізувати/);
+  test('аналіз ще триває → 409 ANALYSIS_IN_PROGRESS', async () => {
+    const s = await helpers.createSyllabus(owner, { status: 'analyzing', programCode: 'MBA28' });
+    created.push(s._id);
+    expect((await post(s, '/start')).body.code).toBe('ANALYSIS_IN_PROGRESS');
   });
 });
 
-describe('start, доступи, next-card', () => {
-  test('до start: conversation і readiness null; start → привітання з лічильниками і перша картка', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { severity: 'critical', title: 'A', ops: [replaceOp('b0004', `${B4} A.`)] });
-    await helpers.createSuggestion(s, { severity: 'low', title: 'B', ops: [replaceOp('b0030', 'Академічна доброчесність: плагіат заборонено.')] });
+describe('POST /start', () => {
+  test('трек 2: «Here\'s what I found…», картка approve-all і перша pending-картка за order', async () => {
+    const s = await uploaded();
+    await card(s, { severity: 'low', title: 'Low priority' });
+    const first = await card(s, { severity: 'critical', title: 'Critical first', target: { path: 'summary.capstone' }, text: 'Connects the course to the capstone project.' });
+    const res = await post(s, '/start');
+    expect(res.status).toBe(200);
+    const kinds = res.body.messages.map((m) => m.kind);
+    expect(res.body.messages[0].content).toMatch(/^Here's what I found in your file: \d+ of 11 sections have content/);
+    expect(kinds).toContain('approve-all');
+    const approveAll = res.body.messages.find((m) => m.kind === 'approve-all');
+    expect(approveAll.payload.sections.length).toBeGreaterThan(0);
+    const cards = res.body.messages.filter((m) => m.kind === 'suggestion');
+    expect(cards).toHaveLength(1);
+    expect(cards[0].relatedSuggestionId).toBe(String(first._id));
+    expect(res.body.conversation.currentSuggestionId).toBe(String(first._id));
 
-    const before = await request(app).get(api(s)).set(authOf(owner));
-    expect(before.status).toBe(200);
-    expect(before.body.conversation).toBeNull();
-    expect(before.body.readiness).toBeNull();
-    expect(before.body.suggestions).toHaveLength(2);
-    const { getCriterion } = require('../services/ai/rubric');
-    expect(before.body.suggestions[0].criterionTitle).toBe(getCriterion('T-1').titleUk);
-    expect(before.body.syllabus).toMatchObject({ sourceFormat: 'docx', convertedFrom: null, legacy: false, canMutate: true });
-
-    const view = await start(s);
-    expect(view.messages[0].content).toMatch(/Пропозицій: 2 \(критичних: 1, незначних: 1\)/);
-    const card = view.messages[1];
-    expect(card.kind).toBe('suggestion');
-    expect(card.relatedSuggestionId).toBe(String(a._id));
-    expect(view.readiness.counts).toEqual({ pending: 2, accepted: 0, rejected: 0, total: 2 });
-
-    // повторний start не дублює картку
-    const again = await start(s);
-    expect(again.messages).toHaveLength(2);
+    // Ідемпотентно: повторний /start нічого не дублює
+    const again = await post(s, '/start');
+    expect(again.body.messages).toHaveLength(res.body.messages.length);
   });
 
-  test('admin читає (canMutate=false), але не змінює; чужий викладач — 403', async () => {
-    const s = await docSyllabus();
-    const sug = await helpers.createSuggestion(s, { ops: [replaceOp('b0004', `${B4} X.`)] });
-    const adminView = await request(app).get(api(s)).set(authOf(admin));
-    expect(adminView.status).toBe(200);
-    expect(adminView.body.syllabus.canMutate).toBe(false);
-    expect((await post(s, `/suggestions/${sug._id}/accept`, {}, admin)).status).toBe(403);
-    expect((await post(s, '/start', {}, admin)).status).toBe(403);
-    expect((await request(app).get(api(s)).set(authOf(stranger))).status).toBe(403);
-    expect((await request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(stranger))).status).toBe(403);
-    expect((await request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(admin))).status).toBe(200);
+  test('трек 1: привітання і перше питання; на 501 інтерв\'юера — питання TemplateSection першого порожнього розділу', async () => {
+    const s = await scratch();
+    const res = await post(s, '/start');
+    expect(res.status).toBe(200);
+    expect(res.body.messages[0].content).toMatch(/^Hi! I'll help you build the syllabus for "Negotiations"/);
+    const q = res.body.messages.find((m) => m.kind === 'question');
+    const firstEmpty = refs.template.find((t) => t.question && res.body.readiness.sections[t.key].status === 'empty');
+    expect(q.payload).toMatchObject({ slotKey: firstEmpty.key, question: firstEmpty.question });
+    expect(res.body.conversation.currentSlotKey).toBe(firstEmpty.key);
   });
 
-  test('після рішень — наступна картка, у кінці submission-cta; reopen повертає картку без видалення повідомлень', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { title: 'A', ops: [replaceOp('b0004', `${B4} A.`)] });
-    const b = await helpers.createSuggestion(s, { title: 'B', ops: [replaceOp('b0030', 'Академічна доброчесність: плагіат заборонено.')] });
-    await start(s);
+  test('трек 1: питання інтерв\'юера, коли він реалізований', async () => {
+    interviewer.nextQuestion.mockResolvedValue({ slotKey: 'course.description', question: 'What is the course about?', why: 'It is the core of the Summary.' });
+    const s = await scratch();
+    const res = await post(s, '/start');
+    const q = res.body.messages.find((m) => m.kind === 'question');
+    expect(q).toMatchObject({ content: 'What is the course about?', payload: { slotKey: 'course.description', why: 'It is the core of the Summary.' } });
+    expect(interviewer.nextQuestion).toHaveBeenCalledWith(expect.objectContaining({ skipped: [], transcript: expect.any(Array) }));
+  });
 
-    let res = await post(s, `/suggestions/${a._id}/accept`);
+  test('POST /skip: слот пропущено, наступне питання інше', async () => {
+    const s = await scratch();
+    const start = await post(s, '/start');
+    const slotKey = start.body.messages.find((m) => m.kind === 'question').payload.slotKey;
+    const res = await post(s, '/skip', { slotKey });
     expect(res.status).toBe(200);
-    let last = res.body.messages[res.body.messages.length - 1];
-    expect(last).toMatchObject({ kind: 'suggestion', relatedSuggestionId: String(b._id) });
-    expect(res.body.conversation.currentSuggestionId).toBe(String(b._id));
-
-    res = await post(s, `/suggestions/${b._id}/reject`, { rejectTag: 'too_generic' });
-    expect(res.status).toBe(200);
-    last = res.body.messages[res.body.messages.length - 1];
-    expect(last.kind).toBe('submission-cta');
-    expect(res.body.readiness.counts).toEqual({ pending: 0, accepted: 1, rejected: 1, total: 2 });
-    expect(res.body.readiness.score).toBe(100);
-    const count = res.body.messages.length;
-
-    res = await post(s, `/suggestions/${a._id}/reopen`);
-    expect(res.status).toBe(200);
-    expect(res.body.messages.length).toBeGreaterThan(count);
-    last = res.body.messages[res.body.messages.length - 1];
-    expect(last).toMatchObject({ kind: 'suggestion', relatedSuggestionId: String(a._id) });
-    const views = Object.fromEntries(res.body.suggestions.map((v) => [v.title, v]));
-    expect(views.A.status).toBe('pending');
-    expect(views.B.status).toBe('rejected'); // без каскаду
-    expect(views.B.rejectTag).toBe('too_generic');
+    expect(res.body.conversation.skippedSlots).toEqual([slotKey]);
+    const questions = res.body.messages.filter((m) => m.kind === 'question');
+    expect(questions).toHaveLength(2);
+    expect(questions[1].payload.slotKey).not.toBe(slotKey);
+    expect((await post(s, '/skip', {})).status).toBe(400);
   });
 });
 
-describe('accept, outputs, конфлікти', () => {
-  test('accept → tracked.docx з w:ins, clean.docx зі зміненим текстом; кеш до наступного рішення', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { title: 'A', ops: [replaceOp('b0004', 'Курс триває 12 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.')] });
-    await helpers.createSuggestion(s, { title: 'B', ops: [replaceOp('b0030', 'Академічна доброчесність: плагіат заборонено.')] });
-    await start(s);
+describe('accept (Confirm)', () => {
+  test('proposedValues: 409 UNCONFIRMED_VALUES → values → accept; журнал, ревізія, зняття approved', async () => {
+    const s = await uploaded();
+    await store.approveSection(s._id, 'instructor');
+    const c = await card(s, { text: 'The course lasts 48 hours and covers project risks.' });
+    const rev = (await store.getState(s._id)).revision;
 
-    const pre = await request(app).get(`${api(s)}/suggestions/${a._id}/preview`).set(authOf(owner));
-    expect(pre.status).toBe(200);
-    expect(pre.body.changes).toEqual([expect.objectContaining({
-      blockId: 'b0004', op: 'replaceBlock', kind: 'paragraph', before: B4,
-      parts: expect.arrayContaining([{ type: 'del', text: '10' }, { type: 'ins', text: '12' }]),
-    })]);
+    const blocked = await post(s, `/suggestions/${c._id}/accept`, { expectedRevision: rev });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('UNCONFIRMED_VALUES');
+    expect(blocked.body.unconfirmed).toEqual(['v1']);
 
-    expect((await post(s, `/suggestions/${a._id}/accept`)).status).toBe(200);
+    const changed = await post(s, `/suggestions/${c._id}/values`, { values: [{ id: 'v1', value: '36 hours', confirmed: true }] });
+    expect(changed.status).toBe(200);
+    const view = changed.body.suggestions.find((x) => x.id === String(c._id));
+    expect(view.draft.value).toBe('The course lasts 36 hours and covers project risks.');
+    expect(view.draft.proposedValues[0]).toMatchObject({ value: '36 hours', confirmed: true });
+    expect(view.versionsCount).toBe(1);
 
-    const tracked = await binary(request(app).get(`${api(s)}/outputs/tracked.docx`).set(authOf(owner)));
-    expect(tracked.status).toBe(200);
-    expect(tracked.headers['content-disposition']).toMatch(/syllabus_tracked\.docx/);
-    const xml = await documentXml(tracked.body);
-    expect(xml).toMatch(/<w:ins /);
-    expect(xml).toMatch(/KSE Syllabus Analyzer/);
+    const ok = await post(s, `/suggestions/${c._id}/accept`, { expectedRevision: rev });
+    expect(ok.status).toBe(200);
+    expect(ok.body.state.summary.shortDescription).toMatchObject({
+      text: 'The course lasts 36 hours and covers project risks.', source: 'ai_draft',
+    });
+    expect(ok.body.revision).toBe(rev + 1);
+    expect(ok.body.state.sections.instructor).toBeDefined(); // чужий розділ не зачеплено
+    const accepted = ok.body.suggestions.find((x) => x.id === String(c._id));
+    expect(accepted.status).toBe('accepted');
+    expect(accepted.after).toBe('The course lasts 36 hours and covers project risks.');
+    expect(await SlotChange.countDocuments({ syllabusId: s._id, suggestionId: c._id })).toBe(1);
 
-    const clean = await binary(request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(owner)));
-    expect(clean.status).toBe(200);
-    expect(await blockText(clean.body, 'b0004')).toMatch(/^Курс триває 12 тижнів/);
-
-    const cached = (await Syllabus.findById(s._id).lean()).outputs.clean;
-    await binary(request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(owner)));
-    expect((await Syllabus.findById(s._id).lean()).outputs.clean.generatedAt).toEqual(cached.generatedAt);
-
-    // будь-яке рішення інвалідовує кеш
-    await post(s, `/suggestions/${a._id}/reopen`);
-    expect((await Syllabus.findById(s._id).lean()).outputs).toBeUndefined();
-    const reverted = await binary(request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(owner)));
-    expect(await blockText(reverted.body, 'b0004')).toBe(B4);
-
-    expect((await request(app).get(`${api(s)}/outputs/other.txt`).set(authOf(owner))).status).toBe(404);
+    const again = await post(s, `/suggestions/${c._id}/accept`, {});
+    expect(again.body.code).toBe('NOT_PENDING');
   });
 
-  test('конфлікт → 409 SUGGESTION_CONFLICT; replacePrevious відхиляє попередню', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { title: 'A', ops: [replaceOp('b0004', 'Курс триває 12 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.')] });
-    const b = await helpers.createSuggestion(s, { title: 'B', ops: [replaceOp('b0004', 'Курс триває 8 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.')] });
-    await start(s);
-    let res = await post(s, `/suggestions/${a._id}/accept`);
-    const viewB = res.body.suggestions.find((v) => v.id === String(b._id));
-    expect(viewB.conflictsWith).toEqual([{ suggestionId: String(a._id), title: 'A' }]);
+  test('values: невідомий id → 400, порожнє значення → 400', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'The course lasts 48 hours.' });
+    expect((await post(s, `/suggestions/${c._id}/values`, { values: [{ id: 'zz', value: '1 hour' }] })).body.code).toBe('UNKNOWN_VALUE');
+    expect((await post(s, `/suggestions/${c._id}/values`, { values: [{ id: 'v1', value: '' }] })).status).toBe(400);
+  });
 
-    res = await post(s, `/suggestions/${b._id}/accept`);
+  test('STALE_DRAFT: значення слота змінилось після створення чернетки; інші картки на шлях → stale', async () => {
+    const s = await uploaded();
+    const a = await card(s, { text: 'Draft A about project risk management in practice.' });
+    const b = await card(s, { text: 'Draft B about project risk management in practice.' });
+    await store.mutate(s._id, (await store.getState(s._id)).revision, (st) => setPath(st, 'summary.shortDescription', { ...st.summary.shortDescription, text: 'Changed elsewhere.' }));
+
+    const res = await post(s, `/suggestions/${a._id}/accept`, {});
     expect(res.status).toBe(409);
-    expect(res.body).toMatchObject({ code: 'SUGGESTION_CONFLICT', conflicts: [{ suggestionId: String(a._id), title: 'A' }] });
-    expect((await Suggestion.findById(b._id)).status).toBe('pending');
+    expect(res.body.code).toBe('STALE_DRAFT');
+    expect((await get(s)).body.suggestions.every((v) => v.stale)).toBe(true);
 
-    res = await post(s, `/suggestions/${b._id}/accept`, { conflictResolution: 'replacePrevious' });
-    expect(res.status).toBe(200);
-    const fa = await Suggestion.findById(a._id);
-    expect(fa.status).toBe('rejected');
-    expect(fa.rejectTag).toBe('other');
-    expect(fa.decisionReason).toBe('Замінено пропозицією «B»');
-    expect((await Suggestion.findById(b._id)).status).toBe('accepted');
-
-    const clean = await binary(request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(owner)));
-    expect(await blockText(clean.body, 'b0004')).toMatch(/^Курс триває 8 тижнів/);
+    // Reword створює чернетку від поточного значення — accept проходить, друга картка лишається stale
+    formulator.reword.mockResolvedValue({ text: 'Reworded draft A about project risk management.', proposedValues: [], rationale: 'r' });
+    expect((await post(s, `/suggestions/${a._id}/refine`, { feedback: 'Make it shorter' })).status).toBe(200);
+    expect((await post(s, `/suggestions/${a._id}/accept`, {})).status).toBe(200);
+    const views = (await get(s)).body.suggestions;
+    expect(views.find((v) => v.id === String(b._id))).toMatchObject({ status: 'pending', stale: true });
   });
 
-  test('неперетинні правки одного блоку зливаються без конфлікту', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { ops: [replaceOp('b0004', 'Курс триває 12 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.')] });
-    const b = await helpers.createSuggestion(s, { ops: [replaceOp('b0004', 'Курс триває 10 тижнів і завершується усним іспитом. Викладач: доц. Іваненко.')] });
-    await start(s);
-    expect((await post(s, `/suggestions/${a._id}/accept`)).status).toBe(200);
-    expect((await post(s, `/suggestions/${b._id}/accept`)).status).toBe(200);
-    const clean = await binary(request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(owner)));
-    expect(await blockText(clean.body, 'b0004')).toBe('Курс триває 12 тижнів і завершується усним іспитом. Викладач: доц. Іваненко.');
-  });
-
-  test('choice: потрібен optionId, варіант без ops → 409, прийнятий варіант іде у файл', async () => {
-    const s = await docSyllabus();
-    const c = await helpers.createSuggestion(s, {
-      kind: 'choice',
-      group: 'policy',
-      title: 'AI-політика',
-      options: [
-        { id: 'strict', label: 'Сувора', rationale: 'r1', ops: [{ op: 'insertAfter', blockId: 'b0030', newBlocks: [{ kind: 'paragraph', text: 'Use of AI tools is not allowed.' }] }] },
-        { id: 'custom', label: 'Своя', rationale: 'потрібні деталі', ops: [] },
-      ],
-    });
-    await start(s);
-    const pre = await request(app).get(`${api(s)}/suggestions/${c._id}/preview?optionId=strict`).set(authOf(owner));
-    expect(pre.body.changes).toEqual([expect.objectContaining({ blockId: 'b0030', op: 'insertAfter', before: '', after: 'Use of AI tools is not allowed.' })]);
-
-    expect((await post(s, `/suggestions/${c._id}/accept`)).status).toBe(400);
-    expect((await post(s, `/suggestions/${c._id}/accept`, { optionId: 'nope' })).status).toBe(400);
-    expect((await post(s, `/suggestions/${c._id}/accept`, { optionId: 'custom' })).body.code).toBe('NOT_APPLICABLE');
-    const res = await post(s, `/suggestions/${c._id}/accept`, { optionId: 'strict' });
-    expect(res.status).toBe(200);
-    const v = res.body.suggestions[0];
-    expect(v.selectedOptionId).toBe('strict');
-    expect(v.options.map((o) => o.applicable)).toEqual([true, false]);
-
-    const clean = await binary(request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(owner)));
-    const texts = (await extractDocx(clean.body)).blocks.map((b) => b.text);
-    expect(texts[texts.length - 1]).toBe('Use of AI tools is not allowed.');
-  });
-
-  test('порада (applicable:false): accept → accepted без змін документа', async () => {
-    const s = await docSyllabus();
-    const adv = await helpers.createSuggestion(s, { applicable: false, ops: [] });
-    await start(s);
-    const res = await post(s, `/suggestions/${adv._id}/accept`);
-    expect(res.status).toBe(200);
-    expect(res.body.suggestions[0].status).toBe('accepted');
-    const clean = await binary(request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(owner)));
-    expect(clean.status).toBe(200);
-    expect(await blockText(clean.body, 'b0004')).toBe(B4);
-  });
-
-  test('document/preview: зміни, видалення, вставки на своїх місцях', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, {
-      ops: [
-        replaceOp('b0004', 'Курс триває 12 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.'),
-        { op: 'deleteBlock', blockId: 'b0005' },
-        { op: 'insertAfter', blockId: 'b0005', newBlocks: [{ kind: 'paragraph', text: 'Нові матеріали.' }] },
-      ],
-    });
-    await start(s);
-    await post(s, `/suggestions/${a._id}/accept`);
-    const res = await request(app).get(`${api(s)}/document/preview`).set(authOf(owner));
-    expect(res.status).toBe(200);
-    const blocks = res.body.blocks;
-    expect(blocks.slice(3, 6).map((b) => [b.blockId, b.status])).toEqual([['b0004', 'changed'], ['b0005', 'deleted'], [expect.stringMatching(/^b0005\+/), 'inserted']]);
-    expect(blocks[3].parts).toEqual(expect.arrayContaining([{ type: 'del', text: '10' }, { type: 'ins', text: '12' }]));
-    expect(blocks.filter((b) => b.status === 'unchanged')).toHaveLength(28);
-  });
-
-  test('застаріла docVersion → 409 STALE_DOC_VERSION; некоректні ops → 422', async () => {
-    const s = await docSyllabus();
-    const stale = await helpers.createSuggestion(s, { docVersion: 'other', ops: [replaceOp('b0004', 'x')] });
-    const bad = await helpers.createSuggestion(s, { ops: [replaceOp('b0029', 'read only')] });
-    await start(s);
-    expect((await post(s, `/suggestions/${stale._id}/accept`)).body.code).toBe('STALE_DOC_VERSION');
-    const res = await post(s, `/suggestions/${bad._id}/accept`);
-    expect(res.status).toBe(422);
-    expect(res.body.code).toBe('INVALID_OPS');
-  });
-});
-
-describe('reject і reopen', () => {
-  test('critical/high без причини → 400; з причиною і тегом — rejected; low без причини — ок', async () => {
-    const s = await docSyllabus();
-    const high = await helpers.createSuggestion(s, { severity: 'high', ops: [replaceOp('b0004', 'x')] });
-    const low = await helpers.createSuggestion(s, { severity: 'low', ops: [replaceOp('b0030', 'y')] });
-    await start(s);
-    let res = await post(s, `/suggestions/${high._id}/reject`);
-    expect(res.status).toBe(400);
-    expect(res.body.code).toBe('REASON_REQUIRED');
-    expect((await post(s, `/suggestions/${high._id}/reject`, { reason: 'x', rejectTag: 'bad' })).status).toBe(400);
-    res = await post(s, `/suggestions/${high._id}/reject`, { reason: 'Вже описано в розділі 4', rejectTag: 'already_present' });
-    expect(res.status).toBe(200);
-    const v = res.body.suggestions.find((x) => x.id === String(high._id));
-    expect(v).toMatchObject({ status: 'rejected', decisionReason: 'Вже описано в розділі 4', rejectTag: 'already_present', requiresReason: true });
-    expect((await post(s, `/suggestions/${low._id}/reject`)).status).toBe(200);
-    // повторне рішення над розглянутою → 409
-    expect((await post(s, `/suggestions/${low._id}/reject`)).status).toBe(409);
-    const history = (await Suggestion.findById(high._id)).decisionHistory;
-    expect(history.map((h) => h.action)).toEqual(['rejected']);
-  });
-
-  test('reopen pending → 409; після submit → 409', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { ops: [replaceOp('b0004', 'x')] });
-    await start(s);
-    expect((await post(s, `/suggestions/${a._id}/reopen`)).status).toBe(409);
-    await post(s, `/suggestions/${a._id}/accept`);
-    await Syllabus.updateOne({ _id: s._id }, { status: 'submitted' });
-    const res = await post(s, `/suggestions/${a._id}/reopen`);
+  test('locked: мутація слота, який лише для читання → 409 LOCKED', async () => {
+    const s = await uploaded();
+    const c = await card(s, { target: { path: 'policies{policy.passing}' }, text: 'Passing grade is whatever.' });
+    const res = await post(s, `/suggestions/${c._id}/accept`, {});
     expect(res.status).toBe(409);
-    expect(res.body.code).toBe('ALREADY_SUBMITTED');
+    expect(res.body.code).toBe('LOCKED');
+    expect((await Suggestion.findById(c._id)).status).toBe('pending');
+  });
+
+  test('question → 409 ANSWER_REQUIRED; порада applicable:false → accepted без змін стану', async () => {
+    const s = await uploaded();
+    const q = await card(s, { kind: 'question', question: 'What topics?', text: undefined });
+    expect((await post(s, `/suggestions/${q._id}/accept`, {})).body.code).toBe('ANSWER_REQUIRED');
+    const advice = await card(s, { applicable: false, text: undefined, title: 'Consider adding a guest lecture' });
+    const rev = (await store.getState(s._id)).revision;
+    const res = await post(s, `/suggestions/${advice._id}/accept`, {});
+    expect(res.status).toBe(200);
+    expect(res.body.revision).toBe(rev);
+    expect(res.body.suggestions.find((v) => v.id === String(advice._id)).status).toBe('accepted');
+  });
+
+  test('expectedRevision, що не збігається, → 409 STATE_CONFLICT, картка лишається pending', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'Draft about project risk management in practice.' });
+    const res = await post(s, `/suggestions/${c._id}/accept`, { expectedRevision: 99 });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('STATE_CONFLICT');
+    expect((await Suggestion.findById(c._id)).status).toBe('pending');
+  });
+
+  test('масив сутностей: outcomes[] з рядків стають сутностями з source ai_draft', async () => {
+    const s = await uploaded();
+    const c = await card(s, { target: { path: 'outcomes[]' }, value: ['Assess project risks.', 'Plan risk responses.'], text: undefined });
+    const res = await post(s, `/suggestions/${c._id}/accept`, {});
+    expect(res.status).toBe(200);
+    expect(res.body.state.outcomes.map((o) => o.text)).toEqual(['Assess project risks.', 'Plan risk responses.']);
+    expect(res.body.state.outcomes[0]).toMatchObject({ source: 'ai_draft', plo: [], assessmentIds: [] });
   });
 });
 
-describe('refine, answer, вільний чат', () => {
-  test('refine: новий варіант, попередній у versions', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { title: 'A', ops: [replaceOp('b0004', `${B4} Довгий текст.`)] });
-    await start(s);
-    review.generateSuggestion.mockResolvedValue({ kind: 'edit', title: 'A коротше', description: 'd', rationale: 'r', ops: [replaceOp('b0004', `${B4} Коротко.`)] });
-    expect((await post(s, `/suggestions/${a._id}/refine`)).status).toBe(400);
-    const res = await post(s, `/suggestions/${a._id}/refine`, { feedback: 'коротше' });
+describe('політики', () => {
+  test('choose optionKey: варіант довідника, source fixture; невідомий варіант 400; locked 409', async () => {
+    const s = await uploaded();
+    const res = await post(s, '/policies/policy.attendance/choose', { optionKey: 'attendance_std' });
     expect(res.status).toBe(200);
-    const args = review.generateSuggestion.mock.calls[0][0];
-    expect(args.feedback).toMatch(/коротше/);
-    expect(args.finding.id).toBeDefined();
-    const fresh = await Suggestion.findById(a._id);
-    expect(fresh.title).toBe('A коротше');
-    expect(fresh.versions).toHaveLength(1);
-    expect(fresh.versions[0].ops[0].newText).toMatch(/Довгий текст/);
-    expect(res.body.suggestions[0].versionsCount).toBe(1);
-    expect(res.body.messages[res.body.messages.length - 1]).toMatchObject({ kind: 'suggestion', relatedSuggestionId: String(a._id) });
+    const block = res.body.state.policies.find((p) => p.key === 'policy.attendance');
+    const option = refs.policyLibrary.blocks.find((b) => b.key === 'policy.attendance').options.find((o) => o.key === 'attendance_std');
+    expect(block).toMatchObject({ optionKey: 'attendance_std', text: option.text, source: 'fixture', modified: false });
+    expect((await post(s, '/policies/policy.late/choose', { optionKey: 'nope' })).body.code).toBe('UNKNOWN_OPTION');
+    const locked = await post(s, '/policies/policy.passing/choose', { optionKey: 'x' });
+    expect(locked.status).toBe(409);
+    expect(locked.body.code).toBe('LOCKED');
+    expect((await post(s, '/policies/policy.nope/choose', { optionKey: 'x' })).status).toBe(404);
+    expect((await post(s, '/policies/policy.late/choose', {})).status).toBe(400);
   });
 
-  test('refine mergeWithAccepted: поточний текст прийнятої правки в контексті, supersedes, accept без конфлікту', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { title: 'A', ops: [replaceOp('b0004', 'Курс триває 12 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.')] });
-    const b = await helpers.createSuggestion(s, { title: 'B', ops: [replaceOp('b0004', 'Курс триває 8 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.')] });
-    await start(s);
-    await post(s, `/suggestions/${a._id}/accept`);
-    const merged = 'Курс триває 12 тижнів (8 аудиторних) і завершується письмовим іспитом. Викладач: доц. Іваненко.';
-    review.generateSuggestion.mockImplementation(async ({ blocks, feedback }) => {
-      expect(blocks.find((x) => x.id === 'b0004').text).toMatch(/12 тижнів/);
-      expect(feedback).toMatch(/current accepted text/);
-      return { kind: 'edit', title: 'B (обʼєднано)', description: 'd', rationale: 'r', ops: [replaceOp('b0004', merged)] };
+  test('keepText: текст з файлу стає рішенням (instructor_directed, modified)', async () => {
+    const s = await uploaded();
+    const res = await post(s, '/policies/late/choose', { keepText: true }); // ключ без префікса policy.
+    expect(res.status).toBe(200);
+    expect(res.body.state.policies.find((p) => p.key === 'policy.late')).toMatchObject({ source: 'instructor_directed', modified: true, optionKey: null });
+  });
+
+  test('writeOwn: розмова переходить на слот, поля немає; locked → 409; /message передає currentSlotKey', async () => {
+    const s = await uploaded();
+    const res = await post(s, '/policies/policy.late/choose', { writeOwn: true });
+    expect(res.status).toBe(200);
+    expect(res.body.conversation.currentSlotKey).toBe('policy.late');
+    expect(res.body.messages.at(-1)).toMatchObject({ role: 'ai', content: 'Tell me in your own words how this policy should work.' });
+    expect(res.body.state.policies.find((p) => p.key === 'policy.late').source).toBe('parsed'); // стан не змінено
+    expect((await post(s, '/policies/policy.passing/choose', { writeOwn: true })).body.code).toBe('LOCKED');
+
+    runner.runOrchestratorTurn.mockResolvedValue({ reply: 'Got it.', createdSuggestionIds: [], stateChanged: false });
+    await post(s, '/message', { text: 'No late work accepted at all.' });
+    expect(runner.runOrchestratorTurn).toHaveBeenCalledWith(expect.objectContaining({ currentSlotKey: 'policy.late', userText: 'No late work accepted at all.' }));
+  });
+
+  test('картка політики: edit → instructor_directed/fixture_edited, choice з optionKey → fixture', async () => {
+    const s = await uploaded();
+    const edit = await card(s, { target: { path: 'policies{policy.appeal}' }, text: 'Write to me within a week.' });
+    const r1 = await post(s, `/suggestions/${edit._id}/accept`, {});
+    expect(r1.body.state.policies.find((p) => p.key === 'policy.appeal')).toMatchObject({ text: 'Write to me within a week.', source: 'instructor_directed', modified: true });
+
+    await post(s, '/policies/policy.attendance/choose', { optionKey: 'attendance_std' });
+    const edited = await card(s, { target: { path: 'policies{policy.attendance}' }, text: 'Attendance is expected at every session.' });
+    const r2 = await post(s, `/suggestions/${edited._id}/accept`, {});
+    expect(r2.body.state.policies.find((p) => p.key === 'policy.attendance')).toMatchObject({
+      optionKey: 'attendance_std', source: 'fixture_edited', modified: true, text: 'Attendance is expected at every session.',
     });
-    let res = await post(s, `/suggestions/${b._id}/refine`, { mergeWithAccepted: true });
-    expect(res.status).toBe(200);
-    const vb = res.body.suggestions.find((v) => v.id === String(b._id));
-    expect(vb.supersedes).toEqual([String(a._id)]);
-    expect(vb.conflictsWith).toEqual([]);
-    res = await post(s, `/suggestions/${b._id}/accept`);
-    expect(res.status).toBe(200);
-    expect((await Suggestion.findById(a._id)).status).toBe('accepted');
-    const clean = await binary(request(app).get(`${api(s)}/outputs/clean.docx`).set(authOf(owner)));
-    expect(await blockText(clean.body, 'b0004')).toBe(merged);
+
+    const choice = await card(s, {
+      kind: 'choice', target: { path: 'policies{policy.late}' }, title: 'Late submission',
+      options: [{ id: 'o1', label: 'Use late_daily', optionKey: 'late_daily' }, { id: 'o2', label: 'Keep my text' }], text: undefined,
+    });
+    expect((await post(s, `/suggestions/${choice._id}/accept`, {})).body.code).toBe('OPTION_REQUIRED');
+    const r3 = await post(s, `/suggestions/${choice._id}/accept`, { optionId: 'o1' });
+    expect(r3.status).toBe(200);
+    expect(r3.body.state.policies.find((p) => p.key === 'policy.late')).toMatchObject({ optionKey: 'late_daily', source: 'fixture', modified: false });
+    const view = r3.body.suggestions.find((v) => v.id === String(choice._id));
+    expect(view.options[0].after).toBe(refs.policyLibrary.blocks.find((b) => b.key === 'policy.late').options.find((o) => o.key === 'late_daily').text);
+  });
+});
+
+describe('розділи', () => {
+  test('approve: SECTION_INCOMPLETE { gaps }, успіх, зняття; зміна розділу знімає затвердження', async () => {
+    const s = await uploaded();
+    const bad = await post(s, '/sections/policies/approve');
+    expect(bad.status).toBe(409);
+    expect(bad.body.code).toBe('SECTION_INCOMPLETE');
+    expect(bad.body.gaps[0]).toMatch(/choose an option/);
+
+    const ok = await post(s, '/sections/instructor/approve');
+    expect(ok.status).toBe(200);
+    expect(ok.body.state.sections.instructor.approved).toBe(true);
+    expect(ok.body.readiness.sections.instructor.status).toBe('approved');
+    expect(ok.body.readiness.score).toBe(Math.round(100 / 11));
+    expect((await Conversation.findOne({ syllabusId: s._id })).readiness).toBeNull(); // розмови ще немає
+
+    const off = await request(app).delete(`${api(s)}/sections/instructor/approve`).set(authOf(owner));
+    expect(off.status).toBe(200);
+    expect(off.body.state.sections.instructor).toBeUndefined();
+    expect((await post(s, '/sections/nope/approve')).status).toBe(400);
   });
 
-  test('question: accept → 409, answer → та сама Suggestion стає edit, питання і відповідь у versions', async () => {
-    const s = await docSyllabus();
-    const q = await helpers.createSuggestion(s, { kind: 'question', question: 'Які ваги компонентів оцінювання?', ops: [] });
-    await start(s);
-    expect((await post(s, `/suggestions/${q._id}/accept`)).body.code).toBe('ANSWER_REQUIRED');
-    review.generateSuggestion.mockResolvedValue({ kind: 'edit', title: 'Ваги', description: 'd', rationale: 'r', ops: [{ op: 'insertAfter', blockId: 'b0028', newBlocks: [{ kind: 'paragraph', text: 'Exam 40%, project 60%.' }] }] });
-    const res = await post(s, `/suggestions/${q._id}/answer`, { answer: 'Іспит 40%, проєкт 60%' });
+  test('approve-all: затверджує готові розділи, skipped з причинами (неповні, відкриті картки, перевірки)', async () => {
+    const s = await uploaded();
+    await card(s, { target: { path: 'summary.capstone' }, text: 'Connects the course to the capstone project.' }); // блокує connection_to_capstone
+    const res = await post(s, '/sections/approve-all');
     expect(res.status).toBe(200);
-    expect(review.generateSuggestion.mock.calls[0][0].feedback).toMatch(/Іспит 40%/);
+    const skipped = Object.fromEntries(res.body.skipped.map((x) => [x.key, x.reason]));
+    expect(skipped.policies).toMatch(/^Incomplete:/);
+    expect(skipped.connection_to_capstone).toBe('1 open suggestion');
+    expect(res.body.approved).not.toContain('connection_to_capstone');
+    expect(res.body.approved.length).toBeGreaterThan(0);
+    for (const key of res.body.approved) expect(res.body.state.sections[key].approved).toBe(true);
+    // Перевірка severity ≥ warning у розділі блокує (participation 35% → warning в assessment)
+    expect(res.body.approved).not.toContain('assessment');
+    expect(skipped.assessment).toMatch(/^(Open checks: |Incomplete: )/);
+  });
+});
+
+describe('reject (Cancel)', () => {
+  test('critical/high без причини → 400 REASON_REQUIRED; з причиною ок; Readiness не знижується', async () => {
+    const s = await uploaded();
+    await store.approveSection(s._id, 'instructor');
+    const crit = await card(s, { severity: 'critical', title: 'Critical one', text: 'Draft about project risk management in practice.' });
+    const low = await card(s, { severity: 'warning', title: 'Warning one', target: { path: 'summary.capstone' }, text: 'Capstone link in a full sentence.' });
+    const before = (await get(s)).body.readiness;
+
+    const noReason = await post(s, `/suggestions/${crit._id}/reject`, {});
+    expect(noReason.status).toBe(400);
+    expect(noReason.body.code).toBe('REASON_REQUIRED');
+    expect((await post(s, `/suggestions/${crit._id}/reject`, { reason: 'x', rejectTag: 'bogus' })).status).toBe(400);
+
+    const ok = await post(s, `/suggestions/${crit._id}/reject`, { reason: 'Already covered in section 2', rejectTag: 'already_present' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.suggestions.find((v) => v.id === String(crit._id))).toMatchObject({ status: 'rejected', rejectTag: 'already_present', decisionReason: 'Already covered in section 2' });
+    expect((await post(s, `/suggestions/${low._id}/reject`, {})).status).toBe(200);
+
+    const after = ok.body.readiness;
+    expect(after.score).toBe(before.score);
+    expect(after.counts.approved).toBe(before.counts.approved);
+    const final = (await get(s)).body.readiness;
+    expect(final.score).toBe(before.score);
+    expect(final.counts.pendingSuggestions).toBe(0);
+    // Той самий результат, що й чиста функція без карток
+    const { state } = await store.getState(s._id);
+    expect(computeReadiness(state, { refs }).score).toBe(before.score);
+  });
+});
+
+describe('reopen', () => {
+  test('accept → reopen повертає значення і картку в pending; після зміни слота → 409 REOPEN_CONFLICT', async () => {
+    const s = await uploaded();
+    const original = (await stateOf(s)).summary.shortDescription;
+    const c = await card(s, { text: 'Draft about project risk management in practice.' });
+    await post(s, `/suggestions/${c._id}/accept`, {});
+    expect((await stateOf(s)).summary.shortDescription.text).toBe('Draft about project risk management in practice.');
+
+    const res = await post(s, `/suggestions/${c._id}/reopen`);
+    expect(res.status).toBe(200);
+    expect(res.body.state.summary.shortDescription).toEqual(original);
+    expect(res.body.suggestions.find((v) => v.id === String(c._id))).toMatchObject({ status: 'pending', stale: false });
+    expect(res.body.messages.at(-1)).toMatchObject({ kind: 'suggestion', relatedSuggestionId: String(c._id) });
+
+    // Повторне прийняття і конфлікт
+    await post(s, `/suggestions/${c._id}/accept`, {});
+    await store.mutate(s._id, (await store.getState(s._id)).revision, (st) => setPath(st, 'summary.shortDescription.text', 'Edited by hand.'));
+    const conflict = await post(s, `/suggestions/${c._id}/reopen`);
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.code).toBe('REOPEN_CONFLICT');
+    expect((await Suggestion.findById(c._id)).status).toBe('accepted');
+    expect((await post(s, `/suggestions/${c._id}/reopen`)).status).toBe(409);
+  });
+
+  test('відхилена картка відкривається без змін стану; pending → 409 NOT_DECIDED', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'Draft about project risk management in practice.' });
+    expect((await post(s, `/suggestions/${c._id}/reopen`)).body.code).toBe('NOT_DECIDED');
+    await post(s, `/suggestions/${c._id}/reject`, {});
+    const rev = (await store.getState(s._id)).revision;
+    const res = await post(s, `/suggestions/${c._id}/reopen`);
+    expect(res.status).toBe(200);
+    expect(res.body.revision).toBe(rev);
+  });
+});
+
+describe('refine (Reword) і answer', () => {
+  test('refine: нова чернетка, сканер фактів, попередня у versions; без відгуку 400', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'Draft about project risk management in practice.' });
+    formulator.reword.mockResolvedValue({ text: 'A sharper draft that takes 12 weeks.', proposedValues: [], rationale: 'Shorter' });
+    const res = await post(s, `/suggestions/${c._id}/refine`, { feedback: 'Make it sharper' });
+    expect(res.status).toBe(200);
+    const v = res.body.suggestions.find((x) => x.id === String(c._id));
+    expect(v.draft.value).toBe('A sharper draft that takes 12 weeks.');
+    expect(v.draft.proposedValues).toEqual([expect.objectContaining({ value: '12 weeks', confirmed: false })]);
+    expect(v.versionsCount).toBe(1);
+    expect(v.rationale).toBe('Shorter');
+    expect(formulator.reword).toHaveBeenCalledWith(expect.objectContaining({ feedback: 'Make it sharper', suggestion: expect.objectContaining({ kind: 'edit' }) }));
+    expect((await post(s, `/suggestions/${c._id}/refine`, { feedback: '' })).status).toBe(400);
+  });
+
+  test('refine: 501/збій LLM → 503 retryable, лічильник збоїв; 3 поспіль → status error; успіх скидає', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'Draft about project risk management in practice.' });
+    formulator.reword.mockRejectedValue(notImplemented());
+    for (let i = 1; i <= 3; i += 1) {
+      const res = await post(s, `/suggestions/${c._id}/refine`, { feedback: 'again' });
+      expect(res.status).toBe(503);
+      expect(res.body.retryable).toBe(true);
+      expect((await Conversation.findOne({ syllabusId: s._id })).consecutiveAiFailures).toBe(i);
+    }
+    expect((await Conversation.findOne({ syllabusId: s._id })).status).toBe('error');
+    formulator.reword.mockResolvedValue({ text: 'Fine now, a full sentence draft.', proposedValues: [] });
+    expect((await post(s, `/suggestions/${c._id}/refine`, { feedback: 'again' })).status).toBe(200);
+    expect(await Conversation.findOne({ syllabusId: s._id })).toMatchObject({ status: 'active', consecutiveAiFailures: 0 });
+  });
+
+  test('answer: питання → edit з чернеткою; без чернетки картка лишається питанням', async () => {
+    const s = await uploaded();
+    const q = await card(s, { kind: 'question', question: 'What is the course about?', text: undefined });
+    formulator.draftFromNarrative.mockResolvedValueOnce([]);
+    const none = await post(s, `/suggestions/${q._id}/answer`, { answer: 'Risks.' });
+    expect(none.status).toBe(200);
+    expect(none.body.suggestions.find((v) => v.id === String(q._id))).toMatchObject({ kind: 'question', answer: 'Risks.' });
+
+    formulator.draftFromNarrative.mockResolvedValueOnce([{ slotKey: 'course.description', target: { path: 'summary.shortDescription' }, text: 'The course is about managing project risks.', proposedValues: [], rationale: 'From your answer' }]);
+    const res = await post(s, `/suggestions/${q._id}/answer`, { answer: 'It is about managing project risks.' });
+    expect(res.status).toBe(200);
+    const v = res.body.suggestions.find((x) => x.id === String(q._id));
+    expect(v).toMatchObject({ kind: 'edit', status: 'pending', after: 'The course is about managing project risks.' });
+    expect(v.versionsCount).toBe(2);
+    expect(formulator.draftFromNarrative).toHaveBeenLastCalledWith(expect.objectContaining({ narrative: 'It is about managing project risks.', slotKeys: ['course.description'] }));
+    const notQuestion = await post(s, `/suggestions/${q._id}/answer`, { answer: 'again' });
+    expect(notQuestion.body.code).toBe('NOT_A_QUESTION');
+  });
+});
+
+describe('POST /message', () => {
+  test('хід оркестратора: deps, відповідь AI, картки створених пропозицій', async () => {
+    const s = await uploaded();
+    runner.runOrchestratorTurn.mockImplementation(async (ctx) => {
+      expect(Object.keys(ctx.deps).sort()).toEqual(['acceptSuggestion', 'createDraftSuggestions', 'findSuggestion', 'getRefs', 'mutate', 'runChecks']);
+      expect(ctx.deps.getRefs().programCode).toBe('MBA28');
+      expect(ctx.deps.runChecks().length).toBeGreaterThan(0);
+      const [draft] = await ctx.deps.createDraftSuggestions([{
+        severity: 'medium', kind: 'edit', title: 'Capstone link', target: { path: 'summary.capstone' }, text: 'It prepares you for the capstone in 8 weeks.',
+      }]);
+      await ctx.deps.mutate((st) => setPath(st, 'header.department', 'Management'), { source: 'instructor_directed' });
+      return { reply: 'Here is a draft.', createdSuggestionIds: [String(draft._id)], stateChanged: true };
+    });
+    const res = await post(s, '/message', { text: 'It prepares for the capstone' });
+    expect(res.status).toBe(200);
+    expect(res.body.state.header.department).toBe('Management');
+    expect(res.body.revision).toBe(2);
+    const last = res.body.messages.slice(-3);
+    expect(last.map((m) => m.role)).toEqual(['user', 'ai', 'ai']);
+    expect(last[1].content).toBe('Here is a draft.');
+    expect(last[2].kind).toBe('suggestion');
     const v = res.body.suggestions[0];
-    expect(v.kind).toBe('edit');
-    expect(v.changes[0]).toMatchObject({ op: 'insertAfter', blockId: 'b0028', after: 'Exam 40%, project 60%.' });
-    const fresh = await Suggestion.findById(q._id);
-    expect(fresh.versions[0]).toMatchObject({ kind: 'question', question: 'Які ваги компонентів оцінювання?', answer: 'Іспит 40%, проєкт 60%' });
-    expect((await post(s, `/suggestions/${q._id}/accept`)).status).toBe(200);
+    expect(v.unconfirmedCount).toBe(1); // сканер фактів: «8 weeks» ніхто не називав
+    expect(res.body.conversation.currentSuggestionId).toBe(v.id);
   });
 
-  test('збій LLM у refine → 503 retryable і лічильник збоїв', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { ops: [replaceOp('b0004', 'x')] });
-    await start(s);
-    review.generateSuggestion.mockRejectedValue(new Error('timeout'));
-    const res = await post(s, `/suggestions/${a._id}/refine`, { feedback: 'інакше' });
+  test('deps.acceptSuggestion = Confirm з перевірками: UNCONFIRMED_VALUES', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'The course lasts 48 hours and covers project risks.' });
+    let error;
+    runner.runOrchestratorTurn.mockImplementation(async (ctx) => {
+      try { await ctx.deps.acceptSuggestion(String(c._id)); } catch (err) { error = err; }
+      return { reply: 'Please confirm the values.', createdSuggestionIds: [], stateChanged: false };
+    });
+    expect((await post(s, '/message', { text: 'apply it' })).status).toBe(200);
+    expect(error).toMatchObject({ statusCode: 409, code: 'UNCONFIRMED_VALUES' });
+    expect((await Suggestion.findById(c._id)).status).toBe('pending');
+  });
+
+  test('501 / збій LLM → 503 retryable, лічильник збоїв; валідація тексту; admin не може писати', async () => {
+    const s = await uploaded();
+    runner.runOrchestratorTurn.mockRejectedValue(notImplemented());
+    const res = await post(s, '/message', { text: 'hello' });
     expect(res.status).toBe(503);
     expect(res.body.retryable).toBe(true);
     expect((await Conversation.findOne({ syllabusId: s._id })).consecutiveAiFailures).toBe(1);
-    expect((await Suggestion.findById(a._id)).versions).toHaveLength(0);
-  });
-
-  test('message: питання → відповідь AI з контекстом картки; прохання змінити → refine', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { title: 'Пререквізити', ops: [replaceOp('b0004', `${B4} Пререквізити: немає.`)] });
-    await start(s);
-
-    client.createResponse
-      .mockResolvedValueOnce({ output_text: '{"intent":"question"}' })
-      .mockResolvedValueOnce({ output_text: 'Пререквізити допомагають студентам підготуватися.' });
-    let res = await post(s, '/message', { text: 'Навіщо це?' });
-    expect(res.status).toBe(200);
-    const classifyReq = client.createResponse.mock.calls[0][0];
-    expect(classifyReq.text.format).toMatchObject({ type: 'json_schema', strict: true });
-    expect(client.createResponse.mock.calls[1][0].input[1].content).toMatch(/Пререквізити: немає/);
-    const msgs = res.body.messages;
-    expect(msgs[msgs.length - 1]).toMatchObject({ role: 'ai', kind: 'text', content: 'Пререквізити допомагають студентам підготуватися.' });
-
-    client.createResponse.mockResolvedValueOnce({ output_text: '{"intent":"refine"}' });
-    review.generateSuggestion.mockResolvedValue({ kind: 'edit', title: 'Пререквізити (коротко)', description: 'd', rationale: 'r', ops: [replaceOp('b0004', `${B4} Без пререквізитів.`)] });
-    res = await post(s, '/message', { text: 'зроби коротше' });
-    expect(res.status).toBe(200);
-    expect(review.generateSuggestion.mock.calls[0][0].feedback).toMatch(/зроби коротше/);
-    expect((await Suggestion.findById(a._id)).versions).toHaveLength(1);
-    expect(res.body.messages.filter((m) => m.content === 'зроби коротше')).toHaveLength(1);
+    expect((await post(s, '/message', { text: '' })).status).toBe(400);
+    expect((await post(s, '/message', { text: 'hi' }, admin)).status).toBe(403);
   });
 });
 
-describe('submit', () => {
-  test('gate pending → 409 зі списком; лист з tracked.docx і tracked.pdf; повторний submit → 409', async () => {
-    const s = await docSyllabus();
-    const a = await helpers.createSuggestion(s, { title: 'Тижні', severity: 'high', ops: [replaceOp('b0004', 'Курс триває 12 тижнів і завершується письмовим іспитом. Викладач: доц. Іваненко.')] });
-    const b = await helpers.createSuggestion(s, { title: 'Доброчесність', group: 'policy', ops: [replaceOp('b0030', 'Академічна доброчесність: плагіат заборонено.')] });
-    await start(s);
-    let res = await post(s, '/submit');
-    expect(res.status).toBe(409);
-    expect(res.body.code).toBe('PENDING_SUGGESTIONS');
-    expect(res.body.pending.map((p) => p.title)).toEqual(['Тижні', 'Доброчесність']);
-    expect((await Syllabus.findById(s._id)).submitting).toBe(false);
-
-    await post(s, `/suggestions/${a._id}/accept`);
-    await post(s, `/suggestions/${b._id}/reject`, { rejectTag: 'not_relevant', reason: 'Не для цього курсу' });
-
-    const send = () => post(s, '/submit');
-    const results = await Promise.all([send(), send()]);
-    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
-    const ok = results.find((r) => r.status === 200).body;
-    expect(ok.submitted).toBe(true);
-    expect(ok.syllabus).toMatchObject({ status: 'submitted', submissionEmailStatus: 'sent', canMutate: false });
-
-    expect(mockSendMail).toHaveBeenCalledTimes(1);
-    const mail = mockSendMail.mock.calls[0][0];
-    expect(mail.to).toBe('ad@example.com');
-    const names = mail.attachments.map((x) => x.filename);
-    expect(names[0]).toBe('syllabus_tracked.docx');
-    if (isConverterAvailable()) expect(names).toEqual(['syllabus_tracked.docx', 'syllabus_tracked.pdf']);
-    expect(await documentXml(mail.attachments[0].content)).toMatch(/<w:ins /);
-    expect(mail.html).toMatch(/Прийняті пропозиції/);
-    expect(mail.html).toMatch(/не стосується курсу/);
-    expect(mail.html).toMatch(/Не для цього курсу/);
-
-    expect((await send()).status).toBe(409);
-    // outputs доступні й після submit
-    expect((await request(app).get(`${api(s)}/outputs/tracked.docx`).set(authOf(owner))).status).toBe(200);
-    // рішення після submit заборонені
-    expect((await post(s, `/suggestions/${b._id}/reopen`)).status).toBe(409);
-    expect((await Conversation.findOne({ syllabusId: s._id })).status).toBe('submitted');
-  }, 60000);
-
-  test('resend-submission (admin) надсилає ті самі outputs', async () => {
-    const s = await docSyllabus({ status: 'submitted' });
-    const res = await request(app).post(`/api/cabinet/syllabi/${s._id}/resend-submission`).set(authOf(admin));
+describe('GET /document', () => {
+  test('diff=0: розділи й блоки; library-політика з файлу — з позначкою, без тексту — плейсхолдер', async () => {
+    const s = await uploaded();
+    const res = await get(s, '/document?diff=0');
     expect(res.status).toBe(200);
-    const names = mockSendMail.mock.calls[0][0].attachments.map((x) => x.filename);
-    expect(names[0]).toBe('syllabus_tracked.docx');
-  }, 60000);
+    expect(res.body.sections.map((x) => x.key)).toEqual(refs.template.map((x) => x.key));
+    const policies = res.body.sections.find((x) => x.key === 'policies').blocks;
+    const attendance = policies[policies.findIndex((b) => b.text === 'Attendance') + 1];
+    expect(attendance.text).toMatch(/^Attendance is mandatory\..* \(from your file — choose an option or keep your text\)$/);
+    expect(attendance.parts).toBeUndefined();
+    expect(policies[policies.findIndex((b) => b.text === 'Participation Credit') + 1].text).toBe('[Choose an option]');
+    expect((await get(s, '/document?diff=2')).status).toBe(400);
+  });
+
+  test('diff=1: зміни проти baselineState у parts', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'A completely different short description of the course.' });
+    await post(s, `/suggestions/${c._id}/accept`, {});
+    const res = await get(s, '/document?diff=1');
+    const desc = res.body.sections.find((x) => x.key === 'short_description').blocks;
+    expect(desc.some((b) => b.parts.some((p) => p.type === 'ins'))).toBe(true);
+    expect(desc.some((b) => b.parts.some((p) => p.type === 'del'))).toBe(true);
+    const unchanged = res.body.sections.find((x) => x.key === 'instructor').blocks;
+    expect(unchanged.every((b) => b.parts.every((p) => p.type === 'eq'))).toBe(true);
+  });
 });
 
-describe('legacy', () => {
-  test('читання працює, мутації → 409 LEGACY_SYLLABUS', async () => {
-    const s = await helpers.createSyllabus(owner, { legacy: true, extractedText: 'old' });
-    created.push(s._id);
-    const conv = await Conversation.create({ syllabusId: s._id, instructorId: owner._id });
-    await Message.create({ conversationId: conv._id, role: 'ai', kind: 'text', content: 'Стара картка' });
-    const get = await request(app).get(api(s)).set(authOf(owner));
-    expect(get.status).toBe(200);
-    expect(get.body.syllabus).toMatchObject({ legacy: true, canMutate: false });
-    expect(get.body.messages[0].content).toBe('Стара картка');
-    for (const path of ['/start', '/message', '/submit', `/suggestions/${conv._id}/accept`]) {
-      const res = await post(s, path, { text: 'x' });
-      expect(res.status).toBe(409);
-      expect(res.body.code).toBe('LEGACY_SYLLABUS');
+describe('вихід .docx', () => {
+  test('завантаження: валідний zip, ім\'я <Title>_syllabus.docx, downloads++, кеш за ревізією, admin теж може', async () => {
+    const s = await uploaded();
+    const res = await binary(get(s, '/outputs/syllabus.docx'));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('wordprocessingml.document');
+    expect(res.headers['content-disposition']).toContain('Risk_Management_syllabus.docx');
+    const zip = await JSZip.loadAsync(res.body);
+    const xml = await zip.file('word/document.xml').async('string');
+    expect(xml).toContain('Risk Management');
+    expect(xml).toContain('from your file'); // політики з файлу без вибору — з позначкою
+    expect((await Syllabus.findById(s._id)).downloads).toBe(1);
+
+    const again = await binary(get(s, '/outputs/syllabus.docx', admin));
+    expect(again.status).toBe(200);
+    expect((await Syllabus.findById(s._id)).downloads).toBe(2);
+    expect(again.body.equals(res.body)).toBe(true);
+
+    // Нова ревізія стану → новий файл
+    await post(s, '/policies/policy.late/choose', { optionKey: 'late_daily' });
+    const next = await binary(get(s, '/outputs/syllabus.docx'));
+    const nextXml = await (await JSZip.loadAsync(next.body)).file('word/document.xml').async('string');
+    expect(nextXml).not.toEqual(xml);
+    expect((await get(s, '/outputs/syllabus.docx', stranger)).status).toBe(403);
+  });
+
+  test('порожній стан (трек 1) теж завантажується; v4-силабус → 409; старі імена → 404', async () => {
+    const s = await scratch();
+    const res = await binary(get(s, '/outputs/syllabus.docx'));
+    expect(res.status).toBe(200);
+    expect((await JSZip.loadAsync(res.body)).file('word/document.xml')).toBeTruthy();
+    for (const name of ['tracked.docx', 'clean.docx', 'tracked.pdf', 'annotated.pdf', 'edited.pptx', 'preview.pdf']) {
+      const r = await get(s, `/outputs/${name}`);
+      expect(r.status).toBe(404);
+      expect(r.body.code).toBe('OUTPUT_NOT_AVAILABLE');
     }
-    expect((await request(app).get(`${api(s)}/outputs/tracked.docx`).set(authOf(owner))).body.code).toBe('LEGACY_SYLLABUS');
+    const v4 = await helpers.createSyllabus(owner);
+    created.push(v4._id);
+    expect((await get(v4, '/outputs/syllabus.docx')).body.code).toBe('NEEDS_REBUILD');
+  });
+
+  test('submit, slides, старий preview прибрано (404); View не містить submission-cta', async () => {
+    const s = await uploaded();
+    const c = await card(s);
+    expect((await post(s, '/submit')).status).toBe(404);
+    expect((await get(s, `/suggestions/${c._id}/slides`)).status).toBe(404);
+    expect((await get(s, `/suggestions/${c._id}/preview`)).status).toBe(404);
+    expect((await get(s, '/document/preview')).status).toBe(404);
+    await post(s, `/suggestions/${c._id}/reject`, {});
+    const view = await get(s);
+    expect(view.body.messages.some((m) => m.kind === 'submission-cta')).toBe(false);
+  });
+});
+
+describe('після рішення', () => {
+  test('знімок readiness у Conversation і наступна картка за order', async () => {
+    const s = await uploaded();
+    const first = await card(s, { severity: 'high', title: 'First', text: 'Draft about project risk management in practice.' });
+    const second = await card(s, { severity: 'medium', title: 'Second', target: { path: 'summary.capstone' }, text: 'Capstone link in a full sentence.' });
+    await post(s, '/start');
+    const res = await post(s, `/suggestions/${first._id}/reject`, { reason: 'Not needed' });
+    expect(res.body.conversation.currentSuggestionId).toBe(String(second._id));
+    expect(res.body.conversation.readiness).toMatchObject({ counts: { required: 11, pendingSuggestions: 1 } });
+    const cards = res.body.messages.filter((m) => m.kind === 'suggestion').map((m) => m.relatedSuggestionId);
+    expect(cards).toEqual([String(first._id), String(second._id)]);
+    expect((await Message.countDocuments({ conversationId: res.body.conversation._id, kind: 'submission-cta' }))).toBe(0);
+  });
+
+  test('мутації лише для власника', async () => {
+    const s = await uploaded();
+    const c = await card(s);
+    for (const [path, body] of [[`/suggestions/${c._id}/accept`, {}], [`/suggestions/${c._id}/reject`, { reason: 'x' }], ['/start', {}], ['/sections/instructor/approve', {}]]) {
+      expect((await post(s, path, body, admin)).status).toBe(403);
+      expect((await post(s, path, body, stranger)).status).toBe(403);
+    }
+    expect(getPath(await stateOf(s), 'summary.shortDescription.text')).not.toBeNull();
   });
 });

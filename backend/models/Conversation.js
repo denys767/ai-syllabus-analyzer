@@ -23,6 +23,8 @@ const conversationSchema = new mongoose.Schema({
   readiness: { type: mongoose.Schema.Types.Mixed, default: null },
   // v5: слот, на якому зараз розмова (питання інтерв'юера, «Write my own», «Change the value»)
   currentSlotKey: { type: String, default: null },
+  // v5: слоти, які викладач пропустив (POST /skip) — інтерв'юер їх більше не питає
+  skippedSlots: { type: [String], default: [] },
   lastDecisionAt: Date,
   consecutiveAiFailures: { type: Number, default: 0 },
 }, { timestamps: true });
