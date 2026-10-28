@@ -9,6 +9,10 @@ const interviewer = require('../ai/prompts/interviewer');
 const { loadContext, buildReadiness, refreshConversationReadiness, BLOCKING_SEVERITIES } = require('./state');
 const { approvableSections } = require('./sections');
 const { policyDecided } = require('../syllabusState/slots');
+const { candidates, templateQuestion } = require('../ai/interviewPlan');
+const { NARRATIVE_SLOTS } = require('../ai/slotDrafts');
+const { createDraftSuggestions } = require('./draftSuggestions');
+const { runChecks } = require('../checks');
 
 const MAX_CONSECUTIVE_FAILURES = 3;
 const TRANSCRIPT_LIMIT = 12;
@@ -72,16 +76,18 @@ function uploadGreeting(ctx, readiness, checks) {
  * Запасне питання, поки інтерв'юер не реалізовано: питання TemplateSection першого порожнього (потім неповного) розділу.
  * Для політик — вибір першого невирішеного library-блоку (картка policy-choice), а не вільне питання.
  */
-function fallbackQuestion(ctx, readiness, skipped) {
-  const status = (t) => readiness.sections[t.key]?.status;
-  const policyQuestion = (t) => {
+function policyQuestion(ctx, skipped) {
+    if (skipped.includes('policies')) return null;
     const p = (ctx.state.policies || []).find((x) => x.mode === 'library' && !policyDecided(x) && !skipped.includes(x.key));
     if (!p) return null;
     const title = (ctx.refs.policyLibrary?.blocks || []).find((b) => b.key === p.key)?.title || p.key;
     return { slotKey: p.key, policyKey: p.key, question: `Which option fits your course for "${title}"?`, why: `The policy "${title}" has no decision yet.` };
-  };
+}
+
+function fallbackQuestion(ctx, readiness, skipped) {
+  const status = (t) => readiness.sections[t.key]?.status;
   const ask = (t) => {
-    if (t.key === 'policies') return policyQuestion(t);
+    if (t.key === 'policies') return policyQuestion(ctx, skipped);
     return {
       slotKey: t.key,
       question: t.question,
@@ -101,19 +107,51 @@ function fallbackQuestion(ctx, readiness, skipped) {
 }
 
 async function pickQuestion(conversation, ctx) {
-  const skipped = conversation.skippedSlots || [];
+  const scratch = ctx.syllabus.track === 'scratch';
+  const skipped = [...(conversation.skippedSlots || []), ...(scratch ? conversation.answeredSlots || [] : [])];
+  const input = { state: ctx.state, refs: ctx.refs, skipped, preferredSection: conversation.preferredSection };
+  if (scratch && !candidates(input).length) return null;
   const { readiness } = await buildReadiness(ctx);
   let q;
   try {
     const { transcript } = await transcriptOf(conversation);
-    q = await interviewer.nextQuestion({ state: ctx.state, refs: ctx.refs, transcript, skipped });
+    q = await interviewer.nextQuestion({ ...input, transcript });
   } catch (err) {
     if (err.code !== 'NOT_IMPLEMENTED') console.error('interviewer failed, using the template question:', err.message);
     q = undefined;
   }
+  if (scratch) {
+    const allowed = candidates(input);
+    if (!q || q.slotKey !== allowed[0]?.key || !q.question) return templateQuestion(allowed[0], ctx.refs);
+    return q;
+  }
   if (q === null) return null;
   if (!q || !q.slotKey || !q.question || skipped.includes(q.slotKey)) return fallbackQuestion(ctx, readiness, skipped);
   return q;
+}
+
+/** Похідні поради треку 1: лише картки, жодного додаткового питання чи запису стану. */
+async function scratchSuggestions(conversation, ctx) {
+  const loMapping = require('../ai/prompts/loMapping');
+  const readings = require('../ai/prompts/readings');
+  const existing = await Suggestion.find({ syllabusId: conversation.syllabusId }).select('target.path').lean();
+  const missing = (path) => !existing.some((s) => s.target?.path === path);
+  const skipped = [...conversation.skippedSlots, ...conversation.answeredSlots];
+  let inputs = [];
+  if (!skipped.includes('course.outcomes_plo') && !skipped.includes('learning_outcomes')) {
+    const outcomeIds = (ctx.state.outcomes || []).filter((o) => o.text && !o.plo?.length && missing(`outcomes[${o.id}].plo`)).map((o) => o.id);
+    if (outcomeIds.length) inputs = await loMapping.suggestPlo({ state: ctx.state, refs: ctx.refs, outcomeIds });
+  }
+  if (!inputs.length && ctx.state.materials?.required?.length && missing('materials.recommended[]')
+      && !skipped.includes('materials.recommended') && !skipped.includes('materials')) {
+    inputs = await readings.suggestReadings({ state: ctx.state, refs: ctx.refs,
+      query: `${ctx.state.header.courseTitle}: ${ctx.state.summary.shortDescription.text || ''}` });
+    await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { answeredSlots: 'materials.recommended' } });
+  }
+  const { instructorLines } = await transcriptOf(conversation);
+  return createDraftSuggestions(inputs.map((i) => ({ ...i, origin: 'interviewer' })), {
+    syllabusId: conversation.syllabusId, state: ctx.state, refs: ctx.refs, known: instructorLines,
+  });
 }
 
 /**
@@ -123,7 +161,8 @@ async function pickQuestion(conversation, ctx) {
  */
 async function postNextStep(conversation, { preferQuestion = false } = {}) {
   const ctx = await loadContext(conversation.syllabusId);
-  const next = preferQuestion ? null : await nextPending(conversation.syllabusId);
+  const scratch = ctx.syllabus.track === 'scratch';
+  const next = preferQuestion && !scratch ? null : await nextPending(conversation.syllabusId);
   if (next) {
     const lastCard = await lastMessage(conversation, ['suggestion', 'question']);
     if (lastCard && lastCard.kind === 'suggestion' && String(lastCard.relatedSuggestionId) === String(next._id)) {
@@ -136,10 +175,29 @@ async function postNextStep(conversation, { preferQuestion = false } = {}) {
 
   await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSuggestionId: null } });
   const fresh = await Conversation.findById(conversation._id);
-  const q = await pickQuestion(fresh, ctx);
+  // currentSlotKey знімається тільки відповіддю, Skip або явною зміною розділу, а не рішенням сторонньої картки.
+  if (scratch && fresh.currentSlotKey) return null;
+  if (scratch) {
+    try {
+      const cards = await scratchSuggestions(fresh, ctx);
+      if (cards.length) {
+        for (const card of cards) await postSuggestionCard(conversation, card);
+        return { suggestion: cards[0] };
+      }
+    } catch (err) {
+      // Допоміжний збій після Confirm не скасовує вже збережене рішення викладача.
+      console.error('Interview suggestions failed:', err.message);
+    }
+  }
+  let q = scratch && fresh.preferredSection === 'policies' ? policyQuestion(ctx, fresh.skippedSlots) : await pickQuestion(fresh, ctx);
+  if (!q && scratch) q = policyQuestion(ctx, fresh.skippedSlots);
   const last = await lastMessage(conversation);
   if (!q) {
-    if (!(last && last.role === 'ai' && last.content === DONE_TEXT)) await postAiMessage(conversation, DONE_TEXT);
+    if (!(last && last.role === 'ai' && last.content.endsWith(DONE_TEXT))) {
+      const checks = scratch ? runChecks(ctx.state, ctx.refs).filter((c) => c.passed === false) : [];
+      const review = checks.length ? `Checks found ${checks.length} open items. ${checks.slice(0, 3).map((c) => c.message).join(' ')}\n\n` : '';
+      await postAiMessage(conversation, `${review}${DONE_TEXT}`);
+    }
     await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: null } });
     return null;
   }
@@ -151,7 +209,7 @@ async function postNextStep(conversation, { preferQuestion = false } = {}) {
       kind, content: q.question, payload: { slotKey: q.slotKey, ...(policyKey ? { policyKey } : {}), question: q.question, why: q.why || '' },
     });
   }
-  await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: q.slotKey } });
+  await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: q.slotKey, preferredSection: null } });
   return { question: q };
 }
 
@@ -179,6 +237,9 @@ async function startConversation(syllabusId, userId) {
   if (created) {
     if (ctx.syllabus.track === 'scratch') {
       await postAiMessage(conversation, scratchGreeting(ctx.syllabus));
+      const h = ctx.state.header;
+      await say(conversation, { content: `Course: ${h.courseTitle || ctx.syllabus.title}\nProgramme: ${ctx.state.programCode}\nCredits / ECTS: ${h.ects ?? 'Not supplied'}\nDelivery mode: ${h.deliveryFormat || 'Not supplied'}`,
+        payload: { courseCard: true, header: h, instructors: ctx.state.instructors } });
       await postNextStep(conversation, { preferQuestion: true });
     } else {
       const { readiness, checks } = await buildReadiness(ctx);
@@ -203,6 +264,11 @@ async function skipSlot(syllabusId, slotKey, userId) {
   await loadContext(syllabusId);
   const conversation = await getOrCreateConversation(syllabusId, userId);
   await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { skippedSlots: slotKey } });
+  // Skip є відповіддю на поточне питання, тож у журналі між питаннями є явна дія викладача.
+  await postUserMessage(conversation, `Skip ${slotKey}.`);
+  if (NARRATIVE_SLOTS.includes(slotKey)) {
+    await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { answeredSlots: { $each: NARRATIVE_SLOTS } } });
+  }
   const fresh = await Conversation.findById(conversation._id);
   if (fresh.currentSlotKey === slotKey) await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: null } });
   await postNextStep(fresh, { preferQuestion: true });
