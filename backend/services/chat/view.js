@@ -3,7 +3,6 @@
 const Conversation = require('../../models/Conversation');
 const Message = require('../../models/Message');
 const Suggestion = require('../../models/Suggestion');
-const SlotChange = require('../../models/SlotChange');
 const { renderState } = require('../syllabusState/render');
 const { diffRendered } = require('../syllabusState/diff');
 const { getPath } = require('../syllabusState/paths');
@@ -41,27 +40,29 @@ function optionView(s, o, refs) {
 }
 
 /**
- * SuggestionView v5. before = поточне значення слота (для прийнятої — значення до правки з SlotChange),
- * after = значення чернетки (для прийнятої — записане значення).
+ * SuggestionView v5. before = поточне значення слота,
+ * after = значення чернетки.
  * @param {object} s       Suggestion
- * @param {{ state, refs, change?: SlotChange }} ctx
+ * @param {{ state, refs }} ctx
  */
-function buildSuggestionView(s, { state, refs, change }) {
+function buildSuggestionView(s, { state, refs }) {
   const path = s.target.path;
   const current = displayOf(path, getPath(state, path));
   const draft = s.draft ? {
     value: s.draft.value ?? null,
+    source: s.draft.source || 'ai_draft',
     template: s.draft.template ?? null,
     proposedValues: (s.draft.proposedValues || []).map((v) => ({
       id: v.id, label: v.label, value: v.value, path: v.path ?? null, confirmed: Boolean(v.confirmed),
     })),
     basisHash: s.draft.basisHash ?? null,
   } : null;
-  const accepted = s.status === 'accepted' && change;
   let stale = Boolean(s.stale);
-  if (s.status === 'pending' && draft?.basisHash) stale = hashValue(getPath(state, path)) !== draft.basisHash;
+  if (s.status === 'pending' && draft?.basisHash) stale ||= hashValue(getPath(state, path)) !== draft.basisHash;
   return {
     id: String(s._id),
+    _id: String(s._id),
+    syllabusId: String(s.syllabusId),
     origin: s.origin || null,
     checkId: s.checkId || null,
     criterionId: s.criterionId || null,
@@ -72,8 +73,8 @@ function buildSuggestionView(s, { state, refs, change }) {
     description: s.description,
     rationale: s.rationale || null,
     target: { section: s.target.section || s.section || null, path, entityId: s.target.entityId || null },
-    before: accepted ? displayOf(path, change.before) : current,
-    after: accepted ? displayOf(path, change.after) : (draft ? draft.value : null),
+    before: current,
+    after: draft ? draft.value : null,
     draft,
     unconfirmedCount: (draft?.proposedValues || []).filter((v) => !v.confirmed).length,
     options: (s.options || []).map((o) => optionView(s, o, refs)),
@@ -95,22 +96,7 @@ function buildSuggestionView(s, { state, refs, change }) {
 }
 
 async function suggestionViews(syllabusId, suggestions, ctx) {
-  const acceptedIds = suggestions.filter((s) => s.status === 'accepted').map((s) => s._id);
-  const latest = new Map();
-  if (acceptedIds.length) {
-    // Зміни останнього прийняття кожної пропозиції (одна ревізія — кілька шляхів); reopen-записи не беремо
-    const rows = await SlotChange.find({ syllabusId, suggestionId: { $in: acceptedIds }, source: { $ne: 'reopen' } })
-      .sort({ revision: 1 }).lean();
-    for (const r of rows) {
-      const key = String(r.suggestionId);
-      const prev = latest.get(key);
-      latest.set(key, prev && prev[0].revision === r.revision ? [...prev, r] : [r]);
-    }
-  }
-  return suggestions.filter((s) => s.target?.path).map((s) => {
-    const rows = latest.get(String(s._id)) || [];
-    return buildSuggestionView(s, { ...ctx, change: rows.find((r) => r.path === s.target.path) || rows[0] });
-  });
+  return suggestions.filter((s) => s.target?.path).map((s) => buildSuggestionView(s, ctx));
 }
 
 function isOwner(syllabus, userId) {
@@ -132,7 +118,7 @@ function syllabusSummary(syllabus, userId) {
     ...(needsRebuild ? { hint: REBUILD_HINT } : {}),
     analysisStage: syllabus.analysisStage || null,
     analysisError: syllabus.analysisError || null,
-    outputs: outputList(syllabus),
+    outputs: v4 ? [] : outputList(syllabus),
   };
 }
 

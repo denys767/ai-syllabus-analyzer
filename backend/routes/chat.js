@@ -95,8 +95,11 @@ function mutation(action, fallbackMessage) {
   return async (req, res) => {
     if (validationFailed(req, res)) return;
     try {
-      const extra = await action(req);
-      res.json({ ...(await view(req)), ...(extra || {}) });
+      const result = await action(req);
+      // Сервіси можуть повертати Mongoose-документ; у View не віддаємо його службові поля.
+      const extra = Array.isArray(result?.approved) && Array.isArray(result?.skipped)
+        ? { approved: result.approved, skipped: result.skipped } : {};
+      res.json({ ...(await view(req)), ...extra });
     } catch (err) {
       sendError(res, err, fallbackMessage || 'Something went wrong. Please try again.');
     }

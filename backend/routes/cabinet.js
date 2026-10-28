@@ -8,8 +8,8 @@ const Program = require('../models/Program');
 const User = require('../models/User');
 const Syllabus = require('../models/Syllabus');
 const Suggestion = require('../models/Suggestion');
-const { computeReadiness } = require('../services/chat/readiness');
-const { outputList } = require('../services/outputFormats');
+const { computeReadiness } = require('../services/syllabusState/readiness');
+const { getRefs } = require('../services/references');
 const { sendInvitationEmail } = require('../services/emailService');
 const { isLastActiveAdmin } = require('../services/userService');
 const { generateToken } = require('../utils/tokens');
@@ -95,18 +95,38 @@ router.delete('/programs/:id', auth, admin, async (req, res) => {
 
 // ─── Metrics ─────────────────────────────────────────────────────────────────
 
+// Readiness силабусу зі state; refs (шаблон і обов'язковість розділів) — за programCode, кешуються в getRefs
+async function stateReadiness(syllabus, refsCache) {
+  if (!syllabus.state) return null;
+  const code = syllabus.state.programCode || syllabus.programCode;
+  if (!refsCache.has(code)) refsCache.set(code, getRefs(code).catch(() => undefined));
+  return computeReadiness(syllabus.state, { refs: await refsCache.get(code) });
+}
+
+async function countReady100(filter) {
+  const refsCache = new Map();
+  let ready = 0;
+  const cursor = Syllabus.find({ ...filter, state: { $exists: true, $ne: null } }).select('state programCode').lean().cursor();
+  for await (const syllabus of cursor) {
+    const r = await stateReadiness(syllabus, refsCache);
+    if (r && r.score === 100) ready += 1;
+  }
+  return ready;
+}
+
 router.get('/metrics', auth, async (req, res) => {
   try {
     const filter = {};
     if (req.user.role !== 'admin') {
-      filter.instructor = req.user.userId;
+      filter.instructor = new mongoose.Types.ObjectId(req.user.userId);
     }
-    const [total, submitted, inProgress] = await Promise.all([
+    const [total, inProgress, downloads, ready100] = await Promise.all([
       Syllabus.countDocuments(filter),
-      Syllabus.countDocuments({ ...filter, status: 'submitted' }),
       Syllabus.countDocuments({ ...filter, status: 'in_progress' }),
+      Syllabus.aggregate([{ $match: filter }, { $group: { _id: null, sum: { $sum: '$downloads' } } }]),
+      countReady100(filter),
     ]);
-    res.json({ total, submitted, inProgress });
+    res.json({ total, inProgress, downloads: downloads[0]?.sum || 0, ready100 });
   } catch (err) {
     console.error('Metrics error:', err);
     res.status(500).json({ message: 'Внутрішня помилка сервера' });
@@ -117,21 +137,24 @@ router.get('/metrics', auth, async (req, res) => {
 
 // Проєкція для списку: метадані, без документа і текстів
 const LIST_PROJECTION = [
-  'title', 'course', 'instructor', 'programId', 'status', 'analysisStage', 'submittedAt',
-  'submissionEmailStatus', 'analysisError', 'sourceFormat', 'legacy', 'document.convertedFrom', 'document.docVersion', 'document.sourceDocVersion', 'createdAt', 'updatedAt',
+  'title', 'course', 'instructor', 'programId', 'programCode', 'track', 'status', 'analysisStage',
+  'analysisError', 'sourceFormat', 'legacy', 'needsRebuild', 'downloads', 'stateRevision', 'state',
+  'document.convertedFrom', 'createdAt', 'updatedAt',
 ].join(' ');
 
-// Лічильники пропозицій по силабусах: { syllabusId → [{ group, status, count }] }
-async function suggestionStats(syllabusIds) {
+// Лічильники пропозицій по силабусах: { syllabusId → { pending, accepted, rejected, total } }
+async function suggestionCounts(syllabusIds) {
   const rows = await Suggestion.aggregate([
     { $match: { syllabusId: { $in: syllabusIds } } },
-    { $group: { _id: { syllabusId: '$syllabusId', group: '$group', status: '$status' }, count: { $sum: 1 } } },
+    { $group: { _id: { syllabusId: '$syllabusId', status: '$status' }, count: { $sum: 1 } } },
   ]);
   const bySyllabus = new Map();
   for (const r of rows) {
     const key = String(r._id.syllabusId);
-    if (!bySyllabus.has(key)) bySyllabus.set(key, []);
-    bySyllabus.get(key).push({ group: r._id.group, status: r._id.status, count: r.count });
+    if (!bySyllabus.has(key)) bySyllabus.set(key, { pending: 0, accepted: 0, rejected: 0, total: 0 });
+    const counts = bySyllabus.get(key);
+    if (r._id.status in counts) counts[r._id.status] = r.count;
+    counts.total += r.count;
   }
   return bySyllabus;
 }
@@ -161,21 +184,21 @@ router.get('/syllabi', auth, async (req, res) => {
       Syllabus.countDocuments(filter),
     ]);
 
-    const stats = await suggestionStats(syllabi.map((item) => item._id));
-    const enriched = syllabi.map((syllabus) => {
-      const { document, ...meta } = syllabus;
-      const readiness = computeReadiness(stats.get(String(meta._id)) || []);
+    const counts = await suggestionCounts(syllabi.map((item) => item._id));
+    const refsCache = new Map();
+    const enriched = await Promise.all(syllabi.map(async (syllabus) => {
+      const { document, state, ...meta } = syllabus; // state і baselineState у відповідь не йдуть
+      const r = ['analyzing', 'error'].includes(meta.status) ? null : await stateReadiness({ state, programCode: meta.programCode }, refsCache);
       return {
         ...meta,
         convertedFrom: document?.convertedFrom || null,
         legacy: Boolean(meta.legacy),
-        outputs: outputList(syllabus),
-        readiness: ['analyzing', 'error'].includes(meta.status)
-          ? { score: 0, breakdown: {} }
-          : { score: readiness.score, breakdown: readiness.breakdown },
-        issueCounts: readiness.counts,
+        needsRebuild: Boolean(meta.needsRebuild),
+        outputs: ['syllabus.docx'],
+        readiness: r ? { score: r.score, sections: r.sections, counts: r.counts } : { score: 0, sections: {}, counts: null },
+        issueCounts: counts.get(String(meta._id)) || { pending: 0, accepted: 0, rejected: 0, total: 0 },
       };
-    });
+    }));
     res.json({ syllabi: enriched, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     console.error('List syllabi error:', err);

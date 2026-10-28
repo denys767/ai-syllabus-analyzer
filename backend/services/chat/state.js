@@ -39,6 +39,7 @@ function needsRebuildError() {
 
 /** Мутації чату можливі лише для розібраного v5-силабусу, аналіз якого завершено. */
 function assertEditable(syllabus) {
+  if (isV4(syllabus) && syllabus.status !== 'analyzing') throw needsRebuildError();
   if (syllabus.status === 'analyzing') throw httpError(409, 'The analysis is still running. Please wait.', { code: 'ANALYSIS_IN_PROGRESS' });
   if (syllabus.status === 'error') throw httpError(409, 'The analysis failed. Run it again.', { code: 'ANALYSIS_FAILED' });
   if (isV4(syllabus)) throw needsRebuildError();
@@ -92,7 +93,7 @@ async function refreshStale(syllabusId, state) {
     } catch {
       stale = true;
     }
-    if (stale !== Boolean(s.stale)) await Suggestion.updateOne({ _id: s._id, status: 'pending' }, { $set: { stale } });
+    if (stale && !s.stale) await Suggestion.updateOne({ _id: s._id, status: 'pending' }, { $set: { stale: true } });
   }
 }
 

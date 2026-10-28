@@ -7,9 +7,10 @@ const Conversation = require('../../models/Conversation');
 const Suggestion = require('../../models/Suggestion');
 const SlotChange = require('../../models/SlotChange');
 const store = require('../syllabusState/store');
+const { invalidateOutputs } = require('../outputs');
 const { slotOfPath, getPath } = require('../syllabusState/paths');
 const { httpError } = require('../../utils/httpError');
-const { renderTemplate } = require('../ai/facts');
+const { renderTemplate, toTemplate } = require('../ai/facts');
 const formulator = require('../ai/prompts/formulator');
 const { buildDraftSuggestion, hashValue } = require('./draftSuggestions');
 const {
@@ -27,7 +28,8 @@ async function loadSuggestion(syllabusId, suggestionId) {
   return s;
 }
 
-const notPending = () => httpError(409, 'This suggestion has already been handled. Refresh the page.', { code: 'NOT_PENDING' });
+const notPending = () => httpError(409, 'This suggestion has changed or has already been handled. Refresh the page.', { code: 'NOT_PENDING' });
+const pendingFilter = (s) => ({ _id: s._id, syllabusId: s.syllabusId, status: 'pending', __v: s.__v });
 
 async function context(syllabusId, suggestionId, userId) {
   const ctx = await loadContext(syllabusId);
@@ -37,6 +39,7 @@ async function context(syllabusId, suggestionId, userId) {
 }
 
 async function afterDecision(conversation, { card = null, nextStep = true } = {}) {
+  invalidateOutputs(conversation.syllabusId);
   const { state } = await loadContext(conversation.syllabusId, { editable: false });
   await refreshStale(conversation.syllabusId, state);
   await Conversation.updateOne({ _id: conversation._id }, { $set: { lastDecisionAt: new Date() } });
@@ -100,10 +103,20 @@ function buildPlan(s, optionId, ctx) {
   } else {
     if (option && option.value === undefined) throw httpError(409, 'This option has no value to apply.', { code: 'NOT_APPLICABLE' });
     const value = option ? option.value : s.draft.value;
-    source = option ? 'instructor_directed' : 'ai_draft';
+    source = option ? 'instructor_directed' : (s.draft.source || 'ai_draft');
     fn = (st) => writeSlot(st, path, value, { source });
   }
-  return { fn, source };
+  return {
+    source,
+    fn: (st) => {
+      // Перевіряємо також копію, яку прочитав mutate: ревізія з іншої вкладки не обходить basisHash.
+      assertWritable(st, path);
+      if (hasBasis && hashValue(getPath(st, path)) !== s.draft.basisHash) {
+        throw httpError(409, 'The value this draft was based on has changed.', { code: 'STALE_DRAFT' });
+      }
+      return fn(st);
+    },
+  };
 }
 
 async function acceptSuggestion(syllabusId, suggestionId, { optionId = null, expectedRevision } = {}, userId) {
@@ -116,8 +129,8 @@ async function acceptSuggestion(syllabusId, suggestionId, { optionId = null, exp
   if (plan) plan.fn(structuredClone(ctx.state)); // пробний прогін: некоректні шляхи/значення — до захоплення картки
 
   const claimed = await Suggestion.findOneAndUpdate(
-    { _id: s._id, syllabusId, status: 'pending' },
-    { $set: { status: 'accepted', acceptedAt: new Date(), selectedOptionId: optionId || null, stale: false } },
+    pendingFilter(s),
+    { $set: { status: 'accepted', acceptedAt: new Date(), acceptedRevision: null, selectedOptionId: optionId || null, stale: false }, $inc: { __v: 1 } },
     { new: true },
   );
   if (!claimed) throw notPending();
@@ -127,10 +140,13 @@ async function acceptSuggestion(syllabusId, suggestionId, { optionId = null, exp
       const result = await store.mutate(syllabusId, expectedRevision ?? ctx.revision, plan.fn, {
         by: userId, source: plan.source, suggestionId: s._id, refs: ctx.refs,
       });
+      await Suggestion.updateOne({ _id: s._id, status: 'accepted', __v: claimed.__v }, {
+        $set: { acceptedRevision: result.changes.length ? result.revision : null },
+      });
       await markStale(syllabusId, [s.target.path, ...result.changes.map((c) => c.path)], s._id);
     }
   } catch (err) {
-    await Suggestion.updateOne({ _id: s._id, status: 'accepted' }, {
+    await Suggestion.updateOne({ _id: s._id, status: 'accepted', __v: claimed.__v }, {
       $set: { status: 'pending', selectedOptionId: s.selectedOptionId || null }, $unset: { acceptedAt: '' },
     });
     throw err;
@@ -158,17 +174,34 @@ async function updateValues(syllabusId, suggestionId, { values }, userId) {
     }
     if (patch.confirmed !== undefined) target.confirmed = Boolean(patch.confirmed);
   }
-  // Шаблон перерендерюється без LLM; чернетка без шаблону (масив сутностей) лишає значення, змінюються лише факти
+  // Зберігаємо форму значення: списки сутностей і числа не повинні перетворюватися на рядок.
   const $set = { 'draft.proposedValues': proposed };
-  if (s.draft.template) $set['draft.value'] = renderTemplate(s.draft.template, proposed);
+  const renderValue = (value) => {
+    if (typeof value === 'string') return renderTemplate(toTemplate(value, s.draft.proposedValues), proposed);
+    if (typeof value === 'number') {
+      const rendered = Number(renderValue(String(value)));
+      if (!Number.isFinite(rendered)) throw httpError(400, 'A numeric value must remain a number.', { code: 'INVALID_VALUE' });
+      return rendered;
+    }
+    if (Array.isArray(value)) return value.map(renderValue);
+    if (value && typeof value === 'object') {
+      // Факти змінюємо лише в тексті, не в ідентифікаторах, посиланнях чи провенансі.
+      return Object.fromEntries(Object.entries(value).map(([key, val]) => [key,
+        ['text', 'citation', 'criteria', 'additional'].includes(key) ? renderValue(val) : val]));
+    }
+    return value;
+  };
+  $set['draft.value'] = typeof s.draft.value === 'string' && s.draft.template
+    ? renderTemplate(s.draft.template, proposed) : renderValue(s.draft.value);
 
   const updated = await Suggestion.findOneAndUpdate(
-    { _id: s._id, syllabusId, status: 'pending' },
-    { $set, $push: { versions: snapshot(s), decisionHistory: { action: 'values', by: userId } } },
+    pendingFilter(s),
+    { $set, $inc: { __v: 1 }, $push: { versions: snapshot(s, { action: 'values' }), decisionHistory: { action: 'values', by: userId } } },
     { new: true },
   );
   if (!updated) throw notPending();
   await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSuggestionId: s._id } });
+  await afterDecision(conversation, { nextStep: false });
   return updated;
 }
 
@@ -184,8 +217,9 @@ async function rejectSuggestion(syllabusId, suggestionId, { reason, rejectTag } 
   if (rejectTag && !REJECT_TAGS.includes(rejectTag)) throw httpError(400, 'Unknown reason category');
 
   const updated = await Suggestion.findOneAndUpdate(
-    { _id: s._id, syllabusId, status: 'pending' },
+    pendingFilter(s),
     {
+      $inc: { __v: 1 },
       $set: { status: 'rejected', decisionReason: text || null, rejectTag: rejectTag || (text ? 'other' : null) },
       $push: { decisionHistory: { action: 'rejected', by: userId, reason: text || undefined, rejectTag: rejectTag || undefined } },
     },
@@ -240,8 +274,8 @@ async function refineSuggestion(syllabusId, suggestionId, { feedback }, userId, 
   if (out.title) set.title = out.title;
   if (out.description) set.description = out.description;
   const updated = await Suggestion.findOneAndUpdate(
-    { _id: s._id, syllabusId, status: 'pending' },
-    { $set: set, $push: { versions: snapshot(s, { feedback: text }), decisionHistory: { action: 'refined', by: userId, feedback: text } } },
+    pendingFilter(s),
+    { $set: set, $inc: { __v: 1 }, $push: { versions: snapshot(s, { action: 'refined', feedback: text }), decisionHistory: { action: 'refined', by: userId, feedback: text } } },
     { new: true },
   );
   if (!updated) throw notPending();
@@ -249,6 +283,7 @@ async function refineSuggestion(syllabusId, suggestionId, { feedback }, userId, 
   await postAiMessage(conversation, 'Here is the reworded draft. Check it and confirm when it looks right.', s._id);
   await postSuggestionCard(conversation, updated);
   await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: null } });
+  await afterDecision(conversation, { nextStep: false });
   return updated;
 }
 
@@ -273,34 +308,37 @@ async function answerSuggestion(syllabusId, suggestionId, { answer }, userId) {
   await postUserMessage(conversation, text, s._id);
   if (!hasDraftText(pick)) {
     // Модель не склала чернетку: картка лишається питанням, відповідь зберігаємо для контексту
-    await Suggestion.updateOne({ _id: s._id, status: 'pending' }, {
-      $set: { answer: text }, $push: { versions: snapshot(s), decisionHistory: { action: 'answered', by: userId } },
+    const updated = await Suggestion.findOneAndUpdate(pendingFilter(s), {
+      $set: { answer: text }, $inc: { __v: 1 }, $push: { versions: snapshot(s, { action: 'answered' }), decisionHistory: { action: 'answered', by: userId } },
     });
+    if (!updated) throw notPending();
     await postAiMessage(conversation, 'I could not turn that into a draft yet. Could you add a few more details?', s._id);
+    await afterDecision(conversation, { nextStep: false });
     return Suggestion.findById(s._id);
   }
   const draft = draftFromModel(s, pick, ctx, knownFor(s, ctx, instructorLines, [text]));
   const updated = await Suggestion.findOneAndUpdate(
-    { _id: s._id, syllabusId, status: 'pending', kind: 'question' },
+    { ...pendingFilter(s), kind: 'question' },
     {
+      $inc: { __v: 1 },
       $set: { kind: 'edit', draft, answer: text, stale: false, ...(pick.rationale ? { rationale: pick.rationale } : {}) },
-      $push: { versions: snapshot(s), decisionHistory: { action: 'answered', by: userId } },
+      $push: { versions: snapshot(s, { action: 'answered' }), decisionHistory: { action: 'answered', by: userId } },
     },
     { new: true },
   );
   if (!updated) throw notPending();
   await postAiMessage(conversation, 'Thanks! Here is a draft based on your answer. Check it and confirm when it looks right.', s._id);
   await postSuggestionCard(conversation, updated);
+  await afterDecision(conversation, { nextStep: false });
   return updated;
 }
 
 // ---------- reopen ----------
 
 /** Зміни стану останнього прийняття картки (усі шляхи однієї ревізії; reopen-записи пропускаються). */
-async function lastAcceptChanges(syllabusId, suggestionId) {
-  const last = await SlotChange.findOne({ syllabusId, suggestionId, source: { $ne: 'reopen' } }).sort({ revision: -1 }).lean();
-  if (!last) return [];
-  return SlotChange.find({ syllabusId, suggestionId, revision: last.revision, source: { $ne: 'reopen' } }).lean();
+async function lastAcceptChanges(syllabusId, suggestion) {
+  if (suggestion.acceptedRevision == null) return [];
+  return SlotChange.find({ syllabusId, suggestionId: suggestion._id, revision: suggestion.acceptedRevision, source: { $ne: 'reopen' } }).lean();
 }
 
 async function reopenSuggestion(syllabusId, suggestionId, userId) {
@@ -308,10 +346,11 @@ async function reopenSuggestion(syllabusId, suggestionId, userId) {
   const { suggestion: s, conversation } = ctx;
   if (s.status === 'pending') throw httpError(409, 'This suggestion is already open.', { code: 'NOT_DECIDED' });
 
-  const changes = s.status === 'accepted' ? await lastAcceptChanges(syllabusId, s._id) : [];
+  const changes = s.status === 'accepted' ? await lastAcceptChanges(syllabusId, s) : [];
   const claimed = await Suggestion.findOneAndUpdate(
-    { _id: s._id, syllabusId, status: s.status },
+    { _id: s._id, syllabusId, status: s.status, __v: s.__v },
     {
+      $inc: { __v: 1 },
       $set: { status: 'pending', selectedOptionId: null, decisionReason: null, rejectTag: null },
       $unset: { acceptedAt: '' },
       $push: { decisionHistory: { action: 'reopened', by: userId } },

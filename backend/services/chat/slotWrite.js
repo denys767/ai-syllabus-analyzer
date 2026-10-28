@@ -44,7 +44,7 @@ function toEntities(path, value, current, source) {
   return list.map((item) => {
     const base = isObject(item) ? item : { text: String(item) };
     const prev = (current || []).find((c) => c.id && c.id === base.id);
-    return { ...extras, ...prev, ...base, id: base.id || nextId(), source, evidenceBlockIds: base.evidenceBlockIds || [] };
+    return { ...extras, ...prev, ...base, id: base.id || nextId(), source: base.source || source, evidenceBlockIds: base.evidenceBlockIds || [] };
   });
 }
 
@@ -55,6 +55,9 @@ function toEntities(path, value, current, source) {
  */
 function writeSlot(state, path, value, { source }) {
   const current = getPath(state, path);
+  if (/^outcomes\[[^\]]+\]\.plo$/.test(path) && Array.isArray(value)) {
+    return setPath(state, path, value.map((mapping) => ({ ...mapping, confirmed: true })));
+  }
   if (typeof value === 'string' && isObject(current) && 'text' in current) {
     return setPath(state, path, { ...current, text: value, source, evidenceBlockIds: [] });
   }

@@ -1,6 +1,7 @@
 // Чат v5: View, /start, рішення по картках, розділи, політики, документ, вихід .docx. LLM-модулі (formulator,
 // runner, interviewer) замокані — їх реалізують F і W3; тут перевіряється лише шар чату.
 jest.mock('../services/ai/prompts/formulator', () => ({ reword: jest.fn(), draftFromNarrative: jest.fn() }));
+jest.mock('../services/ai/client', () => ({ ...jest.requireActual('../services/ai/client'), createResponse: jest.fn() }));
 jest.mock('../services/ai/tools/runner', () => ({ runOrchestratorTurn: jest.fn() }));
 jest.mock('../services/ai/prompts/interviewer', () => ({ nextQuestion: jest.fn() }));
 
@@ -168,6 +169,7 @@ describe('POST /start', () => {
     const first = await card(s, { severity: 'critical', title: 'Critical first', target: { path: 'summary.capstone' }, text: 'Connects the course to the capstone project.' });
     const res = await post(s, '/start');
     expect(res.status).toBe(200);
+    expect(Object.keys(res.body).sort()).toEqual(['checks', 'conversation', 'messages', 'readiness', 'revision', 'sections', 'state', 'suggestions', 'syllabus'].sort());
     const kinds = res.body.messages.map((m) => m.kind);
     expect(res.body.messages[0].content).toMatch(/^Here's what I found in your file: \d+ of 11 sections have content/);
     expect(kinds).toContain('approve-all');
@@ -394,7 +396,7 @@ describe('розділи', () => {
     expect(ok.body.state.sections.instructor.approved).toBe(true);
     expect(ok.body.readiness.sections.instructor.status).toBe('approved');
     expect(ok.body.readiness.score).toBe(Math.round(100 / 11));
-    expect((await Conversation.findOne({ syllabusId: s._id })).readiness).toBeNull(); // розмови ще немає
+    expect(await Conversation.findOne({ syllabusId: s._id })).toBeNull(); // розмови ще немає
 
     const off = await request(app).delete(`${api(s)}/sections/instructor/approve`).set(authOf(owner));
     expect(off.status).toBe(200);
@@ -541,13 +543,14 @@ describe('POST /message', () => {
   test('хід оркестратора: deps, відповідь AI, картки створених пропозицій', async () => {
     const s = await uploaded();
     runner.runOrchestratorTurn.mockImplementation(async (ctx) => {
-      expect(Object.keys(ctx.deps).sort()).toEqual(['acceptSuggestion', 'createDraftSuggestions', 'findSuggestion', 'getRefs', 'mutate', 'runChecks']);
-      expect(ctx.deps.getRefs().programCode).toBe('MBA28');
-      expect(ctx.deps.runChecks().length).toBeGreaterThan(0);
-      const [draft] = await ctx.deps.createDraftSuggestions([{
+      expect(Object.keys(ctx.deps)).toEqual(['acceptSuggestion']);
+      const { deps } = require('../services/ai/tools/handlers').createToolContext(ctx);
+      expect(ctx.refs.programCode).toBe('MBA28');
+      expect(deps.runChecks(ctx.state, ctx.refs).length).toBeGreaterThan(0);
+      const [draft] = await deps.createDraftSuggestions([{
         severity: 'medium', kind: 'edit', title: 'Capstone link', target: { path: 'summary.capstone' }, text: 'It prepares you for the capstone in 8 weeks.',
-      }]);
-      await ctx.deps.mutate((st) => setPath(st, 'header.department', 'Management'), { source: 'instructor_directed' });
+      }], { syllabusId: s._id, state: ctx.state, refs: ctx.refs, known: [ctx.userText] });
+      await deps.mutate(s._id, ctx.revision, (st) => setPath(st, 'header.department', 'Management'), { source: 'instructor_directed', refs: ctx.refs });
       return { reply: 'Here is a draft.', createdSuggestionIds: [String(draft._id)], stateChanged: true };
     });
     const res = await post(s, '/message', { text: 'It prepares for the capstone' });
@@ -691,5 +694,184 @@ describe('після рішення', () => {
       expect((await post(s, path, body, stranger)).status).toBe(403);
     }
     expect(getPath(await stateOf(s), 'summary.shortDescription.text')).not.toBeNull();
+  });
+});
+
+// Інтеграційні межі між шаром чату і справжніми інструментами F; замоканий тільки виклик моделі.
+describe('інтеграція v5', () => {
+  const { createResponse } = require('../services/ai/client');
+  const actualRunner = jest.requireActual('../services/ai/tools/runner');
+  const tool = (name, args) => ({ output: [{ type: 'function_call', call_id: `call_${name}`, name, arguments: JSON.stringify(args) }] });
+  const reply = (text) => ({ output_text: text, output: [] });
+
+  beforeEach(() => {
+    createResponse.mockReset();
+    runner.runOrchestratorTurn.mockImplementation(actualRunner.runOrchestratorTurn);
+  });
+
+  test('справжній set_slot отримує сигнатуру store і зберігає число', async () => {
+    const s = await scratch();
+    createResponse.mockResolvedValueOnce(tool('set_slot', { key: 'glance.ects', value: 6 }))
+      .mockResolvedValueOnce(reply('Saved 6 ECTS.'));
+    const res = await post(s, '/message', { text: '6 ECTS' });
+    expect(res.status).toBe(200);
+    expect(res.body.state.header.ects).toBe(6);
+    expect(res.body.revision).toBe(2);
+    expect(res.body.conversation.readiness).toEqual(res.body.readiness);
+  });
+
+  test('writeOwn доходить до моделі й лишається контекстом, поки інструмент не змінить слот', async () => {
+    const s = await uploaded();
+    await post(s, '/policies/policy.late/choose', { writeOwn: true });
+    createResponse.mockResolvedValueOnce(reply('How many days should students have?'));
+    const res = await post(s, '/message', { text: 'I want to allow late work.' });
+    expect(res.status).toBe(200);
+    expect(createResponse.mock.calls[0][0].input.some((m) => m.role === 'system' && m.content.includes('policy.late'))).toBe(true);
+    expect(res.body.conversation.currentSlotKey).toBe('policy.late');
+  });
+
+  test('справжній propose_draft → підтвердження фактів → apply_edit через спільний Confirm', async () => {
+    const s = await uploaded();
+    createResponse.mockResolvedValueOnce(tool('propose_draft', {
+      key: 'course.description', text: 'You will practise risk analysis for 48 hours.',
+      instruction: null, entity_id: null, proposed_values: [],
+    })).mockResolvedValueOnce(reply('Please confirm the draft and its duration.'));
+    const proposed = await post(s, '/message', { text: 'Focus on risk analysis.' });
+    expect(proposed.status).toBe(200);
+    const c = proposed.body.suggestions[0];
+    expect(c.draft.proposedValues).toEqual([expect.objectContaining({ value: '48 hours', confirmed: false })]);
+    await post(s, `/suggestions/${c.id}/values`, { values: [{ id: 'v1', confirmed: true }] });
+
+    // Переданий expectedRevision не можна відкинути в адаптері.
+    const conflict = Object.assign(new Error('changed'), { statusCode: 409, code: 'STATE_CONFLICT' });
+    const mutate = jest.spyOn(store, 'mutate').mockRejectedValueOnce(conflict);
+    createResponse.mockResolvedValueOnce(tool('apply_edit', { draft_id: c.id })).mockResolvedValueOnce(reply('Please try again.'));
+    expect((await post(s, '/message', { text: 'confirm' })).status).toBe(200);
+    expect(mutate.mock.calls[0][1]).toBe(proposed.body.revision);
+    expect((await Suggestion.findById(c.id)).status).toBe('pending');
+    mutate.mockRestore();
+
+    createResponse.mockResolvedValueOnce(tool('apply_edit', { draft_id: c.id })).mockResolvedValueOnce(reply('Saved.'));
+    const accepted = await post(s, '/message', { text: 'confirm' });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.state.summary.shortDescription.text).toBe('You will practise risk analysis for 48 hours.');
+    expect(accepted.body.suggestions[0].status).toBe('accepted');
+  });
+
+  test('PLO mapping Confirm підтверджує кожен зв’язок; before завжди поточне значення', async () => {
+    const s = await uploaded();
+    const outcome = (await stateOf(s)).outcomes[0];
+    const value = [{ code: refs.outcomes[0].code, coverage: 'partial', confirmed: false }];
+    const c = await card(s, { target: { path: `outcomes[${outcome.id}].plo`, entityId: outcome.id }, value, text: undefined });
+    const res = await post(s, `/suggestions/${c._id}/accept`, {});
+    expect(res.status).toBe(200);
+    expect(res.body.state.outcomes[0].plo).toEqual([{ ...value[0], confirmed: true }]);
+    expect(res.body.suggestions[0].before).toEqual(res.body.state.outcomes[0].plo);
+    expect(res.body.suggestions[0].after).toEqual(value);
+  });
+
+  test('values зберігає повні сутності, числовий тип і versions.action без LLM', async () => {
+    const s = await uploaded();
+    const value = [{ id: 'clo_new', text: 'Analyze risks over 48 hours.', plo: [], assessmentIds: [], source: 'ai_draft', evidenceBlockIds: [] }];
+    const list = await card(s, { target: { path: 'outcomes[]' }, value, text: undefined });
+    const changed = await post(s, `/suggestions/${list._id}/values`, { values: [{ id: 'v1', value: '36 hours', confirmed: true }] });
+    expect(changed.status).toBe(200);
+    expect(changed.body.suggestions[0].draft.value).toEqual([{ ...value[0], text: 'Analyze risks over 36 hours.' }]);
+    expect((await Suggestion.findById(list._id)).versions[0].action).toBe('values');
+    expect((await post(s, `/suggestions/${list._id}/accept`, {})).status).toBe(200);
+
+    const number = await card(s, { target: { path: 'header.ects' }, value: 6, text: '6' });
+    const numeric = await post(s, `/suggestions/${number._id}/values`, { values: [{ id: 'v1', value: '4', confirmed: true }] });
+    expect(numeric.status).toBe(200);
+    expect(numeric.body.suggestions.find((x) => x.id === String(number._id)).draft.value).toBe(4);
+    expect((await post(s, `/suggestions/${number._id}/accept`, {})).body.state.header.ects).toBe(4);
+    expect(createResponse).not.toHaveBeenCalled();
+  });
+
+  test('entityId: criteria і additional застосовуються до конкретної сутності; рекомендовані матеріали замінюються', async () => {
+    const s = await uploaded();
+    const state = await stateOf(s);
+    for (const [path, entityId, value] of [
+      [`assessments[${state.assessments[0].id}].criteria`, state.assessments[0].id, 'Clear argument supported by evidence.'],
+      [`sessions[${state.sessions[0].id}].additional`, state.sessions[0].id, 'Discuss the instructor’s example.'],
+      ['materials.recommended[]', null, [{ id: 'reading1', citation: 'Instructor reading', url: null, verified: false, source: 'instructor_directed', evidenceBlockIds: [] }]],
+    ]) {
+      const c = await card(s, { target: { path, entityId }, value, text: undefined });
+      const res = await post(s, `/suggestions/${c._id}/accept`, {});
+      expect(res.status).toBe(200);
+      expect(getPath(res.body.state, path)).toEqual(value);
+    }
+  });
+
+  test('трек scratch спочатку ставить питання, потім показує pending-картку', async () => {
+    const s = await scratch();
+    const c = await card(s, { text: 'A draft for your course.' });
+    const res = await post(s, '/start');
+    expect(res.status).toBe(200);
+    expect(res.body.messages.map((m) => m.kind)).toEqual(['text', 'question', 'suggestion']);
+    expect(res.body.messages.at(-1).relatedSuggestionId).toBe(String(c._id));
+  });
+});
+
+// Атомарність і відкат мають стосуватися саме тієї версії картки, яку бачив викладач.
+describe('конкурентні рішення', () => {
+  test('паралельні Confirm не застосовують одну картку двічі', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'A draft about managing risk.' });
+    const results = await Promise.all([post(s, `/suggestions/${c._id}/accept`, {}), post(s, `/suggestions/${c._id}/accept`, {})]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(await SlotChange.countDocuments({ syllabusId: s._id, suggestionId: c._id })).toBe(1);
+  });
+
+  test('Reword у польоті не перезаписує values, які викладач щойно підтвердив', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'A course lasting 48 hours.' });
+    let finish;
+    let started;
+    const entered = new Promise((resolve) => { started = resolve; });
+    formulator.reword.mockImplementationOnce(() => { started(); return new Promise((resolve) => { finish = resolve; }); });
+    const inFlight = post(s, `/suggestions/${c._id}/refine`, { feedback: 'Make it clearer' }).then((res) => res);
+    await entered;
+    expect((await post(s, `/suggestions/${c._id}/values`, { values: [{ id: 'v1', confirmed: true }] })).status).toBe(200);
+    finish({ text: 'A reworded course lasting 48 hours.' });
+    expect((await inFlight).status).toBe(409);
+    const saved = await Suggestion.findById(c._id);
+    expect(saved.draft.value).toBe('A course lasting 48 hours.');
+    expect(saved.draft.proposedValues[0].confirmed).toBe(true);
+  });
+
+  test('reopen після Confirm без зміни стану не відкочує попереднє прийняття', async () => {
+    const s = await uploaded();
+    const text = 'A draft about managing project risk.';
+    const c = await card(s, { text });
+    const accepted = await post(s, `/suggestions/${c._id}/accept`, {});
+    const value = accepted.body.state.summary.shortDescription;
+    await post(s, `/suggestions/${c._id}/reopen`);
+    await store.mutate(s._id, (await store.getState(s._id)).revision, (st) => setPath(st, 'summary.shortDescription', value));
+    formulator.reword.mockResolvedValueOnce({ text, proposedValues: [] });
+    expect((await post(s, `/suggestions/${c._id}/refine`, { feedback: 'Keep exactly this text' })).status).toBe(200);
+    const revision = (await store.getState(s._id)).revision;
+    expect((await post(s, `/suggestions/${c._id}/accept`, {})).body.revision).toBe(revision);
+    expect((await Suggestion.findById(c._id)).acceptedRevision).toBeNull();
+    const reopened = await post(s, `/suggestions/${c._id}/reopen`);
+    expect(reopened.status).toBe(200);
+    expect(reopened.body.state.summary.shortDescription).toEqual(value);
+    expect(reopened.body.revision).toBe(revision);
+  });
+
+  test('deps.acceptSuggestion зберігає expectedRevision; текст за прямою вказівкою має відповідний provenance', async () => {
+    const s = await uploaded();
+    const c = await card(s, { text: 'Use the wording specified by the instructor.', source: 'instructor_directed' });
+    runner.runOrchestratorTurn.mockImplementationOnce(async (ctx) => {
+      await ctx.deps.acceptSuggestion(String(c._id), { expectedRevision: 999 });
+      return { reply: 'Saved.' };
+    });
+    const conflict = await post(s, '/message', { text: 'Confirm' });
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.code).toBe('STATE_CONFLICT');
+    expect((await Suggestion.findById(c._id)).status).toBe('pending');
+    const accepted = await post(s, `/suggestions/${c._id}/accept`, {});
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.state.summary.shortDescription.source).toBe('instructor_directed');
   });
 });

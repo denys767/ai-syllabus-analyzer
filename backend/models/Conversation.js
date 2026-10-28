@@ -16,7 +16,7 @@ const conversationSchema = new mongoose.Schema({
   currentSuggestionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Suggestion', default: null },
   status: {
     type: String,
-    enum: ['active', 'submitted', 'error'],
+    enum: ['active', 'error'],
     default: 'active',
   },
   // Знімок readiness: v5 — форма docs/api-v5.md §4 (syllabusState/readiness.computeReadiness); v4 — breakdown за групами

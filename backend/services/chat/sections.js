@@ -1,6 +1,7 @@
 // Затвердження розділів: окремо, гуртово і зняття. Пише лише syllabusState/store (approveSection/unapproveSection/approveAll).
 
 const store = require('../syllabusState/store');
+const { invalidateOutputs } = require('../outputs');
 const { sectionGaps } = require('../syllabusState/slots');
 const { runChecks } = require('../checks');
 const { BLOCKING_SEVERITIES, loadContext, pendingCountsBySection, refreshConversationReadiness } = require('./state');
@@ -32,12 +33,14 @@ async function approvableSections(ctx) {
 async function approveSection(syllabusId, key, { userId, expectedRevision } = {}) {
   await loadContext(syllabusId);
   await store.approveSection(syllabusId, key, { by: userId, expectedRevision });
+  invalidateOutputs(syllabusId);
   await refreshConversationReadiness(syllabusId);
 }
 
 async function unapproveSection(syllabusId, key, { userId, expectedRevision } = {}) {
   await loadContext(syllabusId);
   await store.unapproveSection(syllabusId, key, { by: userId, expectedRevision });
+  invalidateOutputs(syllabusId);
   await refreshConversationReadiness(syllabusId);
 }
 
@@ -46,6 +49,7 @@ async function approveAll(syllabusId, { userId, expectedRevision } = {}) {
   const ctx = await loadContext(syllabusId);
   const blockersFor = await blockersBuilder(ctx);
   const { approved, skipped } = await store.approveAll(syllabusId, { blockersFor, by: userId, expectedRevision });
+  invalidateOutputs(syllabusId);
   await refreshConversationReadiness(syllabusId);
   return { approved, skipped };
 }

@@ -6,7 +6,7 @@ const Message = require('../../models/Message');
 const Suggestion = require('../../models/Suggestion');
 const { httpError } = require('../../utils/httpError');
 const interviewer = require('../ai/prompts/interviewer');
-const { loadContext, buildReadiness, refreshConversationReadiness } = require('./state');
+const { loadContext, buildReadiness, refreshConversationReadiness, BLOCKING_SEVERITIES } = require('./state');
 const { approvableSections } = require('./sections');
 const { policyDecided } = require('../syllabusState/slots');
 
@@ -60,7 +60,7 @@ function uploadGreeting(ctx, readiness, checks) {
     `Here's what I found in your file: ${sections.length - empty.length} of ${sections.length} sections have content`
       + (empty.length ? `, and ${empty.length} ${empty.length > 1 ? 'are' : 'is'} still empty (${empty.map((t) => t.title).join(', ')}).` : '.'),
   ];
-  const main = checks.filter((c) => c.passed === false && (c.severity === 'critical' || c.severity === 'high')).slice(0, 3);
+  const main = checks.filter((c) => c.passed === false && BLOCKING_SEVERITIES.includes(c.severity)).slice(0, 3);
   if (main.length) lines.push(`Main issues: ${main.map((c) => c.message).join(' ')}`);
   else lines.push('I found no critical issues.');
   return lines.join(' ');
@@ -121,9 +121,9 @@ async function pickQuestion(conversation, ctx) {
  * Не дублює картку/питання, які вже є останніми в чаті.
  * @returns {Promise<{ suggestion?: object, question?: object }|null>}
  */
-async function postNextStep(conversation) {
+async function postNextStep(conversation, { preferQuestion = false } = {}) {
   const ctx = await loadContext(conversation.syllabusId);
-  const next = await nextPending(conversation.syllabusId);
+  const next = preferQuestion ? null : await nextPending(conversation.syllabusId);
   if (next) {
     const lastCard = await lastMessage(conversation, ['suggestion', 'question']);
     if (lastCard && lastCard.kind === 'suggestion' && String(lastCard.relatedSuggestionId) === String(next._id)) {
@@ -179,6 +179,7 @@ async function startConversation(syllabusId, userId) {
   if (created) {
     if (ctx.syllabus.track === 'scratch') {
       await postAiMessage(conversation, scratchGreeting(ctx.syllabus));
+      await postNextStep(conversation, { preferQuestion: true });
     } else {
       const { readiness, checks } = await buildReadiness(ctx);
       await postAiMessage(conversation, uploadGreeting(ctx, readiness, checks));
@@ -192,7 +193,7 @@ async function startConversation(syllabusId, userId) {
       }
     }
   }
-  await postNextStep(conversation);
+  if (!created || ctx.syllabus.track !== 'scratch' || await nextPending(syllabusId)) await postNextStep(conversation);
   await refreshConversationReadiness(syllabusId);
   return conversation;
 }
@@ -204,7 +205,7 @@ async function skipSlot(syllabusId, slotKey, userId) {
   await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { skippedSlots: slotKey } });
   const fresh = await Conversation.findById(conversation._id);
   if (fresh.currentSlotKey === slotKey) await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: null } });
-  await postNextStep(fresh);
+  await postNextStep(fresh, { preferQuestion: true });
   return fresh;
 }
 
