@@ -4,7 +4,7 @@ const { createEmptyState } = require('../../services/syllabusState/empty');
 const { recompute, computedWarnings } = require('../../services/syllabusState/computed');
 const { getPath, setPath, updateEntity, changedPaths, sectionsTouched, sectionOfPath } = require('../../services/syllabusState/paths');
 const { computeReadiness } = require('../../services/syllabusState/readiness');
-const { renderState, CHOOSE_OPTION } = require('../../services/syllabusState/render');
+const { renderState, CHOOSE_OPTION, FROM_FILE_NOTE } = require('../../services/syllabusState/render');
 const { diffRendered, diffBlock } = require('../../services/syllabusState/diff');
 const apply = require('../../services/document/apply');
 const { loadFixtureRefs } = require('../../services/references/fixtureRefs');
@@ -207,7 +207,9 @@ describe('render + diff', () => {
     const lib = (key) => refs28.policyLibrary.blocks.find((b) => b.key === key);
     expect(policyText('Late Submission')).toBe(lib('policy.late').options.find((o) => o.key === 'late_daily').text);
     expect(policyText('Grade Appeal')).toBe('Write to me within a week.');
-    expect(policyText('Attendance')).toBe(CHOOSE_OPTION); // текст з файлу без вибору — ще не рішення
+    // текст з файлу без вибору — ще не рішення: показується з позначкою, а не порожній плейсхолдер
+    expect(policyText('Attendance')).toBe(`${state.policies.find((p) => p.key === 'policy.attendance').text.trim()} ${FROM_FILE_NOTE}`);
+    expect(policyText('Participation Credit')).toBe(CHOOSE_OPTION); // тексту немає — плейсхолдер
     expect(policyText('Passing Threshold')).toBe(lib('policy.passing').text);
     for (const sec of sections) {
       for (const b of sec.blocks) expect(['heading', 'paragraph', 'list-item', 'table-row']).toContain(b.kind);

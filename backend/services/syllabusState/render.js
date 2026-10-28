@@ -4,6 +4,8 @@
 const { SECTION_KEYS } = require('./schema');
 
 const CHOOSE_OPTION = '[Choose an option]';
+// Текст library-політики з файлу, поки викладач не обрав варіант і не залишив свій текст
+const FROM_FILE_NOTE = '(from your file — choose an option or keep your text)';
 const EMPTY = '—';
 
 const filled = (v) => v !== null && v !== undefined && String(v).trim() !== '';
@@ -20,13 +22,15 @@ const list = (title, values) => (values?.length ? [heading(title), ...values.fil
 
 /**
  * Текст блоку політики: обраний варіант довідника, власний текст викладача або плейсхолдер.
- * Текст з файлу без обраного варіанта (source: 'parsed') — ще не рішення, тож показується плейсхолдер.
+ * Текст з файлу без обраного варіанта (source: 'parsed') — ще не рішення: показується текст файлу з позначкою
+ * FROM_FILE_NOTE; плейсхолдер лише тоді, коли тексту немає.
  */
 function policyText(p, block) {
   if (p.mode === 'locked') return p.text || block?.text || '';
   const own = ['instructor_directed', 'fixture_edited'].includes(p.source) || p.modified;
   if (own && filled(p.text)) return p.text;
   if (filled(p.optionKey)) return block?.options?.find((o) => o.key === p.optionKey)?.text || p.text || CHOOSE_OPTION;
+  if (filled(p.text)) return `${p.text.trim()} ${FROM_FILE_NOTE}`;
   return CHOOSE_OPTION;
 }
 
@@ -136,4 +140,4 @@ function renderText(rendered) {
   ].join('\n')).join('\n\n');
 }
 
-module.exports = { renderState, renderText, policyText, CHOOSE_OPTION };
+module.exports = { renderState, renderText, policyText, CHOOSE_OPTION, FROM_FILE_NOTE };

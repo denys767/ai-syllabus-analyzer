@@ -98,6 +98,7 @@ readiness = {
   target: { section, path, entityId? },  // шлях у state, напр. 'summary.shortDescription', 'assessments', 'policy.late'
   draft: {                               // kind=edit
     value,                               // нове значення слота (рядок або об'єкт/масив сутностей)
+    source: 'ai_draft'|'instructor_directed', // ai_draft за замовчуванням; явний провенанс прямої вказівки
     template?,                           // текст із плейсхолдерами {{v1}} для proposedValues
     proposedValues: [{ id, label, value, path?, confirmed }],
     basisHash,                           // hash значення слота, від якого будувалась чернетка
@@ -111,7 +112,9 @@ readiness = {
 ```
 
 - **Атомарність.** Рішення — атомарний `findOneAndUpdate` з умовою на статус. Причина обов'язкова для critical/high.
+- **Версії картки.** Умова рішення також перевіряє `__v`, щоб Reword у польоті не перезаписав щойно підтверджені значення. Попередня чернетка зберігається у `versions` з `action: values|refined|answered`. `acceptedRevision` посилається лише на зміни останнього Confirm; `null` — прийняття без зміни стану, яке не відкочує старі `SlotChange`.
 - **`proposedValues`.** Факт (число, поріг, термін, дата, назва), якого не назвав викладач і немає в довіднику, стає `proposedValues` і потребує окремого підтвердження. Сервер сам сканує чернетку й доповнює список.
+- **SuggestionView.** Містить `id` (також `_id`, `syllabusId`), `target`, `draft`, `options`, `before` (поточне значення слота) і `after` (значення чернетки), `stale`. Для текстового слота чи політики `before` — текст. `values` перерендерює текст без LLM, зберігаючи числовий тип і повні сутності у списках.
 - **Застаріла чернетка.** `accept`, коли hash поточного значення ≠ `basisHash` → 409 `STALE_DRAFT`.
 
 ## 6. Ендпоінти
@@ -148,6 +151,15 @@ readiness = {
 | GET | `/outputs/syllabus.docx` | Завантажити `.docx` на будь-якому етапі; збільшує `downloads`. Кеш за `stateRevision` |
 
 Кожна мутація повертає View.
+
+- Чат v4 (`legacy`, `needsRebuild` або немає `state`) доступний лише для читання: `canMutate: false`, `needsRebuild: true`, без v5-карток. Мутація → 409 `NEEDS_REBUILD`; незавершений аналіз → 409 `ANALYSIS_IN_PROGRESS`.
+- `expectedRevision`, якщо переданий у Confirm, не замінюється поточною ревізією: конфлікт → 409 `STATE_CONFLICT { revision }`. Для клієнтів без цього поля використовується ревізія, прочитана на початку операції; перевірка `basisHash` залишається обов'язковою.
+- `writeOwn: true` зберігає `Conversation.currentSlotKey` і надсилає “Tell me in your own words how this policy should work.” Альтернатива `{ keepText: true }` явно залишає текст з файлу (`instructor_directed`, `modified: true`). Потрібна рівно одна дія з `optionKey`, `writeOwn`, `keepText`; locked-політика → 409 `LOCKED`.
+- `start` треку scratch: привітання → питання інтерв'юера (501 → `TemplateSection.question` першого порожнього розділу) → перша pending-картка за `order`, якщо є. `skip` додає ключ у `Conversation.skippedSlots`.
+- Confirm картки `outcomes[id].plo` встановлює `confirmed: true` для всіх зв'язків. `kind: question` → 409 `ANSWER_REQUIRED`; `applicable: false` приймається без зміни стану. Reject critical/high без причини → 400 `REASON_REQUIRED`; відхилена порада Readiness не знижує.
+- `/message` передає `currentSlotKey` до runner і надає `deps.acceptSuggestion(id, { expectedRevision, userId })`, прив'язаний до поточного власника та силабусу. Решта залежностей — стандартні. Збій LLM/501 → 503 `retryable: true`; три збої поспіль встановлюють `Conversation.status: error`, успішний хід скидає лічильник.
+- Бібліотечна політика з текстом з файлу до вибору показує текст із приміткою “(from your file — choose an option or keep your text)” у документі та `.docx`; без тексту — плейсхолдер.
+- Єдиний вихід `syllabus.docx` доступний власнику й admin без вимоги затвердження. Файл `<Course_Title>_syllabus.docx`; кеш у `uploads/outputs/<id>/syllabus.r<stateRevision>.docx`, інвалідується зміною ревізії та після кожного рішення (без видалення файлу активного завантаження). Старі ревізії зберігаються до видалення силабусу для паралельних завантажень. Невідоме або старе ім'я → 404 `OUTPUT_NOT_AVAILABLE`.
 
 ### Довідники
 
@@ -205,7 +217,7 @@ readiness = {
 - **`target.path` — конкретний шлях стану.** Приклади: `summary.shortDescription`, `outcomes[]` (увесь масив), `assessments[as1].criteria`, `policies{policy.late}`.
   - Для політик `draft.value` — текст. Accept записує в блок `text`, `source` (`fixture_edited`, якщо був обраний варіант, інакше `instructor_directed`) і `modified: true` (якщо змінено текст довідника).
   - Вибір варіанта — картка `choice` з `options[{ id, label, optionKey }]`.
-- **Інтерфейси-заготовки** (кидають 501 `NOT_IMPLEMENTED`, доки їх не реалізовано):
+- **Спільні інтерфейси.** Formulator і runner реалізовані F; interviewer залишається заготовкою 501 `NOT_IMPLEMENTED` до W3. Інші заготовки кидають 501, доки їх не реалізовано:
 
 | Модуль | Функції | Хто реалізує |
 |---|---|---|

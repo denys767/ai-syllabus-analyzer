@@ -100,7 +100,7 @@ function createToolContext(ctx) {
     createdIds: [],
     wrote: false,
     stateChanged: false,
-    currentSlotKey: null,
+    currentSlotKey: ctx.currentSlotKey ?? ctx.conversation?.currentSlotKey ?? null,
   };
 }
 

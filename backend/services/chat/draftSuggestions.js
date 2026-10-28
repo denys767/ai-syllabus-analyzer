@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const Suggestion = require('../../models/Suggestion');
 const { getPath, sectionOfPath } = require('../syllabusState/paths');
 const { mergeProposedValues, scanFacts, toTemplate } = require('../ai/facts');
+const { currentText } = require('../ai/slotDrafts');
 
 // Порядок показу: critical перед improvement, всередині — за order розділу шаблону (ТЗ §6)
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'warning', 'low', 'info'];
@@ -33,7 +34,7 @@ function orderFor({ severity, section }, refs) {
 function buildDraftSuggestion(input, { syllabusId, state, refs, known = [] }) {
   const section = input.target.section || sectionOfPath(input.target.path) || null;
   const current = getPath(state, input.target.path);
-  const text = typeof input.text === 'string' ? input.text : (typeof input.value === 'string' ? input.value : null);
+  const text = typeof input.text === 'string' ? input.text : (input.value == null ? null : currentText(input.value));
   const proposedValues = text != null
     ? mergeProposedValues(input.proposedValues || [], scanFacts(text, { known }))
     : mergeProposedValues(input.proposedValues || []);
@@ -53,6 +54,7 @@ function buildDraftSuggestion(input, { syllabusId, state, refs, known = [] }) {
     // Питання й вибір без значення — без чернетки (значення з'явиться після answer / вибору варіанта)
     draft: input.kind === 'question' || (input.kind === 'choice' && input.value === undefined) ? undefined : {
       value: input.value !== undefined ? input.value : text,
+      source: input.source === 'instructor_directed' ? 'instructor_directed' : 'ai_draft',
       template: text != null && proposedValues.length ? toTemplate(text, proposedValues) : null,
       proposedValues,
       basisHash: hashValue(current),
