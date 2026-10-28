@@ -14,7 +14,7 @@ const Bubble = ({ role, children, sx }) => {
           color: isUser ? 'primary.contrastText' : 'text.primary',
           border: isUser ? 'none' : '1px solid',
           borderColor: 'divider',
-          borderRadius: 2,
+          borderRadius: '16px',
           ...sx,
         }}
       >

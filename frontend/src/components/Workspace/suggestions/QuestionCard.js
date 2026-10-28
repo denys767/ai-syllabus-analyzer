@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { Box, TextField, Typography } from '@mui/material';
 import { Send } from '@mui/icons-material';
 import SuggestionFrame from './SuggestionFrame';
+import { S } from '../../../strings';
 
-// kind = 'question': AI просить дані, яких бракує в тексті. Після відповіді сервер перетворює
-// картку на kind='edit', тож компонент замінюється на SuggestionCard.
-// loadSlides не потрібен: у питання немає змін
-const QuestionCard = ({ suggestion, actions, busy, loadSlides, ...frameProps }) => {
+// kind = 'question': бракує даних, які може дати лише викладач. Після відповіді сервер перетворює
+// картку на kind='edit' (чернетка з proposedValues), тож компонент замінюється на DraftCard.
+const QuestionCard = ({ suggestion, actions, busy, ...frameProps }) => {
   const [answer, setAnswer] = useState('');
   const pending = suggestion.status === 'pending';
   const trimmed = answer.trim();
@@ -16,34 +16,28 @@ const QuestionCard = ({ suggestion, actions, busy, loadSlides, ...frameProps }) 
       suggestion={suggestion}
       actions={actions}
       busy={busy}
-      hideRefine
+      hideReword
       primary={{
-        label: busy ? 'Генеруємо правку…' : 'Надіслати відповідь',
+        label: S.sendAnswer,
         icon: <Send />,
         disabled: !trimmed,
         onClick: () => actions.answer(suggestion.id, trimmed),
       }}
       {...frameProps}
     >
-      <Box
-        sx={{
-          p: 1.5,
-          mb: pending ? 1.5 : 0,
-          borderRadius: 1,
-          border: '1px solid',
-          borderColor: 'info.main',
-          bgcolor: 'action.hover',
-        }}
-      >
+      <Box sx={{ p: 1.5, mb: pending ? 1.5 : 0, borderRadius: 1, border: '1px solid', borderColor: 'primary.main', bgcolor: 'action.hover' }}>
         <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{suggestion.question}</Typography>
       </Box>
+      {suggestion.answer && !pending && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{S.yourAnswer}: {suggestion.answer}</Typography>
+      )}
       {pending && !frameProps.readOnly && (
         <TextField
           fullWidth
           multiline
           minRows={2}
           size="small"
-          label="Ваша відповідь"
+          label={S.yourAnswer}
           value={answer}
           disabled={busy}
           onChange={(e) => setAnswer(e.target.value)}

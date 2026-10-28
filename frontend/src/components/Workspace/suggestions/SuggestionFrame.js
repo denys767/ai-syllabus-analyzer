@@ -8,14 +8,12 @@ import {
   IconButton,
   Paper,
   Stack,
-  Tooltip,
   Typography,
 } from '@mui/material';
-import { Check, Close, Edit, ExpandLess, ExpandMore, Replay, WarningAmber } from '@mui/icons-material';
+import { Check, Close, Edit, ExpandLess, ExpandMore, Undo } from '@mui/icons-material';
 import RejectDialog from './RejectDialog';
 import RefineDialog from './RefineDialog';
-import ConflictDialog from './ConflictDialog';
-import { GROUP_LABELS, REJECT_TAGS, SEVERITY } from '../constants';
+import { REJECT_TAGS, SEVERITY, S } from '../../../strings';
 
 const tagLabel = (value) => REJECT_TAGS.find((t) => t.value === value)?.label || null;
 
@@ -24,79 +22,72 @@ const ResolvedSummary = ({ suggestion }) => {
   const selected = suggestion.options?.find((o) => o.id === suggestion.selectedOptionId);
   const tag = tagLabel(suggestion.rejectTag);
   return (
-    <Stack spacing={0.5} sx={{ mb: 1 }}>
+    <Stack spacing={0.5} sx={{ mt: 0.5 }}>
       <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
         <Chip
           size="small"
-          color={accepted ? 'success' : 'default'}
+          color={accepted ? 'primary' : 'default'}
           icon={accepted ? <Check /> : <Close />}
-          label={accepted ? 'Прийнято' : 'Відхилено'}
+          label={accepted ? S.confirmed : S.cancelled}
         />
         {accepted && selected && (
-          <Typography variant="caption" color="text.secondary">Обраний варіант: {selected.label}</Typography>
+          <Typography variant="caption" color="text.secondary">{S.chosenOption}: {selected.label}</Typography>
         )}
         {!accepted && tag && <Chip size="small" variant="outlined" label={tag} />}
       </Stack>
       {suggestion.decisionReason && (
-        <Typography variant="body2" color="text.secondary">Причина: {suggestion.decisionReason}</Typography>
+        <Typography variant="body2" color="text.secondary">{S.reason}: {suggestion.decisionReason}</Typography>
       )}
     </Stack>
   );
 };
 
-// Спільна оболонка картки пропозиції: заголовок, чипи, дії, діалоги, конфлікти.
-// Тіло (diff, варіанти, поле відповіді) передається як children.
+// Спільна оболонка картки пропозиції v5: чипи, заголовок, дії (Confirm / Reword / Cancel / Undo), діалоги.
+// Тіло (before/after, варіанти, поле відповіді) передається як children; головна дія — primary.
 const SuggestionFrame = ({
   suggestion,
+  sectionTitle = null,
   actions,
   busy = false,
   readOnly = false,
   highlighted = false,
-  acceptOptionId = null,
-  acceptDisabled = false,
-  primary = null, // { label, icon, disabled, onClick } — заміна кнопки «Прийняти» (питання)
-  hideRefine = false,
+  primary = null, // { label, icon, disabled, onClick } — onClick повертає { ok, error }
+  secondary = null, // додаткові кнопки поруч із primary (Change the value)
+  hideReword = false,
+  error: externalError = '',
+  onClearError,
   children,
 }) => {
   const s = suggestion;
   const resolved = s.status !== 'pending';
-  const severity = SEVERITY[s.severity] || SEVERITY.low;
+  const severity = SEVERITY[s.severity] || SEVERITY.medium;
   const advisory = s.applicable === false && s.kind !== 'question';
-  const conflictsWith = s.status === 'pending' ? (s.conflictsWith || []) : [];
+  const requiresReason = s.requiresReason ?? ['critical', 'high'].includes(s.severity);
 
   const [expanded, setExpanded] = useState(!resolved);
-  const [dialog, setDialog] = useState(null); // 'reject' | 'refine' | 'conflict'
+  const [dialog, setDialog] = useState(null); // 'reject' | 'refine'
   const [error, setError] = useState('');
-  const [conflicts, setConflicts] = useState([]);
 
   useEffect(() => {
     setExpanded(s.status === 'pending');
   }, [s.status]);
 
-  // Виконує дію, обробляє конфлікт/помилку. Закриває діалог лише при успіху.
+  // Виконує дію; закриває діалог лише при успіху.
   const exec = async (fn) => {
     setError('');
+    onClearError?.();
     const result = await fn();
     if (result?.ok) {
       setDialog(null);
       return true;
     }
-    if (result?.code === 'SUGGESTION_CONFLICT') {
-      setConflicts(result.conflicts || []);
-      setDialog('conflict');
-      return false;
-    }
-    setError(result?.error || 'Не вдалося виконати дію');
+    setError(result?.error || S.errAction);
     return false;
   };
 
-  const acceptBody = (extra = {}) => (acceptOptionId ? { optionId: acceptOptionId, ...extra } : extra);
-  const doAccept = () => exec(() => actions.accept(s.id, acceptBody()));
-  // Порада без правки: «Зрозуміло» = accept без optionId (статус accepted, документ не змінюється)
-  const dismissAdvisory = () => exec(() => actions.accept(s.id, {}));
   const closeDialog = () => { setDialog(null); setError(''); };
-
   const canAct = !readOnly && !resolved;
+  const shownError = error || externalError;
 
   return (
     <Paper
@@ -105,43 +96,24 @@ const SuggestionFrame = ({
       sx={{
         mb: 1.5,
         p: 2,
-        maxWidth: '95%',
+        maxWidth: '100%',
         borderLeft: '4px solid',
-        borderLeftColor: resolved ? 'divider' : `${severity.color === 'default' ? 'grey' : severity.color}.main`,
-        opacity: resolved && !expanded ? 0.9 : 1,
+        borderLeftColor: resolved ? 'divider' : `${severity.color === 'default' ? 'grey.500' : `${severity.color}.main`}`,
         outline: highlighted ? '2px solid' : '2px solid transparent',
         outlineColor: highlighted ? 'primary.main' : 'transparent',
         transition: 'outline-color 0.3s',
       }}
     >
       <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
-        <Chip size="small" color={severity.color} label={severity.label} />
-        {GROUP_LABELS[s.group] && <Chip size="small" variant="outlined" label={GROUP_LABELS[s.group]} />}
-        {(s.criterionTitle || s.criterionId) && (
-          <Tooltip title={s.criterionId ? `Критерій: ${s.criterionId}` : ''}>
-            <Chip size="small" variant="outlined" label={s.criterionTitle || s.criterionId} sx={{ maxWidth: 280 }} />
-          </Tooltip>
-        )}
-        {s.kind === 'question' && <Chip size="small" color="info" variant="outlined" label="Питання" />}
-        {advisory && <Chip size="small" variant="outlined" label="Порада без правки" />}
-        {conflictsWith.length > 0 && (
-          <Tooltip title={conflictsWith.map((c) => c.title).join('; ')}>
-            <Chip
-              size="small"
-              color="warning"
-              icon={<WarningAmber />}
-              label={conflictsWith.length === 1
-                ? `Конфлікт з прийнятою: ${conflictsWith[0].title}`
-                : `Конфлікт з ${conflictsWith.length} прийнятими`}
-              sx={{ maxWidth: 360 }}
-            />
-          </Tooltip>
-        )}
+        <Chip size="small" color={severity.color} variant={severity.color === 'default' ? 'outlined' : 'filled'} label={severity.label} />
+        {sectionTitle && <Chip size="small" variant="outlined" label={sectionTitle} sx={{ maxWidth: 260 }} />}
+        {s.kind === 'question' && <Chip size="small" variant="outlined" color="primary" label={S.question} />}
+        {advisory && <Chip size="small" variant="outlined" label={S.advisory} />}
         {resolved && (
           <IconButton
             size="small"
             sx={{ ml: 'auto' }}
-            aria-label={expanded ? 'Згорнути' : 'Розгорнути'}
+            aria-label={expanded ? 'Collapse' : 'Expand'}
             onClick={() => setExpanded((v) => !v)}
           >
             {expanded ? <ExpandLess /> : <ExpandMore />}
@@ -150,7 +122,7 @@ const SuggestionFrame = ({
       </Stack>
 
       <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.35 }}>{s.title}</Typography>
-      {resolved && <Box sx={{ mt: 0.5 }}><ResolvedSummary suggestion={s} /></Box>}
+      {resolved && <ResolvedSummary suggestion={s} />}
 
       <Collapse in={expanded} unmountOnExit>
         {s.description && (
@@ -158,72 +130,54 @@ const SuggestionFrame = ({
             {s.description}
           </Typography>
         )}
+        {s.stale && !resolved && <Alert severity="warning" sx={{ mb: 1.5 }}>{S.staleDraft}</Alert>}
         {children}
       </Collapse>
 
-      {error && !dialog && <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setError('')}>{error}</Alert>}
+      {shownError && !dialog && (
+        <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => { setError(''); onClearError?.(); }}>{shownError}</Alert>
+      )}
 
       {canAct && (
         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-          {primary ? (
+          {advisory ? (
+            <Button variant="contained" size="small" startIcon={<Check />} disabled={busy} onClick={() => exec(() => actions.confirm(s.id))}>
+              {S.gotIt}
+            </Button>
+          ) : primary && (
             <Button
               variant="contained"
               size="small"
               startIcon={primary.icon || <Check />}
-              disabled={busy || primary.disabled}
+              disabled={busy || primary.disabled || s.stale}
               onClick={() => exec(primary.onClick)}
             >
               {primary.label}
             </Button>
-          ) : advisory ? (
-            <Button variant="contained" size="small" startIcon={<Check />} disabled={busy} onClick={dismissAdvisory}>
-              Зрозуміло
-            </Button>
-          ) : (
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<Check />}
-              disabled={busy || acceptDisabled}
-              onClick={doAccept}
-            >
-              Прийняти
-            </Button>
           )}
-          {!hideRefine && !advisory && (
+          {!advisory && secondary}
+          {!hideReword && !advisory && (
             <Button variant="outlined" size="small" startIcon={<Edit />} disabled={busy} onClick={() => setDialog('refine')}>
-              Змінити
+              {S.reword}
             </Button>
           )}
-          <Button
-            variant="outlined"
-            size="small"
-            color="warning"
-            startIcon={<Close />}
-            disabled={busy}
-            onClick={() => setDialog('reject')}
-          >
-            Відхилити
+          <Button variant="text" size="small" color="inherit" startIcon={<Close />} disabled={busy} onClick={() => setDialog('reject')}>
+            {S.cancel}
           </Button>
         </Stack>
       )}
 
       {!readOnly && resolved && (
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={<Replay />}
-          disabled={busy}
-          sx={{ mt: 1 }}
-          onClick={() => exec(() => actions.reopen(s.id))}
-        >
-          Повернутися
-        </Button>
+        <Box sx={{ mt: 1 }}>
+          <Button size="small" variant="text" startIcon={<Undo />} disabled={busy} onClick={() => exec(() => actions.reopen(s.id))}>
+            {S.undo}
+          </Button>
+        </Box>
       )}
 
       <RejectDialog
         open={dialog === 'reject'}
-        requiresReason={!!s.requiresReason}
+        requiresReason={requiresReason}
         busy={busy}
         error={dialog === 'reject' ? error : ''}
         onClose={closeDialog}
@@ -235,15 +189,6 @@ const SuggestionFrame = ({
         error={dialog === 'refine' ? error : ''}
         onClose={closeDialog}
         onSubmit={(body) => exec(() => actions.refine(s.id, body))}
-      />
-      <ConflictDialog
-        open={dialog === 'conflict'}
-        conflicts={conflicts}
-        busy={busy}
-        error={dialog === 'conflict' ? error : ''}
-        onKeep={closeDialog}
-        onReplace={() => exec(() => actions.accept(s.id, acceptBody({ conflictResolution: 'replacePrevious' })))}
-        onMerge={() => exec(() => actions.refine(s.id, { mergeWithAccepted: true }))}
       />
     </Paper>
   );

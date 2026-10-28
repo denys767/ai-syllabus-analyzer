@@ -79,6 +79,9 @@ class ApiService {
   };
 
   syllabus = {
+    // Трек 1: { title, programId, programCode, courseCode? } → { syllabus }
+    create: (data) => this.client.post('/syllabus', data),
+    // Трек 2: multipart (поле `syllabus` — файл, `courseName`, `programId`, `programCode`)
     upload: (formData, config = {}) =>
       this.client.post('/syllabus/upload', formData, {
         ...config,
@@ -87,25 +90,30 @@ class ApiService {
     // Опитування під час аналізу: { status, stage, error }
     getStatus: (id) => this.client.get(`/syllabus/${id}/status`),
     deleteSyllabus: (id) => this.client.delete(`/syllabus/${id}`),
+    // Повторний парсинг або перебудова v4 → v5 (needsRebuild)
     reanalyze: (id) => this.client.post(`/syllabus/${id}/analyze`),
   };
 
-  // Контракт: docs/api-v3.md. Кожна мутація повертає повний view чату.
+  // Контракт: docs/api-v5.md §6. Кожна мутація повертає повний View.
   chat = {
     get: (syllabusId) => this.client.get(`/chat/${syllabusId}`),
     start: (syllabusId) => this.client.post(`/chat/${syllabusId}/start`, {}, LLM_REQUEST),
-    suggestionPreview: (syllabusId, suggestionId, optionId) =>
-      this.client.get(`/chat/${syllabusId}/suggestions/${suggestionId}/preview`, {
-        params: optionId ? { optionId } : {},
-      }),
-    // Лише pptx: { slides: [{ slide, before, after, overflowRisk }] }, PNG як data URL
-    suggestionSlides: (syllabusId, suggestionId, optionId) =>
-      this.client.get(`/chat/${syllabusId}/suggestions/${suggestionId}/slides`, {
-        ...LLM_REQUEST,
-        params: optionId ? { optionId } : {},
-      }),
+    // Права панель: { sections: [{ key, docNumber, title, blocks }] }; diff=1 — parts проти baselineState
+    document: (syllabusId, { diff = false } = {}) =>
+      this.client.get(`/chat/${syllabusId}/document`, { params: { diff: diff ? 1 : 0 } }),
+    approveSection: (syllabusId, key) => this.client.post(`/chat/${syllabusId}/sections/${key}/approve`),
+    unapproveSection: (syllabusId, key) => this.client.delete(`/chat/${syllabusId}/sections/${key}/approve`),
+    // { approved: [key], skipped: [{ key, reason }] } + View
+    approveAll: (syllabusId, body = {}) => this.client.post(`/chat/${syllabusId}/sections/approve-all`, body),
+    // body: { optionKey } або { writeOwn: true }
+    choosePolicy: (syllabusId, key, body) =>
+      this.client.post(`/chat/${syllabusId}/policies/${encodeURIComponent(key)}/choose`, body, LLM_REQUEST),
+    // body: { optionId?, expectedRevision }
     accept: (syllabusId, suggestionId, body = {}) =>
       this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/accept`, body, LLM_REQUEST),
+    // «Change the value»: { values: [{ id, value, confirmed }] }
+    setValues: (syllabusId, suggestionId, values) =>
+      this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/values`, { values }),
     reject: (syllabusId, suggestionId, body = {}) =>
       this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/reject`, body, LLM_REQUEST),
     refine: (syllabusId, suggestionId, body = {}) =>
@@ -116,11 +124,10 @@ class ApiService {
       this.client.post(`/chat/${syllabusId}/suggestions/${suggestionId}/reopen`, {}, LLM_REQUEST),
     sendMessage: (syllabusId, text) =>
       this.client.post(`/chat/${syllabusId}/message`, { text }, LLM_REQUEST),
-    documentPreview: (syllabusId) => this.client.get(`/chat/${syllabusId}/document/preview`),
-    // name — з syllabus.outputs (tracked.docx, clean.docx, tracked.pdf, annotated.pdf, edited.pptx, preview.pdf)
-    downloadOutput: (syllabusId, name) =>
-      this.client.get(`/chat/${syllabusId}/outputs/${name}`, { ...LLM_REQUEST, responseType: 'blob' }),
-    submit: (syllabusId) => this.client.post(`/chat/${syllabusId}/submit`, {}, LLM_REQUEST),
+    skip: (syllabusId, slotKey) => this.client.post(`/chat/${syllabusId}/skip`, { slotKey }, LLM_REQUEST),
+    // Один вихід — syllabus.docx; ім'я файлу з Content-Disposition
+    downloadDocx: (syllabusId) =>
+      this.client.get(`/chat/${syllabusId}/outputs/syllabus.docx`, { ...LLM_REQUEST, responseType: 'blob' }),
   };
 
   cabinet = {
@@ -133,7 +140,6 @@ class ApiService {
     updateProgram: (id, data) => this.client.put(`/cabinet/programs/${id}`, data),
     deleteProgram: (id) => this.client.delete(`/cabinet/programs/${id}`),
     updateUser: (id, data) => this.client.patch(`/cabinet/users/${id}`, data),
-    resendSubmission: (syllabusId) => this.client.post(`/cabinet/syllabi/${syllabusId}/resend-submission`),
   };
 
   // Довідники v5 за programCode
@@ -145,8 +151,16 @@ class ApiService {
     capstone: (programCode) => this.client.get(`/references/${programCode}/capstone`),
   };
 
+  // Профіль викладача до інтеграції Lecturers CRM
+  lecturerProfile = {
+    get: () => this.client.get('/users/profile/lecturer'),
+    update: (data) => this.client.put('/users/profile/lecturer', data),
+  };
+
   policies = {
     getAll: (params = {}) => this.client.get('/policies', { params }),
+    // Довідник політик силабуса: { policies: [{ key, title, mode, options[{ key, label, text }], text, rationale }] }
+    syllabusLibrary: () => this.client.get('/policies', { params: { type: 'syllabus-policy' } }),
     create: (data) =>
       this.client.post('/policies', data, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -159,7 +173,6 @@ class ApiService {
     acknowledge: (id) => this.client.post(`/policies/${id}/acknowledge`),
     downloadFile: (id) => this.client.get(`/policies/${id}/download`, { responseType: 'blob' }),
   };
-
 }
 
 const api = new ApiService();
