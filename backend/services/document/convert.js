@@ -1,4 +1,4 @@
-// Конвертації через LibreOffice headless: .doc → .docx, docx/doc/odt → pdf.
+// Конвертація через LibreOffice headless: .doc → .docx (єдиний вхідний формат, якому це потрібно).
 // Кожна задача отримує окремий профіль (-env:UserInstallation) і тимчасовий каталог,
 // задачі виконуються через чергу в процесі (за замовчуванням по одній).
 
@@ -17,7 +17,6 @@ const CANDIDATES = ['/usr/bin/soffice', '/usr/local/bin/soffice', '/usr/lib/libr
 const FILTERS = {
   docx: 'docx:MS Word 2007 XML',
   doc: 'doc:MS Word 97',
-  pdf: 'pdf:writer_pdf_Export',
 };
 
 function httpError(message, statusCode, code, extra = {}) {
@@ -96,11 +95,10 @@ function runSoffice(bin, args, timeoutMs) {
 }
 
 /**
- * Конвертує buffer з формату inExt у targetExt ('docx' | 'doc' | 'pdf').
- * exportComments (лише для pdf): коментарі Word стають анотаціями PDF.
+ * Конвертує buffer з формату inExt у targetExt ('docx').
  * @returns {Promise<Buffer>}
  */
-function convert(buffer, inExt, targetExt, { timeoutMs = DEFAULT_TIMEOUT_MS, exportComments = false } = {}) {
+function convert(buffer, inExt, targetExt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const bin = findSoffice();
   if (!bin) {
     return Promise.reject(httpError(
@@ -108,9 +106,7 @@ function convert(buffer, inExt, targetExt, { timeoutMs = DEFAULT_TIMEOUT_MS, exp
       503, 'SOFFICE_MISSING',
     ));
   }
-  let filter = FILTERS[targetExt];
-  // Коментарі Word → анотації PDF (ExportNotesInMargin у headless LibreOffice 25.2 падає з I/O-помилкою).
-  if (filter && targetExt === 'pdf' && exportComments) filter += ':{"ExportNotes":{"type":"boolean","value":"true"}}';
+  const filter = FILTERS[targetExt];
   if (!filter) return Promise.reject(httpError(`Непідтримуваний формат конвертації: ${targetExt}`, 400, 'BAD_TARGET'));
   const ext = String(inExt || '').replace(/^\./, '').toLowerCase();
 
@@ -138,6 +134,5 @@ function convert(buffer, inExt, targetExt, { timeoutMs = DEFAULT_TIMEOUT_MS, exp
 }
 
 const docToDocx = (buffer, opts) => convert(buffer, 'doc', 'docx', opts);
-const toPdf = (buffer, ext = 'docx', opts) => convert(buffer, ext, 'pdf', opts);
 
-module.exports = { convert, docToDocx, toPdf, isAvailable, findSoffice, createQueue };
+module.exports = { convert, docToDocx, isAvailable, findSoffice, createQueue };

@@ -57,9 +57,12 @@ function buildTools(state) {
     fn('suggest_readings',
       'Search the web for readings or cases on a topic. Only sources whose link was verified are proposed, as a card the instructor confirms.',
       { query: { type: 'string' } }),
+    fn('suggest_ai_tools',
+      'Suggest concrete AI-based assignment formats for this course, chosen only from the "AI in Your Course" catalog together with the school that already runs each format. Creates a question card for the instructor; does nothing while the catalog is empty.',
+      {}),
   ];
 }
 
-const TOOL_NAMES = ['get_slot', 'set_slot', 'propose_draft', 'apply_edit', 'run_checks', 'suggest_plo', 'suggest_readings'];
+const TOOL_NAMES = ['get_slot', 'set_slot', 'propose_draft', 'apply_edit', 'run_checks', 'suggest_plo', 'suggest_readings', 'suggest_ai_tools'];
 
 module.exports = { buildTools, slotKeysOf, TOOL_NAMES };

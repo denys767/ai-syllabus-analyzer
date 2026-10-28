@@ -348,7 +348,14 @@ async function suggest_readings(tctx, { query }) {
   };
 }
 
-const HANDLERS = { get_slot, set_slot, propose_draft, apply_edit, run_checks, suggest_plo, suggest_readings };
+async function suggest_ai_tools(tctx) {
+  const { suggestAiTools } = require('../prompts/aiTools');
+  const created = await createCards(tctx, await suggestAiTools({ state: tctx.state, refs: tctx.refs }), 'schedule.additional');
+  if (!created.length) return { ok: true, created: 0, note: 'The AI in Your Course catalog has no examples yet. Do not suggest AI assignment formats from memory.' };
+  return { ok: true, created: created.length, draft_ids: created.map((c) => String(c._id)), next_step: 'Tell the instructor the ideas are on a card and ask which one they want and where to use it.' };
+}
+
+const HANDLERS = { get_slot, set_slot, propose_draft, apply_edit, run_checks, suggest_plo, suggest_readings, suggest_ai_tools };
 
 /** Виконує інструмент; збої повертаються моделі як { error }, а не кидаються. */
 async function runTool(tctx, name, args) {

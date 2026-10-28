@@ -39,7 +39,7 @@ AI-аналізатор силабусів MBA для Kyiv School of Economics. 
 - **Backend:** Node.js, Express 4, MongoDB/Mongoose, OpenAI Responses API, Nodemailer, JWT. Документи: jszip + @xmldom/xmldom (DOCX, PPTX), `diff` + `node-diff3` (word diff, 3-way merge), `pdfjs-dist` (текст PDF у worker thread) + `docx` (синтез DOCX з PDF), `@cantoo/pdf-lib` (анотації PDF), LibreOffice `soffice` (DOC → DOCX, DOCX/PPTX → PDF), `pdftoppm` з poppler-utils (PNG слайдів).
 - **Frontend:** React 18 (CRA, `react-scripts`), React Router 6, MUI 5, Axios, react-markdown + remark-gfm. Proxy на `http://localhost:5000`.
 - **Тести (backend):** Jest + supertest + mongodb-memory-server (системний `/usr/bin/mongod`, `MONGOMS_SYSTEM_BINARY`), каталог `backend/test/`, запуск `cd backend && npm test`. Фікстури: `test/fixtures/docx/` (DOCX/DOC, генератор `generate.js`), `test/fixtures/pdf/`, `test/fixtures/pptx/`. Мережі в тестах немає (`fetch`/DNS для перевірки URL — mock). Frontend тестів немає.
-- **Eval рекомендацій:** `cd backend && npm run eval` (golden set, `backend/eval/`).
+- **Eval:** golden set v4 видалено (W3-J); eval парсингу й перевірок v5 — TBD (`backend/eval/README.md`). Команди `npm run eval` немає.
 - **Перевірки:** `npm test` і `node -c <file>` для змінених файлів backend, `npm run build` у `frontend/`.
 
 ## 3. Структура

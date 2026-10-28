@@ -6,7 +6,6 @@ const { getPath, setPath, updateEntity, changedPaths, sectionsTouched, sectionOf
 const { computeReadiness } = require('../../services/syllabusState/readiness');
 const { renderState, CHOOSE_OPTION, FROM_FILE_NOTE } = require('../../services/syllabusState/render');
 const { diffRendered, diffBlock } = require('../../services/syllabusState/diff');
-const apply = require('../../services/document/apply');
 const { loadFixtureRefs } = require('../../services/references/fixtureRefs');
 const { riskManagementState } = require('../fixtures/state/riskManagement');
 
@@ -239,7 +238,8 @@ describe('render + diff', () => {
     expect(same.sections.every((s) => s.blocks.every((b) => b.parts.every((p) => p.type === 'eq')))).toBe(true);
   });
 
-  test('diffBlock перенесено в syllabusState/diff, apply.js реекспортує', () => {
-    expect(apply.diffBlock).toBe(diffBlock);
+  test('diffBlock: word-diff двох текстів', () => {
+    const parts = diffBlock('alpha beta', 'alpha gamma');
+    expect(parts.map((p) => p.type)).toEqual(expect.arrayContaining(['equal', 'delete', 'insert']));
   });
 });

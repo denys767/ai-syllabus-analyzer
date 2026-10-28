@@ -1,16 +1,7 @@
 const mongoose = require('mongoose');
 
-// v5: extract → parse → checks → review → done. Етапи конвеєра v4 лишаються в enum, щоб старі документи проходили валідацію (W3 прибере)
+// v5: extract → parse → checks → review → done (старі етапи v4 прибирає scripts/migrate-v5-state.js)
 const ANALYSIS_STAGES = ['extract', 'parse', 'checks', 'review', 'done'];
-const LEGACY_ANALYSIS_STAGES = ['structure', 'diagnose', 'verify', 'rewrite'];
-
-// Кешований фінальний файл: валідний, поки docVersion і acceptedHash збігаються з поточними
-const outputSchema = new mongoose.Schema({
-  path: String,
-  generatedAt: Date,
-  docVersion: String,
-  acceptedHash: String,
-}, { _id: false });
 
 const syllabusSchema = new mongoose.Schema({
   title: {
@@ -40,7 +31,7 @@ const syllabusSchema = new mongoose.Schema({
   // Формат, який завантажив викладач
   sourceFormat: {
     type: String,
-    enum: ['docx', 'doc', 'pdf', 'pptx', null], // null — трек 1 (без файлу); pptx лишився для v4-силабусів
+    enum: ['docx', 'doc', 'pdf', null], // null — трек 1 (без файлу)
     default: null,
   },
   // Оригінальний файл викладача, незмінний
@@ -55,63 +46,33 @@ const syllabusSchema = new mongoose.Schema({
       default: Date.now
     }
   },
-  // Робочий .docx, з яким працюють writer-и (для docx — той самий файл, що й оригінал)
-  workingFile: {
-    path: String,
-    size: Number,
-  },
-  // Результат services/document.loadDocument
+  // Результат services/document.loadDocument: лише блоки вхідного файлу (джерело правди — state)
   document: {
     docVersion: String,
     format: String,
     meta: mongoose.Schema.Types.Mixed,
-    pdfBlockMap: mongoose.Schema.Types.Mixed,
-    sourceBlocks: { type: [mongoose.Schema.Types.Mixed], default: undefined },
-    sourceDocVersion: String,
-    convertedFrom: { type: String, enum: ['doc', 'pdf', null], default: null },
+    convertedFrom: { type: String, enum: ['doc', 'pdf', null], default: null }, // 'pdf' — лише v4-силабуси,
     blocks: { type: [mongoose.Schema.Types.Mixed], default: undefined },
   },
   // Похідний плоский текст (blocks.map(text).join('\n')) для пошуку і звітів
   extractedText: String,
-  outputs: {
-    clean: outputSchema,
-    tracked: outputSchema,
-    trackedPdf: outputSchema,
-    edited: outputSchema,
-    previewPdf: outputSchema,
-    annotated: outputSchema,
-  },
-  rubricSummary: mongoose.Schema.Types.Mixed,
   status: {
     type: String,
-    enum: ['analyzing', 'in_progress', 'submitted', 'error'],
+    enum: ['analyzing', 'in_progress', 'error'],
     default: 'analyzing'
   },
-  analysisStage: { type: String, enum: [...ANALYSIS_STAGES, ...LEGACY_ANALYSIS_STAGES, null], default: null },
+  analysisStage: { type: String, enum: [...ANALYSIS_STAGES, null], default: null },
   // Коли розпочато поточний аналіз (для відновлення завислих) і текст останньої помилки
   analysisStartedAt: Date,
   analysisLeaseUntil: Date,
   analysisLeaseToken: { type: String, select: false },
   analysisAttempts: { type: Number, default: 0 },
   analysisError: String,
-  submittedAt: Date,
-  submissionEmailStatus: {
-    type: String,
-    enum: ['pending', 'sent', 'failed'],
-    default: 'pending'
-  },
-  // Прапорець атомарного захоплення під час submit (захист від подвійної відправки)
-  submitting: {
-    type: Boolean,
-    default: false
-  },
   // Силабуси до v4 (без document): чат лише читається, мутації → 409 LEGACY_SYLLABUS
   legacy: {
     type: Boolean,
     default: false
   },
-  // Лише для legacy: фінальний PDF старого пайплайну (для resend-submission)
-  submittedPdfPath: String,
   // v5: структурований стан — єдине джерело правди (docs/api-v5.md §1). Пише лише syllabusState/store
   state: mongoose.Schema.Types.Mixed,
   stateRevision: { type: Number, default: 0 },
@@ -136,23 +97,15 @@ syllabusSchema.index({ programId: 1, updatedAt: -1 });
 
 syllabusSchema.statics.ANALYSIS_STAGES = ANALYSIS_STAGES;
 
-/** Усі шляхи до файлів силабусу (оригінал, робочий .docx, outputs, legacy PDF). */
+/**
+ * Файли силабусу на диску, якими керує модель: лише оригінал. Вихідний .docx рендериться в
+ * uploads/outputs/<id>/ і видаляється через outputs.removeOutputDir.
+ */
 syllabusSchema.statics.filePaths = function(doc) {
-  const outputs = doc?.outputs || {};
-  return [
-    doc?.originalFile?.path,
-    doc?.workingFile?.path,
-    outputs.clean?.path,
-    outputs.tracked?.path,
-    outputs.trackedPdf?.path,
-    outputs.edited?.path,
-    outputs.previewPdf?.path,
-    outputs.annotated?.path,
-    doc?.submittedPdfPath,
-  ].filter(Boolean);
+  return [doc?.originalFile?.path].filter(Boolean);
 };
 
-syllabusSchema.statics.FILE_FIELDS = 'originalFile.path workingFile.path outputs.clean.path outputs.tracked.path outputs.trackedPdf.path outputs.edited.path outputs.previewPdf.path outputs.annotated.path submittedPdfPath';
+syllabusSchema.statics.FILE_FIELDS = 'originalFile.path';
 
 syllabusSchema.methods.cleanupFiles = async function(fsPromises) {
   const fs = fsPromises || require('fs').promises;

@@ -1,24 +1,21 @@
 const mongoose = require('mongoose');
 
-// Пропозиція правки силабусу. v5 (docs/api-v5.md §5): правка слота стану — target + draft; поля v4 (ops, group, docVersion) лишаються до W3.
+// Пропозиція правки силабусу (docs/api-v5.md §5): правка слота стану — target + draft. Поля v4 (ops, group, docVersion, supersedes, finding)
+// видалено; старі пропозиції прибирає scripts/migrate-v5-state.js.
 // Рішення змінюються атомарно: findOneAndUpdate({ _id, status: 'pending' }, …).
 
 const SEVERITIES = ['critical', 'high', 'medium', 'warning', 'low', 'info'];
 const ORIGINS = ['reviewer', 'check', 'orchestrator', 'interviewer'];
 const { SECTION_KEYS } = require('../services/syllabusState/schema');
-const GROUPS = ['template', 'outcomes', 'assessment', 'practice', 'policy'];
 const KINDS = ['edit', 'choice', 'question'];
 const STATUSES = ['pending', 'accepted', 'rejected'];
 const REJECT_TAGS = ['already_present', 'too_generic', 'incorrect', 'not_relevant', 'other'];
-
-const opsField = { type: [mongoose.Schema.Types.Mixed], default: [] };
 
 const optionSchema = new mongoose.Schema({
   id: { type: String, required: true },
   label: { type: String, default: '' },
   rationale: { type: String, default: '' },
-  ops: opsField,
-  // v5: значення слота для цього варіанта або ключ варіанта довідника політик
+  // Значення слота для цього варіанта або ключ варіанта довідника політик
   value: { type: mongoose.Schema.Types.Mixed, default: undefined },
   optionKey: { type: String, default: undefined },
   // false + null для instructor: перейти до оновлення профілю без стирання стану.
@@ -77,7 +74,6 @@ const versionSchema = new mongoose.Schema({
   kind: String,
   title: String,
   description: String,
-  ops: opsField,
   options: { type: [optionSchema], default: undefined },
   question: String,
   answer: String,
@@ -89,10 +85,7 @@ const versionSchema = new mongoose.Schema({
 
 const suggestionSchema = new mongoose.Schema({
   syllabusId: { type: mongoose.Schema.Types.ObjectId, ref: 'Syllabus', required: true },
-  findingId: String,
   criterionId: String,
-  group: { type: String, enum: GROUPS }, // v4
-  // v5
   origin: { type: String, enum: [...ORIGINS, null], default: null },
   checkId: { type: String, default: null },
   section: { type: String, enum: [...SECTION_KEYS, null], default: null },
@@ -104,10 +97,9 @@ const suggestionSchema = new mongoose.Schema({
   kind: { type: String, enum: KINDS, required: true },
   title: { type: String, default: '' },
   description: { type: String, default: '' },
-  // Пояснення моделі; йде в коментар Word у tracked.docx
+  // Пояснення моделі: чому така пропозиція
   rationale: String,
   evidenceBlockIds: { type: [String], default: [] },
-  ops: opsField,
   options: { type: [optionSchema], default: [] },
   question: String,
   answer: String,
@@ -120,16 +112,11 @@ const suggestionSchema = new mongoose.Schema({
   acceptedAt: Date,
   // Ревізія, яку записало останнє Confirm; null означає прийняття без зміни стану.
   acceptedRevision: { type: Number, default: null },
-  supersedes: { type: [mongoose.Schema.Types.ObjectId], default: [] },
   decisionReason: String,
   rejectTag: { type: String, enum: [...REJECT_TAGS, null], default: null },
   decisionHistory: { type: [historySchema], default: [] },
   versions: { type: [versionSchema], default: [] },
   order: { type: Number, default: 0 },
-  // Версія документа, для якої згенеровано ops (sha1 робочого .docx)
-  docVersion: String,
-  // Знімок знахідки рубрики: потрібен для Refine/Answer (generateSuggestion)
-  finding: mongoose.Schema.Types.Mixed,
   promptVersion: String,
 }, { timestamps: true });
 
@@ -139,7 +126,6 @@ suggestionSchema.index({ criterionId: 1, status: 1 });
 suggestionSchema.index({ syllabusId: 1, 'target.path': 1, status: 1 });
 
 suggestionSchema.statics.SEVERITIES = SEVERITIES;
-suggestionSchema.statics.GROUPS = GROUPS;
 suggestionSchema.statics.ORIGINS = ORIGINS;
 suggestionSchema.statics.KINDS = KINDS;
 suggestionSchema.statics.REJECT_TAGS = REJECT_TAGS;

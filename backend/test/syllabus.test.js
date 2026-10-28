@@ -73,12 +73,9 @@ describe('analyze guard', () => {
     expect(res.status).toBe(403);
   });
 
-  test('re-analyze скидає розмову, пропозиції і кеш outputs', async () => {
+  test('re-analyze скидає розмову і пропозиції, зберігає document', async () => {
     const spy = jest.spyOn(analysisRunner, 'runAnalysisInBackground').mockImplementation(() => {});
-    const s = await helpers.createDocSyllabus(owner, {
-      outputs: { clean: { path: '/tmp/none.docx', acceptedHash: 'x' } },
-      rubricSummary: { counts: { ok: 1 } },
-    });
+    const s = await helpers.createDocSyllabus(owner);
     await helpers.createSuggestion(s);
     const conv = await Conversation.create({ syllabusId: s._id, instructorId: owner._id });
     await Message.create({ conversationId: conv._id, role: 'ai', content: 'hi' });
@@ -87,8 +84,6 @@ describe('analyze guard', () => {
     expect(res.status).toBe(200);
     const fresh = await Syllabus.findById(s._id).lean();
     expect(fresh.status).toBe('analyzing');
-    expect(fresh.outputs).toBeUndefined();
-    expect(fresh.rubricSummary).toBeUndefined();
     expect(fresh.document.docVersion).toBeDefined();
     expect(await Suggestion.countDocuments({ syllabusId: s._id })).toBe(0);
     expect(await Conversation.countDocuments({ syllabusId: s._id })).toBe(0);
@@ -122,7 +117,7 @@ describe('чат', () => {
 describe('кабінет', () => {
   test('/syllabi: проєкція без текстів, limit обмежений, поганий id → 400', async () => {
     const s = await helpers.createDocSyllabus(owner);
-    await helpers.createSuggestion(s, { group: 'policy', severity: 'high' });
+    await helpers.createSuggestion(s, { severity: 'high' });
     await helpers.createSuggestion(s, { status: 'accepted' });
     const res = await request(app).get('/api/cabinet/syllabi?limit=100000').set(auth);
     expect(res.status).toBe(200);
