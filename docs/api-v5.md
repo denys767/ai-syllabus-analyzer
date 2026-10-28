@@ -155,7 +155,8 @@ readiness = {
 - Чат v4 (`legacy`, `needsRebuild` або немає `state`) доступний лише для читання: `canMutate: false`, `needsRebuild: true`, без v5-карток. Мутація → 409 `NEEDS_REBUILD`; незавершений аналіз → 409 `ANALYSIS_IN_PROGRESS`.
 - `expectedRevision`, якщо переданий у Confirm, не замінюється поточною ревізією: конфлікт → 409 `STATE_CONFLICT { revision }`. Для клієнтів без цього поля використовується ревізія, прочитана на початку операції; перевірка `basisHash` залишається обов'язковою.
 - `writeOwn: true` зберігає `Conversation.currentSlotKey` і надсилає “Tell me in your own words how this policy should work.” Альтернатива `{ keepText: true }` явно залишає текст з файлу (`instructor_directed`, `modified: true`). Потрібна рівно одна дія з `optionKey`, `writeOwn`, `keepText`; locked-політика → 409 `LOCKED`.
-- `start` треку scratch: привітання → питання інтерв'юера (501 → `TemplateSection.question` першого порожнього розділу) → перша pending-картка за `order`, якщо є. `skip` додає ключ у `Conversation.skippedSlots`.
+- `start` треку scratch: привітання → картка курсу (`kind: text`, `payload.courseCard: true` — показана, не запитана) → питання інтерв'юера (`kind: question`, `payload { slotKey, question, why }`) → перша pending-картка за `order`, якщо є; поки є pending-картка, нового питання немає. `skip` додає ключ у `Conversation.skippedSlots` і (трек 1) лишає в чаті репліку «Skip: …».
+- **Інтерв'ю (трек 1).** `nextQuestion({ state, refs, transcript, skipped, preferredSection })` → `{ slotKey, question, why } | null`. Код відбирає лише порожні не пропущені C/D-слоти з `editability: free` у порядку потоку (`services/ai/interviewPlan.js`); модель обирає серед них (enum у strict `json_schema`); збій LLM → шаблонне питання `TemplateSection.question`. Відповідь на питання про курс (`course.description|objectives|outcomes|capstone`) → `formulator.draftFromNarrative` → чотири pending-картки (`origin: interviewer`), у чаті — по одній; решта слотів → `runner.runOrchestratorTurn` з `currentSlotKey`. Після відповіді `Conversation.answeredSlots` закриває слоти (відхилення чернетки не повторює питання). Після підтвердження LO — картки мапінгу PLO (`loMapping.suggestPlo`); політики — картки `policy-choice`, не питання. Реплика «Let's work on <section>» (або «ask me about …») ставить `preferredSection`: наступне питання — про цей розділ. Трек 2 інтерв'юера не використовує.
 - Confirm картки `outcomes[id].plo` встановлює `confirmed: true` для всіх зв'язків. `kind: question` → 409 `ANSWER_REQUIRED`; `applicable: false` приймається без зміни стану. Reject critical/high без причини → 400 `REASON_REQUIRED`; відхилена порада Readiness не знижує.
 - `/message` передає `currentSlotKey` до runner і надає `deps.acceptSuggestion(id, { expectedRevision, userId })`, прив'язаний до поточного власника та силабусу. Решта залежностей — стандартні. Збій LLM/501 → 503 `retryable: true`; три збої поспіль встановлюють `Conversation.status: error`, успішний хід скидає лічильник.
 - Бібліотечна політика з текстом з файлу до вибору показує текст із приміткою “(from your file — choose an option or keep your text)” у документі та `.docx`; без тексту — плейсхолдер.
@@ -217,7 +218,7 @@ readiness = {
 - **`target.path` — конкретний шлях стану.** Приклади: `summary.shortDescription`, `outcomes[]` (увесь масив), `assessments[as1].criteria`, `policies{policy.late}`.
   - Для політик `draft.value` — текст. Accept записує в блок `text`, `source` (`fixture_edited`, якщо був обраний варіант, інакше `instructor_directed`) і `modified: true` (якщо змінено текст довідника).
   - Вибір варіанта — картка `choice` з `options[{ id, label, optionKey }]`.
-- **Спільні інтерфейси.** Formulator і runner реалізовані F; interviewer залишається заготовкою 501 `NOT_IMPLEMENTED` до W3. Інші заготовки кидають 501, доки їх не реалізовано:
+- **Спільні інтерфейси.** Formulator, runner і interviewer реалізовані. Інші заготовки кидають 501, доки їх не реалізовано:
 
 | Модуль | Функції | Хто реалізує |
 |---|---|---|
@@ -225,6 +226,6 @@ readiness = {
 | `services/ai/tools/runner.js` | `runOrchestratorTurn` | F |
 | `services/ai/parse/index.js` | `parseToState` | G |
 | `services/ai/prompts/reviewer.js` | `reviewState` | G |
-| `services/ai/prompts/interviewer.js` | `nextQuestion` | W3 |
+| `services/ai/prompts/interviewer.js` | `nextQuestion` | K (W3) |
 
   Маршрути й сервіси чату (H) викликають лише ці сигнатури; у тестах H їх мокає через `jest.mock`.

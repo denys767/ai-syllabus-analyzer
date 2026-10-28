@@ -8,7 +8,7 @@ const { httpError } = require('../../utils/httpError');
 const interviewer = require('../ai/prompts/interviewer');
 const { loadContext, buildReadiness, refreshConversationReadiness, BLOCKING_SEVERITIES } = require('./state');
 const { approvableSections } = require('./sections');
-const { policyDecided } = require('../syllabusState/slots');
+const { policyDecided, SLOTS } = require('../syllabusState/slots');
 const { candidates, templateQuestion } = require('../ai/interviewPlan');
 const { NARRATIVE_SLOTS } = require('../ai/slotDrafts');
 const { createDraftSuggestions } = require('./draftSuggestions');
@@ -72,18 +72,16 @@ function uploadGreeting(ctx, readiness, checks) {
 
 // ---------- Питання інтерв'юера ----------
 
-/**
- * Запасне питання, поки інтерв'юер не реалізовано: питання TemplateSection першого порожнього (потім неповного) розділу.
- * Для політик — вибір першого невирішеного library-блоку (картка policy-choice), а не вільне питання.
- */
+/** Політики — не питання інтерв'юера, а картки policy-choice: перший невирішений library-блок. */
 function policyQuestion(ctx, skipped) {
-    if (skipped.includes('policies')) return null;
-    const p = (ctx.state.policies || []).find((x) => x.mode === 'library' && !policyDecided(x) && !skipped.includes(x.key));
-    if (!p) return null;
-    const title = (ctx.refs.policyLibrary?.blocks || []).find((b) => b.key === p.key)?.title || p.key;
-    return { slotKey: p.key, policyKey: p.key, question: `Which option fits your course for "${title}"?`, why: `The policy "${title}" has no decision yet.` };
+  if (skipped.includes('policies')) return null;
+  const p = (ctx.state.policies || []).find((x) => x.mode === 'library' && !policyDecided(x) && !skipped.includes(x.key));
+  if (!p) return null;
+  const title = (ctx.refs.policyLibrary?.blocks || []).find((b) => b.key === p.key)?.title || p.key;
+  return { slotKey: p.key, policyKey: p.key, question: `Which option fits your course for "${title}"?`, why: `The policy "${title}" has no decision yet.` };
 }
 
+/** Запасне питання треку 2 (інтерв'юер лише для треку 1): TemplateSection першого порожнього, потім неповного розділу. */
 function fallbackQuestion(ctx, readiness, skipped) {
   const status = (t) => readiness.sections[t.key]?.status;
   const ask = (t) => {
@@ -106,27 +104,29 @@ function fallbackQuestion(ctx, readiness, skipped) {
   return null;
 }
 
+/**
+ * Наступне питання. Трек 1: інтерв'юер (LLM обирає серед слотів, відібраних кодом; збій → шаблонне питання).
+ * Трек 2: інтерв'юера немає — детерміновані питання TemplateSection (поведінка не змінена).
+ */
 async function pickQuestion(conversation, ctx) {
-  const scratch = ctx.syllabus.track === 'scratch';
-  const skipped = [...(conversation.skippedSlots || []), ...(scratch ? conversation.answeredSlots || [] : [])];
-  const input = { state: ctx.state, refs: ctx.refs, skipped, preferredSection: conversation.preferredSection };
-  if (scratch && !candidates(input).length) return null;
-  const { readiness } = await buildReadiness(ctx);
+  const skipped = conversation.skippedSlots || [];
+  if (ctx.syllabus.track !== 'scratch') {
+    const { readiness } = await buildReadiness(ctx);
+    return fallbackQuestion(ctx, readiness, skipped);
+  }
+  // Відповідь на розповідь про курс закриває всі її слоти: Cancel/Reject чернетки не запускає те саме інтерв'ю знову
+  const input = { state: ctx.state, refs: ctx.refs, skipped: [...skipped, ...(conversation.answeredSlots || [])], preferredSection: conversation.preferredSection };
+  const allowed = candidates(input);
+  if (!allowed.length) return null;
   let q;
   try {
     const { transcript } = await transcriptOf(conversation);
     q = await interviewer.nextQuestion({ ...input, transcript });
   } catch (err) {
-    if (err.code !== 'NOT_IMPLEMENTED') console.error('interviewer failed, using the template question:', err.message);
-    q = undefined;
+    console.error('interviewer failed, using the template question:', err.message);
   }
-  if (scratch) {
-    const allowed = candidates(input);
-    if (!q || q.slotKey !== allowed[0]?.key || !q.question) return templateQuestion(allowed[0], ctx.refs);
-    return q;
-  }
-  if (q === null) return null;
-  if (!q || !q.slotKey || !q.question || skipped.includes(q.slotKey)) return fallbackQuestion(ctx, readiness, skipped);
+  // Слот обирає лише з дозволених кодом; усе інше (збій, чужий слот) — детермінований наступний слот
+  if (!q || !q.question || !allowed.some((s) => s.key === q.slotKey)) return templateQuestion(allowed[0], ctx.refs);
   return q;
 }
 
@@ -181,7 +181,8 @@ async function postNextStep(conversation, { preferQuestion = false } = {}) {
     try {
       const cards = await scratchSuggestions(fresh, ctx);
       if (cards.length) {
-        for (const card of cards) await postSuggestionCard(conversation, card);
+        // Картки йдуть по одній, як у треку 2: решту покаже postNextStep після рішення
+        await postSuggestionCard(conversation, cards[0]);
         return { suggestion: cards[0] };
       }
     } catch (err) {
@@ -259,15 +260,28 @@ async function startConversation(syllabusId, userId) {
   return conversation;
 }
 
-/** POST /skip: слот лишається порожнім (видно ліворуч), інтерв'юер його більше не питає. */
+/** Назва слота або розділу для повідомлень: слот → розділ шаблону, політика → блок довідника, інакше ключ. */
+function slotTitle(refs, slotKey) {
+  const slot = SLOTS.find((x) => x.key === slotKey);
+  const section = (refs.template || []).find((t) => t.key === (slot?.section || slotKey));
+  if (section) return section.title;
+  return (refs.policyLibrary?.blocks || []).find((b) => b.key === slotKey)?.title || slotKey;
+}
+
+/**
+ * POST /skip: слот лишається порожнім (видно ліворуч), інтерв'юер його більше не питає.
+ * Трек 1: skip — це відповідь на питання, тож у чаті з'являється репліка викладача (між питаннями завжди є його дія);
+ * пропуск розповіді про курс закриває всі її слоти.
+ */
 async function skipSlot(syllabusId, slotKey, userId) {
-  await loadContext(syllabusId);
+  const ctx = await loadContext(syllabusId);
   const conversation = await getOrCreateConversation(syllabusId, userId);
   await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { skippedSlots: slotKey } });
-  // Skip є відповіддю на поточне питання, тож у журналі між питаннями є явна дія викладача.
-  await postUserMessage(conversation, `Skip ${slotKey}.`);
-  if (NARRATIVE_SLOTS.includes(slotKey)) {
-    await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { answeredSlots: { $each: NARRATIVE_SLOTS } } });
+  if (ctx.syllabus.track === 'scratch') {
+    await postUserMessage(conversation, `Skip: ${slotTitle(ctx.refs, slotKey)}.`);
+    if (NARRATIVE_SLOTS.includes(slotKey)) {
+      await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { answeredSlots: { $each: NARRATIVE_SLOTS } } });
+    }
   }
   const fresh = await Conversation.findById(conversation._id);
   if (fresh.currentSlotKey === slotKey) await Conversation.updateOne({ _id: conversation._id }, { $set: { currentSlotKey: null } });

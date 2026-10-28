@@ -16,12 +16,23 @@ const {
   getOrCreateConversation, postUserMessage, postAiMessage, postSuggestionCard, postNextStep, transcriptOf, withAiFailureTracking,
 } = require('./flow');
 
-/** Явний стрибок із панелі або реплікою «Let's work on …» має пріоритет над попереднім питанням. */
+const JUMP_RE = /^(?:(?:let['’]?s|can we|could we|please)\s+)?(?:work on|talk about|discuss|do|move to|go to|switch to|start with|ask me about|help me with)\s+(?:the\s+)?(.+?)(?:\s+(?:section|part))?(?:\s+(?:now|first|next))?\s*[.!?]?$/i;
+
+/** Явний стрибок у розділ («Let's work on Assessment», «ask me about materials»): ключ розділу шаблону або null. */
 function requestedSection(text, refs) {
-  const match = String(text).trim().match(/^(?:let['’]s work on|work on|help me with|go to|discuss|ask me about)\s+(.+?)[.!?]?$/i);
+  const match = String(text).trim().match(JUMP_RE);
   if (!match) return null;
-  const label = match[1].toLowerCase();
-  return refs.template.find((s) => [s.key, s.title].some((v) => v.toLowerCase() === label))?.key || null;
+  const label = match[1].trim().toLowerCase();
+  const sections = refs.template || [];
+  const exact = sections.find((s) => [s.key, s.title].some((v) => v.toLowerCase() === label));
+  if (exact) return exact.key;
+  // Коротка назва: «assessment», «policies», «capstone», «materials»
+  const words = label.split(/\s+/).filter((w) => w.length >= 4);
+  const partial = words.length ? sections.filter((s) => {
+    const own = `${s.title} ${s.key.replace(/_/g, ' ')}`.toLowerCase();
+    return words.every((w) => own.includes(w));
+  }) : [];
+  return partial.length === 1 ? partial[0].key : null;
 }
 
 /** Решту залежностей runner підставляє сам; Confirm використовує ті самі перевірки, що й HTTP-кнопка. */
@@ -61,15 +72,20 @@ async function freeChatMessage(syllabusId, text, userId) {
     if (scratch && !section && NARRATIVE_SLOTS.includes(conversation.currentSlotKey)) {
       const { instructorLines } = await transcriptOf(conversation);
       const slotKeys = candidates({ ...ctx, skipped: conversation.skippedSlots }).map((s) => s.key).filter((k) => NARRATIVE_SLOTS.includes(k));
-      const drafts = await formulator.draftFromNarrative({ state: ctx.state, refs: ctx.refs, narrative: text, slotKeys, transcript: instructorLines });
-      const cards = [];
-      for (const draft of drafts) {
-        cards.push(...await createDraftSuggestions([{ ...draft, origin: 'interviewer' }], {
-          syllabusId, state: ctx.state, refs: ctx.refs, known: [...instructorLines, ...referenceTexts(ctx.refs, draft.slotKey)],
-        }));
+      // Одна розповідь → кілька чернеток (Description, Objectives, LO, Capstone), кожна — картка з proposedValues
+      const drafts = slotKeys.length
+        ? await formulator.draftFromNarrative({ state: ctx.state, refs: ctx.refs, narrative: text, slotKeys, transcript: instructorLines })
+        : [];
+      if (drafts.length) {
+        const cards = [];
+        for (const draft of drafts) {
+          cards.push(...await createDraftSuggestions([{ ...draft, origin: 'interviewer' }], {
+            syllabusId, state: ctx.state, refs: ctx.refs, known: [...instructorLines, ...referenceTexts(ctx.refs, draft.slotKey)],
+          }));
+        }
+        return { reply: 'I have drafted these sections from your answer. Review and confirm each card to continue.',
+          createdSuggestionIds: cards.map((c) => String(c._id)), answeredSlots: NARRATIVE_SLOTS, sequential: true };
       }
-      return { reply: 'I have drafted these sections from your answer. Review and confirm each card to continue.',
-        createdSuggestionIds: cards.map((c) => String(c._id)), answeredSlots: drafts.map((d) => d.slotKey) };
     }
     const res = await runner.runOrchestratorTurn({
       syllabus: ctx.syllabus, state: ctx.state, revision: ctx.revision, refs: ctx.refs,
@@ -85,7 +101,8 @@ async function freeChatMessage(syllabusId, text, userId) {
   if (result.reply.trim()) await postAiMessage(conversation, result.reply.trim());
   if (created.length) {
     const cards = await Suggestion.find({ _id: { $in: created }, syllabusId, status: 'pending' }).sort({ order: 1, _id: 1 });
-    for (const card of cards) await postSuggestionCard(conversation, card);
+    // Чернетки з однієї розповіді показуються по одній (решту покаже postNextStep після рішення)
+    for (const card of result.sequential ? cards.slice(0, 1) : cards) await postSuggestionCard(conversation, card);
   }
   const answered = scratch && !section && (created.length || result.stateChanged);
   if (answered) {

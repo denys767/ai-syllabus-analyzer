@@ -185,15 +185,16 @@ describe('POST /start', () => {
     expect(again.body.messages).toHaveLength(res.body.messages.length);
   });
 
-  test('трек 1: привітання і перше питання; на 501 інтерв\'юера — питання TemplateSection першого порожнього розділу', async () => {
+  test('трек 1: привітання, картка курсу (показана, не запитана) і перше питання; на збій інтерв\'юера — питання TemplateSection', async () => {
     const s = await scratch();
     const res = await post(s, '/start');
     expect(res.status).toBe(200);
     expect(res.body.messages[0].content).toMatch(/^Hi! I'll help you build the syllabus for "Negotiations"/);
+    expect(res.body.messages[1]).toMatchObject({ kind: 'text', content: expect.stringContaining('Course: Negotiations'), payload: { courseCard: true } });
     const q = res.body.messages.find((m) => m.kind === 'question');
-    const firstEmpty = refs.template.find((t) => t.question && res.body.readiness.sections[t.key].status === 'empty');
-    expect(q.payload).toMatchObject({ slotKey: firstEmpty.key, question: firstEmpty.question });
-    expect(res.body.conversation.currentSlotKey).toBe(firstEmpty.key);
+    const section = refs.template.find((t) => t.key === 'short_description');
+    expect(q.payload).toMatchObject({ slotKey: 'course.description', question: section.question });
+    expect(res.body.conversation.currentSlotKey).toBe('course.description');
   });
 
   test('трек 1: питання інтерв\'юера, коли він реалізований', async () => {
@@ -803,12 +804,13 @@ describe('інтеграція v5', () => {
     }
   });
 
-  test('трек scratch спочатку ставить питання, потім показує pending-картку', async () => {
+  test('трек scratch: з pending-карткою питання не ставиться, спершу картка', async () => {
     const s = await scratch();
     const c = await card(s, { text: 'A draft for your course.' });
     const res = await post(s, '/start');
     expect(res.status).toBe(200);
-    expect(res.body.messages.map((m) => m.kind)).toEqual(['text', 'question', 'suggestion']);
+    // Поки є pending-картка, нового питання немає (питання не стоїть поруч із карткою)
+    expect(res.body.messages.map((m) => m.kind)).toEqual(['text', 'text', 'suggestion']);
     expect(res.body.messages.at(-1).relatedSuggestionId).toBe(String(c._id));
   });
 });
