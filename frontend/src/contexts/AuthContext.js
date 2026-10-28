@@ -50,8 +50,7 @@ const authReducer = (state, action) => {
   }
 };
 
-// Wipe per-user workspace tab caches so a user who signs in next on this
-// browser cannot observe the previous user's syllabus tabs.
+// Очищуємо кеш вкладок, щоб наступний користувач браузера не бачив чужих силабусів.
 const clearWorkspaceTabCaches = () => {
   try {
     const stale = [];
@@ -60,7 +59,7 @@ const clearWorkspaceTabCaches = () => {
       if (k && k.startsWith('pt.openTabs.v1')) stale.push(k);
     }
     stale.forEach((k) => localStorage.removeItem(k));
-  } catch { /* ignore quota / privacy-mode errors */ }
+  } catch { /* ігноруємо помилки квоти або приватного режиму */ }
 };
 
 export const AuthProvider = ({ children }) => {
@@ -88,7 +87,7 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    // Automatic logout handler for 401 error
+    // Автоматичний вихід після помилки 401
     const handleAuthLogout = () => {
       clearWorkspaceTabCaches();
       dispatch({ type: 'LOGOUT' });
@@ -118,7 +117,7 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка входу';
+      const errorMessage = error.response?.data?.message || "Sign-in failed";
       throw new Error(errorMessage);
     }
   };
@@ -138,7 +137,7 @@ export const AuthProvider = ({ children }) => {
       });
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка оновлення профілю';
+      const errorMessage = error.response?.data?.message || "Could not update your profile";
       return { success: false, error: errorMessage };
     }
   };
@@ -148,7 +147,7 @@ export const AuthProvider = ({ children }) => {
       await api.auth.forgotPassword(email);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка відновлення пароля';
+      const errorMessage = error.response?.data?.message || "Could not request a password reset";
       return { success: false, error: errorMessage };
     }
   };
@@ -158,7 +157,7 @@ export const AuthProvider = ({ children }) => {
       await api.auth.resetPassword(token, password);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка скидання пароля';
+      const errorMessage = error.response?.data?.message || "Could not reset your password";
       return { success: false, error: errorMessage };
     }
   };
@@ -168,7 +167,7 @@ export const AuthProvider = ({ children }) => {
       await api.user.changePassword(currentPassword, newPassword);
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка зміни пароля';
+      const errorMessage = error.response?.data?.message || "Could not change your password";
       return { success: false, error: errorMessage };
     }
   };
@@ -179,7 +178,7 @@ export const AuthProvider = ({ children }) => {
       logout();
       return { success: true };
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Помилка видалення облікового запису';
+      const errorMessage = error.response?.data?.message || "Could not delete your account";
       return { success: false, error: errorMessage };
     }
   };

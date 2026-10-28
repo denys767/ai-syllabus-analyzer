@@ -1,5 +1,5 @@
 import React from 'react';
-import { Typography } from '@mui/material';
+import Typography from '@mui/material/Typography';
 import Bubble from './Bubble';
 import MarkdownText from './MarkdownText';
 

@@ -1,33 +1,73 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider, createTheme, alpha } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useAuth } from './AuthContext';
 import api from '../services/api';
 
 const ThemeModeContext = createContext();
 
-const base = {
-  palette: {
+// Дизайн-токени в одному місці. Точні значення прийдуть з Layout-референсу — міняти лише тут.
+// Три кольори: primary (бренд KSE), neutral (текст, рамки, фони), accent (proposedValues і warning).
+export const TOKENS = {
+  color: {
     primary: { main: '#00665a', light: '#33998a', dark: '#004d43', contrastText: '#ffffff' },
-    secondary: { main: '#9c27b0', light: '#ba68c8', dark: '#7b1fa2', contrastText: '#ffffff' },
+    neutral: {
+      light: { bg: '#f7f8f7', paper: '#ffffff', text: '#1d2523', textSecondary: '#5b6663', border: '#e2e6e4' },
+      dark: { bg: '#0f1312', paper: '#181d1c', text: 'rgba(255,255,255,0.92)', textSecondary: 'rgba(255,255,255,0.66)', border: '#2a312f' },
+    },
+    accent: { main: '#c77700', light: '#f0a63a', dark: '#8f5600', contrastText: '#ffffff' },
   },
-  shape: { borderRadius: 8 },
-  components: {
-    MuiListItemButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
-          margin: '4px 8px',
-          '&.Mui-selected': {
-            backgroundColor: '#e6f4f2',
-            color: '#00665a',
-            '&:hover': { backgroundColor: '#cce8e5' },
+  radius: { base: 12, card: 16, dialog: 20, pill: 999 },
+};
+
+export function buildTheme(mode = 'light') {
+  const isDark = mode === 'dark';
+  const n = TOKENS.color.neutral[isDark ? 'dark' : 'light'];
+  const { primary, accent } = TOKENS.color;
+  const { radius } = TOKENS;
+  return createTheme({
+    palette: {
+      mode,
+      primary,
+      // Системні статуси теж використовують primary або accent: у палітрі три кольори.
+      secondary: accent,
+      warning: accent,
+      info: primary,
+      success: primary,
+      error: accent,
+      accent,
+      background: { default: n.bg, paper: n.paper },
+      text: { primary: n.text, secondary: n.textSecondary },
+      divider: n.border,
+    },
+    shape: { borderRadius: radius.base },
+    components: {
+      MuiButton: {
+        defaultProps: { disableElevation: true },
+        styleOverrides: { root: { borderRadius: radius.pill, textTransform: 'none', fontWeight: 600 } },
+      },
+      MuiChip: { styleOverrides: { root: { borderRadius: radius.pill } } },
+      MuiPaper: { styleOverrides: { rounded: { borderRadius: radius.card } } },
+      MuiCard: { styleOverrides: { root: { borderRadius: radius.card } } },
+      MuiDialog: { styleOverrides: { paper: { borderRadius: radius.dialog } } },
+      MuiAlert: { styleOverrides: { root: { borderRadius: radius.base } } },
+      MuiOutlinedInput: { styleOverrides: { root: { borderRadius: radius.base } } },
+      MuiListItemButton: {
+        styleOverrides: {
+          root: {
+            borderRadius: radius.base,
+            margin: '4px 8px',
+            '&.Mui-selected': {
+              backgroundColor: alpha(primary.main, isDark ? 0.24 : 0.1),
+              color: isDark ? primary.light : primary.main,
+              '&:hover': { backgroundColor: alpha(primary.main, isDark ? 0.32 : 0.16) },
+            },
           },
         },
       },
     },
-  },
-};
+  });
+}
 
 export const ThemeModeProvider = ({ children }) => {
   const { user } = useAuth();
@@ -40,38 +80,18 @@ export const ThemeModeProvider = ({ children }) => {
 
   const setMode = async (newMode) => {
     setModeState(newMode);
-    
-    // Save theme preference to backend if user is authenticated
+    // Зберігаємо вибір на сервері; при помилці локальний стан не відкочуємо
     if (user) {
       try {
         await api.user.updateSettings({ theme: newMode });
       } catch (error) {
         console.error('Failed to save theme preference:', error);
-        // Don't revert the local state on error to avoid jarring UX
       }
     }
   };
 
   const resolved = mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode;
-
-  const theme = useMemo(() => {
-    const isDark = resolved === 'dark';
-    return createTheme({
-      ...base,
-      palette: {
-        ...base.palette,
-        mode: resolved,
-        background: {
-          default: isDark ? '#0a0a0a' : '#f8fafc',
-          paper: isDark ? '#1a1a1a' : '#ffffff',
-        },
-        text: {
-          primary: isDark ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.87)',
-          secondary: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)',
-        },
-      },
-    });
-  }, [resolved]);
+  const theme = useMemo(() => buildTheme(resolved), [resolved]);
 
   return (
     <ThemeModeContext.Provider value={{ mode, setMode }}>

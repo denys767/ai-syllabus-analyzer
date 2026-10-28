@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Box, Paper, TextField, Button, Typography, Alert, LinearProgress } from '@mui/material';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
+import LinearProgress from '@mui/material/LinearProgress';
 import { useAuth } from '../../contexts/AuthContext';
 
 const ResetPassword = () => {
@@ -27,10 +33,10 @@ const ResetPassword = () => {
     setError(''); setSuccess(''); setLoading(true);
     try {
       const res = await forgotPassword(email);
-      if (!res.success) throw new Error(res.error || 'Помилка запиту');
-      setSuccess('Якщо такий email існує, ми надіслали інструкції з відновлення пароля.');
+      if (!res.success) throw new Error(res.error || "Request failed");
+      setSuccess("If an account exists for this email, we have sent password reset instructions.");
     } catch (err) {
-      setError(err.message || 'Помилка запиту');
+      setError(err.message || "Request failed");
     } finally {
       setLoading(false);
     }
@@ -40,21 +46,21 @@ const ResetPassword = () => {
     e.preventDefault();
     setError(''); setSuccess('');
     if (password.length < 6) {
-      setError('Пароль має містити щонайменше 6 символів');
+      setError("Your password must contain at least 6 characters");
       return;
     }
     if (password !== confirm) {
-      setError('Паролі не збігаються');
+      setError("The passwords do not match");
       return;
     }
     setLoading(true);
     try {
       const res = await resetPassword(existingToken, password);
-      if (!res.success) throw new Error(res.error || 'Помилка скидання пароля');
-      setSuccess('Пароль успішно змінено. Тепер можна увійти.');
+      if (!res.success) throw new Error(res.error || "Could not reset your password");
+      setSuccess("Your password has been changed. You can now sign in.");
       setTimeout(() => navigate('/login'), 1200);
     } catch (err) {
-      setError(err.message || 'Помилка скидання пароля');
+      setError(err.message || "Could not reset your password");
     } finally {
       setLoading(false);
     }
@@ -64,10 +70,10 @@ const ResetPassword = () => {
     <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.default', p: 2 }}>
       <Paper elevation={8} sx={{ maxWidth: 480, width: '100%', p: 4, borderRadius: 3 }}>
         <Typography variant="h5" fontWeight={700} gutterBottom>
-          {mode === 'request' ? 'Відновлення пароля' : 'Скидання пароля'}
+          {mode === 'request' ? "Password recovery" : "Reset password"}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {mode === 'request' ? 'Введіть email, і ми надішлемо інструкції' : 'Введіть новий пароль'}
+          {mode === 'request' ? "Enter your email to receive reset instructions" : "Enter a new password"}
         </Typography>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -77,21 +83,21 @@ const ResetPassword = () => {
           <form onSubmit={handleRequest}>
             <TextField fullWidth type="email" label="Email" value={email} onChange={(e) => setEmail(e.target.value)} required sx={{ mb: 2 }} />
             <Button type="submit" fullWidth variant="contained" disabled={loading}>
-              {loading ? 'Надсилання…' : 'Надіслати інструкції'}
+              {loading ? "Sending…" : "Send instructions"}
             </Button>
           </form>
         ) : (
           <form onSubmit={handleReset}>
-            <TextField fullWidth type="password" label="Новий пароль" value={password} onChange={(e) => setPassword(e.target.value)} required sx={{ mb: 2 }} />
-            <TextField fullWidth type="password" label="Підтвердьте пароль" value={confirm} onChange={(e) => setConfirm(e.target.value)} required sx={{ mb: 2 }} />
+            <TextField fullWidth type="password" label="New password" value={password} onChange={(e) => setPassword(e.target.value)} required sx={{ mb: 2 }} />
+            <TextField fullWidth type="password" label="Confirm password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required sx={{ mb: 2 }} />
             {password && (
               <Box sx={{ mb: 2 }}>
                 <LinearProgress variant="determinate" value={Math.min(100, password.length * 10)} />
-                <Typography variant="caption" color="text.secondary">Надійність пароля: {Math.min(100, password.length * 10)}%</Typography>
+                <Typography variant="caption" color="text.secondary">Password strength: {Math.min(100, password.length * 10)}%</Typography>
               </Box>
             )}
             <Button type="submit" fullWidth variant="contained" disabled={loading}>
-              {loading ? 'Збереження…' : 'Зберегти пароль'}
+              {loading ? "Saving…" : "Save password"}
             </Button>
           </form>
         )}

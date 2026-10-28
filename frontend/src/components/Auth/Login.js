@@ -1,22 +1,18 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import {
-  Box,
-  CardContent,
-  TextField,
-  Button,
-  Typography,
-  Alert,
-  IconButton,
-  InputAdornment,
-  Paper,
-} from '@mui/material';
-import {
-  Visibility,
-  VisibilityOff,
-  School,
-  Login as LoginIcon,
-} from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import CardContent from '@mui/material/CardContent';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import Typography from '@mui/material/Typography';
+import Alert from '@mui/material/Alert';
+import IconButton from '@mui/material/IconButton';
+import InputAdornment from '@mui/material/InputAdornment';
+import Paper from '@mui/material/Paper';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import School from '@mui/icons-material/School';
+import LoginIcon from '@mui/icons-material/Login';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Login = () => {
@@ -51,7 +47,7 @@ const Login = () => {
       await login(formData.email, formData.password);
       navigate(from, { replace: true });
     } catch (err) {
-      const errorMessage = err.message || err.response?.data?.message || 'Помилка входу';
+      const errorMessage = err.message || err.response?.data?.message || "Sign-in failed";
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -65,7 +61,7 @@ const Login = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        bgcolor: 'background.default',
         padding: 2,
       }}
     >
@@ -74,14 +70,14 @@ const Login = () => {
         sx={{
           maxWidth: 400,
           width: '100%',
-          borderRadius: 3,
+          borderRadius: 1,
           overflow: 'hidden',
         }}
       >
         {/* Header */}
         <Box
           sx={{
-            background: 'linear-gradient(45deg, #00665a 30%, #33998a 90%)',
+            bgcolor: 'primary.main',
             color: 'white',
             py: 4,
             px: 3,
@@ -93,17 +89,17 @@ const Login = () => {
             KSE
           </Typography>
           <Typography variant="subtitle1" opacity={0.9}>
-            AI-аналізатор силабусів
+            AI Syllabus Analyzer
           </Typography>
         </Box>
 
         <CardContent sx={{ p: 4 }}>
           <Box sx={{ textAlign: 'center', mb: 3 }}>
             <Typography variant="h5" fontWeight="600" gutterBottom>
-              Вхід до системи
+              Sign in
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Введіть свої облікові дані
+              Enter your account details
             </Typography>
           </Box>
 
@@ -129,7 +125,7 @@ const Login = () => {
 
             <TextField
               fullWidth
-              label="Пароль"
+              label="Password"
               name="password"
               type={showPassword ? 'text' : 'password'}
               value={formData.password}
@@ -162,24 +158,24 @@ const Login = () => {
               sx={{
                 py: 1.5,
                 mb: 3,
-                background: 'linear-gradient(45deg, #00665a 30%, #33998a 90%)',
+                bgcolor: 'primary.main',
                 '&:hover': {
-                  background: 'linear-gradient(45deg, #004d43 30%, #00665a 90%)',
+                  bgcolor: 'primary.dark',
                 },
               }}
             >
-              {loading ? 'Вхід…' : 'Увійти'}
+              {loading ? "Signing in…" : "Sign in"}
             </Button>
 
             <Box sx={{ textAlign: 'center', mt: 2 }}>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Забули пароль?{' '}
-                <Link to="/reset-password" style={{ color: '#00665a', fontWeight: 600 }}>
-                  Відновити пароль
+                Forgot your password?{' '}
+                <Link to="/reset-password" style={{ color: 'inherit', fontWeight: 600 }}>
+                  Reset password
                 </Link>
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Немає доступу? Зверніться до адміністратора
+                Need access? Contact your administrator
               </Typography>
             </Box>
           </form>

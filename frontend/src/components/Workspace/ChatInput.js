@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
-import { Box, TextField, IconButton, CircularProgress } from '@mui/material';
-import { Send } from '@mui/icons-material';
+import Box from '@mui/material/Box';
+import TextField from '@mui/material/TextField';
+import IconButton from '@mui/material/IconButton';
+import CircularProgress from '@mui/material/CircularProgress';
+import { S } from '../../strings';
+import Send from '@mui/icons-material/Send';
 
 const ChatInput = ({ onSend, disabled, placeholder }) => {
   const [text, setText] = useState('');
@@ -26,7 +30,7 @@ const ChatInput = ({ onSend, disabled, placeholder }) => {
         size="small"
         multiline
         maxRows={4}
-        placeholder={placeholder || 'Поставте питання або напишіть, як змінити поточну пропозицію…'}
+        placeholder={placeholder || S.chatPlaceholder}
         value={text}
         disabled={disabled || sending}
         onChange={(e) => setText(e.target.value)}
@@ -37,7 +41,7 @@ const ChatInput = ({ onSend, disabled, placeholder }) => {
           }
         }}
       />
-      <IconButton color="primary" aria-label="Надіслати" onClick={submit} disabled={disabled || sending || !text.trim()}>
+      <IconButton color="primary" aria-label={S.send} onClick={submit} disabled={disabled || sending || !text.trim()}>
         {sending ? <CircularProgress size={20} /> : <Send />}
       </IconButton>
     </Box>
