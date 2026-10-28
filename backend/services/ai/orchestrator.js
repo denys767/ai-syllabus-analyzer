@@ -13,6 +13,8 @@ const { checksToCards, policyCards, courseHintCards } = require('./parse/cards')
 const { reviewState } = require('./prompts/reviewer');
 const { runChecks, runLlmChecks } = require('../checks');
 const { createDraftSuggestions } = require('../chat/draftSuggestions');
+const { resolveProfile } = require('../lecturers/profile');
+const { prepareInstructor } = require('../lecturers/cards');
 
 async function setStage(syllabusId, stage, leaseToken) {
   await assertLease(syllabusId, leaseToken);
@@ -61,6 +63,7 @@ async function analyzeSyllabus(syllabusId, { leaseToken } = {}) {
     course: { title: syllabus.course?.name || syllabus.title },
   });
   for (const warning of parsed.warnings) console.warn(`parse ${String(syllabusId)}: ${warning}`);
+  const instructorCard = prepareInstructor(parsed.state, await resolveProfile(syllabus.instructor));
 
   await assertLease(syllabusId, leaseToken);
   await Suggestion.deleteMany({ syllabusId });
@@ -82,6 +85,7 @@ async function analyzeSyllabus(syllabusId, { leaseToken } = {}) {
   const softChecks = (await optional('soft checks', () => runLlmChecks(state, refs), []))
     .filter((c) => !String(c.id).startsWith('llm.unavailable'));
   const cards = [
+    instructorCard,
     ...checksToCards([...checks, ...softChecks], state),
     ...policyCards(state, refs, { lockedNotes: parsed.lockedNotes }),
     ...courseHintCards(parsed.courseHint),

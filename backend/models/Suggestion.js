@@ -21,6 +21,8 @@ const optionSchema = new mongoose.Schema({
   // v5: значення слота для цього варіанта або ключ варіанта довідника політик
   value: { type: mongoose.Schema.Types.Mixed, default: undefined },
   optionKey: { type: String, default: undefined },
+  // false + null для instructor: перейти до оновлення профілю без стирання стану.
+  writeBack: { type: Boolean, default: true },
 }, { _id: false });
 
 // v5: факт, якого не назвав викладач і немає в довіднику — підтверджується окремо

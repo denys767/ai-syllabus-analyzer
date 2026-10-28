@@ -33,6 +33,7 @@ function optionView(s, o, refs) {
     id: o.id,
     label: o.label,
     optionKey: o.optionKey || null,
+    writeBack: o.writeBack !== false,
     value: o.value ?? null,
     after: o.value !== undefined && o.value !== null ? o.value : fixtureText,
     rationale: o.rationale || null,

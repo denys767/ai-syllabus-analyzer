@@ -52,7 +52,9 @@ function buildDraftSuggestion(input, { syllabusId, state, refs, known = [] }) {
     evidenceBlockIds: input.evidenceBlockIds || [],
     target: { section, path: input.target.path, entityId: input.target.entityId || null },
     // Питання й вибір без значення — без чернетки (значення з'явиться після answer / вибору варіанта)
-    draft: input.kind === 'question' || (input.kind === 'choice' && input.value === undefined) ? undefined : {
+    draft: input.choiceBasis ? {
+      value: null, source: 'instructor_directed', proposedValues: [], basisHash: hashValue(current),
+    } : input.kind === 'question' || (input.kind === 'choice' && input.value === undefined) ? undefined : {
       value: input.value !== undefined ? input.value : text,
       source: input.source === 'instructor_directed' ? 'instructor_directed' : 'ai_draft',
       template: text != null && proposedValues.length ? toTemplate(text, proposedValues) : null,
