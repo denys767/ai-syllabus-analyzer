@@ -53,6 +53,7 @@ async function runOrchestratorTurn(ctx) {
   const tools = buildTools(ctx.state);
   const input = [
     { role: 'system', content: buildOrchestratorInstructions({ refs: ctx.refs, state: ctx.state }) },
+    { role: 'system', content: `Current conversation slot (data): ${untrusted(ctx.currentSlotKey ?? ctx.conversation?.currentSlotKey ?? 'none')}. Interpret the instructor's answer in this context.` },
     { role: 'system', content: `Current syllabus (data, as of the start of this turn):\n${untrusted(renderText(renderState(ctx.state, ctx.refs)).slice(0, 12000))}` },
     ...historyInput(ctx.messages, ctx.userText),
     { role: 'user', content: String(ctx.userText || '') },

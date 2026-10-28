@@ -1,53 +1,16 @@
-jest.mock('../services/ai/review', () => ({ runReview: jest.fn(async () => ({ findings: [], rubricSummary: {} })), generateSuggestion: jest.fn() }));
-const review = require('../services/ai/review');
-jest.mock('../services/emailService', () => ({ sendSubmissionToAdEmail: jest.fn(async () => ({ messageId: 'test' })) }));
-jest.mock('../services/document', () => {
-  const actual = jest.requireActual('../services/document');
-  return { ...actual, renderPptxPreview: jest.fn(actual.renderPptxPreview), toPdf: jest.fn(actual.toPdf) };
-});
+// Регресії входу: PPTX більше не підтримується; старі тести submit/PDF-виходів прибрано у v5.
 const helpers = require('./helpers');
-process.env.MAX_FILE_SIZE = String(10 * 1024 * 1024);
-const fs = require('fs').promises;
-const path = require('path');
 const request = require('supertest');
 const JSZip = require('jszip');
-const { PDFDocument } = require('@cantoo/pdf-lib');
 const app = require('../server');
-const Syllabus = require('../models/Syllabus');
-const Program = require('../models/Program');
-const Suggestion = require('../models/Suggestion');
-const runner = require('../services/analysisRunner');
-const documents = require('../services/document');
 const { mapPdfSuggestions } = require('../services/document/pdfMapping');
-const { deleteSyllabiCascade } = require('../services/syllabusCleanup');
-const { sendSubmissionToAdEmail } = require('../services/emailService');
-let owner; let auth; let program;
-const ids = [];
-jest.setTimeout(120000);
+let auth;
 beforeAll(async () => {
-  await helpers.connectDb(); owner = await helpers.createUser();
+  await helpers.connectDb();
+  const owner = await helpers.createUser();
   auth = { Authorization: `Bearer ${helpers.tokenFor(owner)}` };
-  program = await Program.create({ name: 'MBA', code: 'W5', academicDirectorEmail: 'ad@example.com' });
 });
-afterAll(async () => { await deleteSyllabiCascade({ _id: { $in: ids } }); await helpers.disconnectDb(); });
-async function upload(format, fixture = 'syllabus') {
-  const spy = jest.spyOn(runner, 'runAnalysisInBackground').mockImplementation(() => {});
-  try {
-    const buffer = await fs.readFile(path.join(__dirname, `fixtures/${format}/${fixture}.${format}`));
-    const res = await request(app).post('/api/syllabus/upload').set(auth)
-      .field('courseName', 'Курс').field('programId', String(program._id)).attach('syllabus', buffer, `course.${format}`);
-    expect(res.status).toBe(201); ids.push(res.body.syllabusId);
-    await runner.runAnalysis(res.body.syllabusId);
-    const s = await Syllabus.findById(res.body.syllabusId);
-    expect(s.status).toBe('in_progress'); return s;
-  } finally { spy.mockRestore(); }
-}
-const api = (s) => `/api/chat/${s._id}`;
-const get = (s, suffix) => request(app).get(`${api(s)}${suffix}`).set(auth);
-const post = (s, suffix, body = {}) => request(app).post(`${api(s)}${suffix}`).set(auth).send(body);
-function binary(req) { return req.buffer(true).parse((res, cb) => {
-  const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => cb(null, Buffer.concat(chunks)));
-}); }
+afterAll(() => helpers.disconnectDb());
 
 test('PPTX magic bytes reject DOCX zip and corrupt PK archive as 400 (і навпаки для .docx)', async () => {
   const docxZip = await new JSZip().file('word/document.xml', '<doc/>').generateAsync({ type: 'nodebuffer' });
@@ -55,74 +18,9 @@ test('PPTX magic bytes reject DOCX zip and corrupt PK archive as 400 (і нав�
   const cases = [[docxZip, 'fake.pptx'], [Buffer.from('PKinvalid'), 'fake.pptx'], [pptxZip, 'fake.docx']];
   for (const [buffer, name] of cases) {
     const res = await request(app).post('/api/syllabus/upload').set(auth)
-      .field('courseName', 'Курс').field('programId', String(program._id)).attach('syllabus', buffer, name);
+      .field('courseName', 'Course').attach('syllabus', buffer, name);
     expect(res.status).toBe(400);
   }
-});
-
-test('outputs: legacy — порожній список і 409; PDF до хвилі 5 — без annotated.pdf', async () => {
-  const legacy = await helpers.createSyllabus(owner, { legacy: true, sourceFormat: 'docx' });
-  ids.push(legacy._id);
-  const legacyView = await get(legacy, '');
-  expect(legacyView.body.syllabus.outputs).toEqual([]);
-  expect((await get(legacy, '/outputs/tracked.docx')).status).toBe(409);
-
-  const oldPdf = await helpers.createDocSyllabus(owner, { sourceFormat: 'pdf' });
-  ids.push(oldPdf._id);
-  const view = await get(oldPdf, '');
-  expect(view.body.syllabus.outputs.map((o) => o.name)).toEqual(['tracked.docx', 'clean.docx', 'tracked.pdf']);
-  const res = await get(oldPdf, '/outputs/annotated.pdf');
-  expect(res.status).toBe(404);
-  expect(res.body.code).toBe('OUTPUT_NOT_AVAILABLE');
-  const cabinet = await request(app).get('/api/cabinet/syllabi').set(auth);
-  const items = new Map(cabinet.body.syllabi.map((x) => [String(x._id), x]));
-  // v5: кабінет віддає єдиний вихід
-  expect(items.get(String(legacy._id)).outputs).toEqual(['syllabus.docx']);
-  expect(items.get(String(oldPdf._id)).outputs).toEqual(['syllabus.docx']);
-});
-
-test('PDF blocks persist 1:1, accepted replacements/inserts/deletes annotate original, submit includes tracked files', async () => {
-  const s = await upload('pdf');
-  const doc = s.document;
-  expect(doc.sourceBlocks).toHaveLength(doc.blocks.length);
-  expect(Object.keys(doc.pdfBlockMap)).toHaveLength(doc.blocks.length);
-  const suggestion = await helpers.createSuggestion(s, { ops: [helpers.replaceOp(doc.blocks[0].id, 'Updated course'),
-    { op: 'insertAfter', blockId: doc.blocks[1].id, newBlocks: [{ kind: 'paragraph', text: 'Published case discussion.' }] },
-    { op: 'deleteBlock', blockId: doc.blocks[2].id }] });
-  await post(s, '/start');
-  expect((await post(s, `/suggestions/${suggestion._id}/accept`)).status).toBe(200);
-  const view = await get(s, '');
-  expect(view.body.syllabus.outputs.map((o) => o.name)).toEqual(['annotated.pdf', 'tracked.docx', 'clean.docx', 'tracked.pdf']);
-  expect((await get(s, '/outputs/edited.pptx')).status).toBe(404);
-  expect((await get(s, `/suggestions/${suggestion._id}/slides`)).status).toBe(404);
-  const annotated = await binary(get(s, '/outputs/annotated.pdf'));
-  expect(annotated.status).toBe(200);
-  const pdf = await PDFDocument.load(annotated.body);
-  expect(pdf.getPages().reduce((n, p) => n + (p.node.Annots()?.size() || 0), 0)).toBeGreaterThanOrEqual(6);
-  const clean = await binary(get(s, '/outputs/clean.docx'));
-  expect((await documents.extractDocx(clean.body)).blocks.some((b) => b.text === 'Published case discussion.')).toBe(true);
-  expect((await post(s, '/submit')).status).toBe(200);
-  expect(sendSubmissionToAdEmail.mock.calls.at(-1)[0].attachments.map((a) => a.filename)).toEqual(['course_annotated.pdf', 'course_tracked.docx', 'course_tracked.pdf']);
-  expect((await Syllabus.findById(s._id)).outputs.annotated.path).toBeTruthy();
-});
-
-test('sources: у SuggestionView, Refine передає збережені джерела і зберігає нові', async () => {
-  const s = await helpers.createDocSyllabus(owner, { programId: program._id });
-  ids.push(s._id);
-  const block = s.document.blocks.find((b) => !b.readOnly && b.kind === 'paragraph');
-  const sources = [{ title: 'Nova Poshta', publisher: 'The Case Centre', year: 2022, url: 'https://example.org/case', verified: true },
-    { title: 'Monobank', publisher: null, year: null, url: null, verified: false }];
-  const suggestion = await helpers.createSuggestion(s, { group: 'practice', criterionId: 'PR-3', sources,
-    finding: { id: 'f1', criterionId: 'PR-3', group: 'practice', claim: 'c', rationale: 'r' }, ops: [helpers.replaceOp(block.id, `${block.text} Case.`)] });
-  await post(s, '/start');
-  const view = (await get(s, '')).body.suggestions.find((x) => x.id === String(suggestion._id));
-  expect(view.sources).toEqual(sources);
-
-  review.generateSuggestion.mockResolvedValueOnce({ kind: 'edit', title: 'Новий кейс', description: 'd', rationale: 'r',
-    ops: [helpers.replaceOp(block.id, `${block.text} Nova Poshta case.`)], sources: [sources[0]] });
-  expect((await post(s, `/suggestions/${suggestion._id}/refine`, { feedback: 'Лише один кейс' })).status).toBe(200);
-  expect(review.generateSuggestion.mock.calls.at(-1)[0].caseSources).toEqual(sources);
-  expect((await Suggestion.findById(suggestion._id).lean()).sources).toEqual([sources[0]]);
 });
 
 test('PDF mapping remaps operation anchors and synthetic inserted ids independently of numbering', () => {

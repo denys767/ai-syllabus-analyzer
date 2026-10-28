@@ -1,29 +1,20 @@
-// Спільний стан чату: силабус і його DocModel, пропозиції у форматі services/document,
-// множина прийнятих, інвалідація outputs і readiness.
+// Спільний стан чату v5: завантаження силабусу зі станом і довідниками, перевірки доступності мутацій,
+// зняття readiness (знімок у Conversation) і прапорці stale для карток.
 
-const fs = require('fs');
-const crypto = require('crypto');
 const Syllabus = require('../../models/Syllabus');
 const Suggestion = require('../../models/Suggestion');
 const Conversation = require('../../models/Conversation');
 const { httpError } = require('../../utils/httpError');
-const { computeReadiness } = require('./readiness');
+const references = require('../references');
+const { runChecks } = require('../checks');
+const { computeReadiness } = require('../syllabusState/readiness');
+const { getPath } = require('../syllabusState/paths');
+const { hashValue } = require('./draftSuggestions');
 
-const SEVERITY_LABELS = { critical: 'критична', high: 'важлива', medium: 'середня', low: 'незначна' };
-const GROUP_LABELS = {
-  template: 'Шаблон KSE',
-  outcomes: 'Результати навчання',
-  assessment: 'Оцінювання',
-  practice: 'Практика і кейси',
-  policy: 'Політики курсу',
-};
-const REJECT_TAG_LABELS = {
-  already_present: 'вже є в тексті',
-  too_generic: 'занадто загально',
-  incorrect: 'неправильно',
-  not_relevant: 'не стосується курсу',
-  other: 'інше',
-};
+const REJECT_TAGS = Suggestion.REJECT_TAGS;
+
+// Перевірки, що блокують гуртове затвердження розділу: severity ≥ warning (info не блокує)
+const BLOCKING_SEVERITIES = ['critical', 'high', 'medium', 'warning'];
 
 function requiresReason(s) {
   return s.severity === 'critical' || s.severity === 'high';
@@ -33,112 +24,105 @@ async function loadSyllabus(syllabusId, select) {
   const query = Syllabus.findById(syllabusId);
   if (select) query.select(select);
   const syllabus = await query;
-  if (!syllabus) throw httpError(404, 'Силабус не знайдено');
+  if (!syllabus) throw httpError(404, 'Syllabus not found');
   return syllabus;
 }
 
-function isLegacy(syllabus) {
-  // docVersion і blocks записуються разом (етап extract), тож достатньо перевірити docVersion
-  return Boolean(syllabus.legacy) || !syllabus.document?.docVersion;
+/** Силабус v4 (без стану, legacy або з прапорцем needsRebuild): чат лише читається. */
+function isV4(syllabus) {
+  return Boolean(syllabus.legacy || syllabus.needsRebuild || !syllabus.state);
 }
 
-function legacyError() {
-  return httpError(409, 'Цей силабус створено в попередній версії системи, тому його можна лише переглядати. Щоб продовжити роботу з пропозиціями, завантажте файл силабусу ще раз.', { code: 'LEGACY_SYLLABUS' });
+function needsRebuildError() {
+  return httpError(409, 'This syllabus was created in an older version. Rebuild in the new format to continue.', { code: 'NEEDS_REBUILD' });
 }
 
-/** DocModel із збереженого Syllabus.document (для apply/validate/preview без XML). */
-function docOf(syllabus) {
-  if (isLegacy(syllabus)) throw legacyError();
-  return { ...syllabus.document.toObject?.() || syllabus.document, format: syllabus.sourceFormat === 'pptx' ? 'pptx' : 'docx' };
-}
-
-/** Рішення в чаті можливі лише для проаналізованого і ще не відправленого силабусу. */
+/** Мутації чату можливі лише для розібраного v5-силабусу, аналіз якого завершено. */
 function assertEditable(syllabus) {
-  if (isLegacy(syllabus)) throw legacyError();
-  if (syllabus.status === 'submitted') throw httpError(409, 'Силабус уже відправлено, змінювати рішення не можна.', { code: 'ALREADY_SUBMITTED' });
-  if (syllabus.status === 'analyzing') throw httpError(409, 'Аналіз ще триває. Зачекайте, будь ласка.', { code: 'ANALYSIS_IN_PROGRESS' });
-  if (syllabus.status === 'error') throw httpError(409, 'Аналіз завершився з помилкою. Запустіть аналіз повторно.', { code: 'ANALYSIS_FAILED' });
+  if (isV4(syllabus) && syllabus.status !== 'analyzing') throw needsRebuildError();
+  if (syllabus.status === 'analyzing') throw httpError(409, 'The analysis is still running. Please wait.', { code: 'ANALYSIS_IN_PROGRESS' });
+  if (syllabus.status === 'error') throw httpError(409, 'The analysis failed. Run it again.', { code: 'ANALYSIS_FAILED' });
+  if (isV4(syllabus)) throw needsRebuildError();
 }
 
-function optionOf(s, optionId) {
-  return (s.options || []).find((o) => o.id === optionId) || null;
+/** Силабус зі станом, ревізією і довідниками своєї програми. */
+async function loadContext(syllabusId, { editable = true } = {}) {
+  const syllabus = await loadSyllabus(syllabusId);
+  if (editable) assertEditable(syllabus);
+  else if (isV4(syllabus)) throw needsRebuildError();
+  const refs = await references.getRefs(syllabus.programCode);
+  return { syllabus, state: syllabus.state, revision: syllabus.stateRevision || 0, refs };
 }
 
-/** Операції пропозиції: для choice — вибраного (або явно переданого) варіанта. */
-function opsOf(s, optionId) {
-  if (s.kind === 'choice') {
-    const option = optionOf(s, optionId || s.selectedOptionId);
-    return option ? (option.ops || []) : [];
+async function pendingCountsBySection(syllabusId) {
+  const pending = await Suggestion.find({ syllabusId, status: 'pending' }).select('section target').lean();
+  const bySection = new Map();
+  for (const s of pending) {
+    const key = s.section || s.target?.section;
+    if (key) bySection.set(key, (bySection.get(key) || 0) + 1);
   }
-  return s.ops || [];
+  return { total: pending.length, bySection };
 }
 
-/** Пропозиція у форматі services/document: { id, ops, supersedes, rationale }. */
-function toDocSuggestion(s, optionId) {
-  const option = s.kind === 'choice' ? optionOf(s, optionId || s.selectedOptionId) : null;
-  const plain = (v) => JSON.parse(JSON.stringify(v || []));
-  return {
-    id: String(s._id),
-    ops: plain(opsOf(s, optionId)),
-    supersedes: (s.supersedes || []).map(String),
-    rationale: (option && option.rationale) || s.rationale || s.description || s.title || '',
-  };
-}
-
-/** Прийняті пропозиції в порядку прийняття (у ньому ж застосовуються і зливаються правки). */
-async function loadAccepted(syllabusId) {
-  return Suggestion.find({ syllabusId, status: 'accepted' }).sort({ acceptedAt: 1, _id: 1 });
-}
-
-/** Прийняті з реальними правками (поради без ops документ не змінюють) — вхід для writer-а. */
-async function loadAcceptedDocs(syllabusId) {
-  return (await loadAccepted(syllabusId)).map((s) => toDocSuggestion(s)).filter((d) => d.ops.length > 0);
-}
-
-/** Хеш множини прийнятих правок: ключ кешу outputs. */
-function acceptedHash(docSuggestions) {
-  const canonical = docSuggestions.map((s) => ({ id: s.id, ops: s.ops, supersedes: s.supersedes, rationale: s.rationale }));
-  return crypto.createHash('sha1').update(JSON.stringify(canonical)).digest('hex');
-}
-
-/** Після будь-якого рішення: прибрати кеш фінальних файлів (ключ кешу і так зміниться). */
-async function invalidateOutputs(syllabusId) {
-  const prev = await Syllabus.findOneAndUpdate({ _id: syllabusId }, { $unset: { outputs: '' } }, { new: false })
-    .select('outputs').lean();
-  for (const out of Object.values(prev?.outputs || {})) {
-    if (out?.path) await fs.promises.unlink(out.path).catch(() => {});
-  }
-}
-
-async function readinessFor(syllabusId) {
-  const items = await Suggestion.find({ syllabusId }).select('group status').lean();
-  return computeReadiness(items);
+/** Readiness (docs/api-v5.md §4) з поточного стану, перевірок і кількості відкритих карток. */
+async function buildReadiness(ctx) {
+  const checks = runChecks(ctx.state, ctx.refs);
+  const { total } = await pendingCountsBySection(ctx.syllabus._id);
+  return { readiness: computeReadiness(ctx.state, { refs: ctx.refs, checks, pendingSuggestions: total }), checks };
 }
 
 /** Перераховує знімок readiness у Conversation. */
 async function refreshConversationReadiness(syllabusId) {
-  const readiness = await readinessFor(syllabusId);
+  const ctx = await loadContext(syllabusId, { editable: false });
+  const { readiness } = await buildReadiness(ctx);
   await Conversation.updateOne({ syllabusId }, { $set: { readiness } });
   return readiness;
 }
 
+/**
+ * Прапорець stale: чернетка, збудована від значення, якого вже немає в стані (basisHash ≠ hash поточного).
+ * Картки без basisHash (вибір варіанта) не чіпаємо — їх позначає markStale.
+ */
+async function refreshStale(syllabusId, state) {
+  const pending = await Suggestion.find({ syllabusId, status: 'pending', 'draft.basisHash': { $ne: null } })
+    .select('target draft.basisHash stale').lean();
+  for (const s of pending) {
+    let stale;
+    try {
+      stale = hashValue(getPath(state, s.target.path)) !== s.draft.basisHash;
+    } catch {
+      stale = true;
+    }
+    if (stale && !s.stale) await Suggestion.updateOne({ _id: s._id, status: 'pending' }, { $set: { stale: true } });
+  }
+}
+
+// 'outcomes[]' перекриває 'outcomes[lo1].text', 'assessments[as1]' — 'assessments[as1].criteria'
+const baseOf = (p) => p.replace(/(\[\]|\{\})$/, '');
+const isPrefix = (prefix, path) => path === prefix || (path.startsWith(prefix) && '.[{'.includes(path[prefix.length]));
+const overlaps = (a, b) => isPrefix(baseOf(a), b) || isPrefix(baseOf(b), a);
+
+/** Інші pending-картки на той самий (або вкладений/батьківський) шлях стають застарілими. */
+async function markStale(syllabusId, paths, exceptId = null) {
+  const pending = await Suggestion.find({ syllabusId, status: 'pending' }).select('target').lean();
+  const ids = pending
+    .filter((s) => String(s._id) !== String(exceptId) && s.target?.path && paths.some((p) => overlaps(p, s.target.path)))
+    .map((s) => s._id);
+  if (ids.length) await Suggestion.updateMany({ _id: { $in: ids }, status: 'pending' }, { $set: { stale: true } });
+}
+
 module.exports = {
-  SEVERITY_LABELS,
-  GROUP_LABELS,
-  REJECT_TAG_LABELS,
+  REJECT_TAGS,
+  BLOCKING_SEVERITIES,
   requiresReason,
   loadSyllabus,
-  isLegacy,
-  legacyError,
-  docOf,
+  loadContext,
+  isV4,
+  needsRebuildError,
   assertEditable,
-  optionOf,
-  opsOf,
-  toDocSuggestion,
-  loadAccepted,
-  loadAcceptedDocs,
-  acceptedHash,
-  invalidateOutputs,
-  readinessFor,
+  pendingCountsBySection,
+  buildReadiness,
   refreshConversationReadiness,
+  refreshStale,
+  markStale,
 };

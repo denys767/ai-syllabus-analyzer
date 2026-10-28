@@ -13,10 +13,9 @@ const messageSchema = new mongoose.Schema({
   },
   // suggestion: картка пропозиції; вміст формується на льоту з Suggestion за relatedSuggestionId
   // v5: question { slotKey, question, why }, approve-all { sections }, policy-choice { policyKey } — у payload
-  // submission-cta — v4, прибирається міграцією v5
   kind: {
     type: String,
-    enum: ['text', 'suggestion', 'question', 'approve-all', 'policy-choice', 'submission-cta'],
+    enum: ['text', 'suggestion', 'question', 'approve-all', 'policy-choice'],
     default: 'text',
   },
   content: { type: String, default: '' },

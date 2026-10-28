@@ -1,30 +1,30 @@
-// Фасад сервісів чату (services/chat/*), outputs і submit — для маршрутів і тестів.
+// Фасад сервісів чату (services/chat/*) і виходу — для маршрутів і тестів.
 
 const view = require('./chat/view');
 const flow = require('./chat/flow');
 const decisions = require('./chat/decisions');
+const sections = require('./chat/sections');
+const policies = require('./chat/policies');
 const { freeChatMessage } = require('./chat/freeChat');
-const { computeReadiness } = require('./chat/readiness');
-const { getOutputFile, ensureOutputs } = require('./outputs');
-const { submitSyllabus, generateSubmissionReport } = require('./submission');
+const { getOutputFile } = require('./outputs');
 
 module.exports = {
   getConversationView: view.getConversationView,
-  previewSuggestion: view.previewSuggestion,
-  documentPreview: view.documentPreview,
-  suggestionSlides: require('./chat/slides').suggestionSlides,
+  documentView: view.documentView,
   getOrCreateConversation: flow.getOrCreateConversation,
   startConversation: flow.startConversation,
-  postNextCard: flow.postNextCard,
+  skipSlot: flow.skipSlot,
+  postNextStep: flow.postNextStep,
   acceptSuggestion: decisions.acceptSuggestion,
+  updateValues: decisions.updateValues,
   rejectSuggestion: decisions.rejectSuggestion,
   reopenSuggestion: decisions.reopenSuggestion,
   refineSuggestion: decisions.refineSuggestion,
   answerSuggestion: decisions.answerSuggestion,
+  approveSection: sections.approveSection,
+  unapproveSection: sections.unapproveSection,
+  approveAllSections: sections.approveAll,
+  choosePolicy: policies.choosePolicy,
   freeChatMessage,
-  computeReadiness,
   getOutputFile,
-  ensureOutputs,
-  submitSyllabus,
-  generateSubmissionReport,
 };

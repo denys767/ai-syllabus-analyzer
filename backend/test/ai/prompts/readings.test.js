@@ -47,7 +47,11 @@ test('пропонується лише знайдене з перевірени
   expect(JSON.stringify(input)).not.toContain('Invented Case');
 
   const card = buildDraftSuggestion({ origin: 'orchestrator', ...input }, { syllabusId: 's1', state, refs, known: [] });
-  expect(card.draft.proposedValues).toEqual([expect.objectContaining({ value: 'Pepsico Ukraine: Managing Risk in War', confirmed: false })]);
+  // Сканер перевіряє також цитати всередині масиву, тому рік теж потребує підтвердження.
+  expect(card.draft.proposedValues).toEqual([
+    expect.objectContaining({ value: 'Pepsico Ukraine: Managing Risk in War', confirmed: false }),
+    expect.objectContaining({ value: '2023', confirmed: false }),
+  ]);
   expect(card.sources).toHaveLength(1);
 });
 

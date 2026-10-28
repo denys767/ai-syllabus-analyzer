@@ -34,6 +34,7 @@ const proposedValueSchema = new mongoose.Schema({
 
 const draftSchema = new mongoose.Schema({
   value: { type: mongoose.Schema.Types.Mixed, default: null },
+  source: { type: String, enum: ['ai_draft', 'instructor_directed'], default: 'ai_draft' },
   // Текст із плейсхолдерами {{id}} для proposedValues («Change the value» без LLM)
   template: { type: String, default: null },
   proposedValues: { type: [proposedValueSchema], default: [] },
@@ -70,6 +71,7 @@ const historySchema = new mongoose.Schema({
 }, { _id: false });
 
 const versionSchema = new mongoose.Schema({
+  action: { type: String, enum: ['values', 'refined', 'answered'] },
   kind: String,
   title: String,
   description: String,
@@ -114,6 +116,8 @@ const suggestionSchema = new mongoose.Schema({
   selectedOptionId: { type: String, default: null },
   // Порядок застосування прийнятих пропозицій (merge іде в порядку прийняття)
   acceptedAt: Date,
+  // Ревізія, яку записало останнє Confirm; null означає прийняття без зміни стану.
+  acceptedRevision: { type: Number, default: null },
   supersedes: { type: [mongoose.Schema.Types.ObjectId], default: [] },
   decisionReason: String,
   rejectTag: { type: String, enum: [...REJECT_TAGS, null], default: null },
